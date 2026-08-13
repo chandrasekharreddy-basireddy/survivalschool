@@ -23,6 +23,9 @@ build/
 *.pem
 *.key
 
+# Redis dump (created by local `redis-server` runs during dev/testing)
+dump.rdb
+
 # OS
 .DS_Store
 

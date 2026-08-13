@@ -1,0 +1,6 @@
+Hi {{ full_name }},
+
+Confirm your email address to activate your {{ app_name }} account:
+{{ verify_url }}
+
+This link expires in {{ ttl_hours }} hours and can only be used once.

@@ -1,0 +1,64 @@
+# Default-deny plus explicit allows, scoped to the survivalschool namespace.
+# Tighten further (e.g. restrict egress to specific external CIDRs for
+# Sarvam/n8n/SMTP) once your cluster's egress gateway story is decided.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: survivalschool
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-backend
+  namespace: survivalschool
+spec:
+  podSelector:
+    matchLabels:
+      app: backend
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector: {} # from ingress-nginx controller / any in-cluster caller; scope down if the controller runs in a dedicated namespace with a matching label
+      ports:
+        - port: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-frontend
+  namespace: survivalschool
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-worker-to-datastores
+  namespace: survivalschool
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["postgres", "redis"]
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+        - podSelector:
+            matchLabels:
+              app: worker

@@ -1,0 +1,43 @@
+# Background jobs (streak/inactivity sweeps, notification dispatch — see
+# backend/app/workers/worker.py). Single replica: the worker's jobs are periodic
+# sweeps, not a work queue, so concurrent replicas would duplicate work rather
+# than parallelize it unless/until the worker gains a leader-election or
+# queue-based design.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  namespace: survivalschool
+  labels:
+    app: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      labels:
+        app: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: worker
+          image: ghcr.io/REPLACE_ME_ORG/survivalschool-worker:latest
+          envFrom:
+            - configMapRef:
+                name: survivalschool-config
+            - secretRef:
+                name: survivalschool-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

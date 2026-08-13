@@ -1,0 +1,42 @@
+# Assumes an ingress-nginx controller and cert-manager ClusterIssuer named
+# "letsencrypt-prod" are already installed on the cluster — neither is created
+# by this manifest set. Swap the ingressClassName / annotations for your
+# actual controller if different (ALB, Traefik, GKE Ingress, etc).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: survivalschool
+  namespace: survivalschool
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600" # WebSocket chat needs long-lived connections
+    nginx.ingress.kubernetes.io/websocket-services: "backend"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.survivalschool.example
+        - app.survivalschool.example
+      secretName: survivalschool-tls
+  rules:
+    - host: api.survivalschool.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: backend
+                port:
+                  number: 8000
+    - host: app.survivalschool.example
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000

@@ -1,0 +1,10 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">Result: {{ assessment_title }}</h1>
+<p>Hi {{ full_name }}, here's how you did:</p>
+<p style="font-size:32px;font-weight:700;color:{{ '#22c55e' if passed else '#f87171' }};margin:16px 0;">{{ score_percent }}%</p>
+<p>{{ "You passed." if passed else "You didn't reach the passing score this time — you can review the material and try again." }}</p>
+<p style="margin:28px 0;">
+  <a href="{{ result_url }}" style="background:#5b5bff;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block;">View full results</a>
+</p>
+{% endblock %}

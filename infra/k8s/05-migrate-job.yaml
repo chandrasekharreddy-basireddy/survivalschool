@@ -1,0 +1,26 @@
+# Run once per deploy, BEFORE rolling the backend/worker Deployments, e.g.:
+#   kubectl apply -f infra/k8s/05-migrate-job.yaml
+#   kubectl wait --for=condition=complete job/survivalschool-migrate -n survivalschool --timeout=120s
+#   kubectl delete job/survivalschool-migrate -n survivalschool   # Jobs aren't auto-replaced by re-apply
+#   kubectl rollout restart deployment/backend deployment/worker -n survivalschool
+# A Helm chart would express this as a pre-install/pre-upgrade hook instead;
+# this raw-manifest set keeps it explicit so the ordering is never accidental.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: survivalschool-migrate
+  namespace: survivalschool
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: ghcr.io/REPLACE_ME_ORG/survivalschool-backend:latest
+          command: ["sh", "-c", "alembic upgrade head"]
+          envFrom:
+            - configMapRef:
+                name: survivalschool-config
+            - secretRef:
+                name: survivalschool-secrets

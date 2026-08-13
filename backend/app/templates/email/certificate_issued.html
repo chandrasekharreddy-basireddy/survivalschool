@@ -1,0 +1,9 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">Certificate earned 🎓</h1>
+<p>Hi {{ full_name }}, congratulations on completing <strong>{{ course_title }}</strong>. Your certificate is ready.</p>
+<p style="margin:28px 0;">
+  <a href="{{ certificate_url }}" style="background:#5b5bff;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block;">View certificate</a>
+</p>
+<p style="color:#9ca3af;font-size:13px;">Certificate ID: {{ certificate_number }} — anyone can verify it at {{ verify_url }}</p>
+{% endblock %}

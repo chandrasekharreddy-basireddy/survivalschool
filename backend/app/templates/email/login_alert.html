@@ -1,0 +1,6 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">New sign-in to your account</h1>
+<p>Hi {{ full_name }}, we noticed a new sign-in{% if device_label %} from <strong>{{ device_label }}</strong>{% endif %}{% if ip_address %} ({{ ip_address }}){% endif %}.</p>
+<p>If this was you, no action is needed. If you don't recognize this activity, reset your password immediately and sign out of all sessions from your account settings.</p>
+{% endblock %}

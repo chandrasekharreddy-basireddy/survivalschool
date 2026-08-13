@@ -1,0 +1,9 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">Verify your email</h1>
+<p>Hi {{ full_name }}, welcome to {{ app_name }}. Confirm your email address to activate your account.</p>
+<p style="margin:28px 0;">
+  <a href="{{ verify_url }}" style="background:#5b5bff;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block;">Verify email address</a>
+</p>
+<p style="color:#9ca3af;font-size:13px;">This link expires in {{ ttl_hours }} hours and can only be used once. If the button doesn't work, copy this link:<br>{{ verify_url }}</p>
+{% endblock %}

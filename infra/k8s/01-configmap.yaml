@@ -1,0 +1,62 @@
+# Non-secret configuration. Mirrors backend/.env.example — keep in sync.
+# Secrets (passwords, JWT keys, API keys) live in 02-secret.yaml.example, NOT here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: survivalschool-config
+  namespace: survivalschool
+data:
+  APP_ENV: "production"
+  APP_NAME: "Survival School"
+  DEBUG: "false"
+  API_V1_PREFIX: "/api/v1"
+
+  # DATABASE_URL / DATABASE_URL_SYNC are NOT here: kubelet's $(VAR) expansion only
+  # applies to env[].value and command/args, never to values pulled in via
+  # envFrom/configMapKeyRef — a $(POSTGRES_PASSWORD) placeholder in a ConfigMap
+  # would be injected as the literal string, not substituted. Since these URLs
+  # embed the DB password anyway, they belong in the Secret (02-secret.yaml.example)
+  # fully rendered, not reconstructed from parts at runtime.
+  REDIS_URL: "redis://redis:6379/0"
+
+  ACCESS_TOKEN_TTL_MINUTES: "15"
+  REFRESH_TOKEN_TTL_DAYS: "30"
+
+  CORS_ORIGINS: "https://app.survivalschool.example"
+  FRONTEND_URL: "https://app.survivalschool.example"
+
+  EMAIL_BACKEND: "smtp"
+  SMTP_PORT: "587"
+  EMAIL_FROM: "Survival School <no-reply@survivalschool.example>"
+
+  AI_PROVIDER: "sarvam"
+  SARVAM_BASE_URL: "https://api.sarvam.ai"
+  SARVAM_CHAT_MODEL: "sarvam-m"
+  AI_DAILY_MESSAGE_LIMIT: "100"
+
+  N8N_WEBHOOK_BASE_URL: "https://vishalreddy18.app.n8n.cloud"
+
+  STORAGE_BACKEND: "local"
+  STORAGE_LOCAL_PATH: "/data/uploads"
+
+  LOG_LEVEL: "INFO"
+  SERVICE_VERSION: "0.1.0"
+
+  # Field names must match app/config.py Settings exactly — unknown keys are
+  # silently ignored (extra="ignore"), so a typo here fails silently, not loudly.
+  RATE_LIMIT_REGISTER_PER_HOUR: "5"
+  RATE_LIMIT_LOGIN_PER_5MIN: "10"
+  RATE_LIMIT_RESEND_VERIFY_PER_HOUR: "3"
+  RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR: "3"
+  RATE_LIMIT_EXAM_START_PER_HOUR: "10"
+---
+# Frontend build-time API base URLs (baked into the Next.js image at build,
+# repeated here as a ConfigMap only for documentation / runtime reference use).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: survivalschool-frontend-config
+  namespace: survivalschool
+data:
+  NEXT_PUBLIC_API_BASE_URL: "https://api.survivalschool.example/api/v1"
+  NEXT_PUBLIC_WS_BASE_URL: "wss://api.survivalschool.example"

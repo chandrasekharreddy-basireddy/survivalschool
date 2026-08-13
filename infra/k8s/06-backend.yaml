@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: survivalschool
+  labels:
+    app: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: backend
+          image: ghcr.io/REPLACE_ME_ORG/survivalschool-backend:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: survivalschool-config
+            - secretRef:
+                name: survivalschool-secrets
+          readinessProbe:
+            httpGet:
+              path: /api/v1/ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /api/v1/live
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+          volumeMounts:
+            - name: uploads
+              mountPath: /data/uploads
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # app writes to /data/uploads only; see Dockerfile
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: survivalschool-uploads
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: survivalschool-uploads
+  namespace: survivalschool
+spec:
+  accessModes: ["ReadWriteOnce"] # switch to ReadWriteMany (e.g. EFS/Filestore) if backend replicas > 1 and STORAGE_BACKEND=local
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: survivalschool
+spec:
+  selector:
+    app: backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: backend
+  namespace: survivalschool
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: backend
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: backend
+  namespace: survivalschool
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: backend

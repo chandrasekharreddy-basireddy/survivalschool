@@ -1,0 +1,8 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">We saved your spot, {{ full_name }}</h1>
+<p>You were making good progress in {{ course_title }} — {{ percent_complete }}% complete. Pick up right where you left off.</p>
+<p style="margin:28px 0;">
+  <a href="{{ resume_url }}" style="background:#5b5bff;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block;">Resume learning</a>
+</p>
+{% endblock %}

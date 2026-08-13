@@ -1,0 +1,8 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">You're enrolled in {{ course_title }}</h1>
+<p>Hi {{ full_name }}, you're all set. Jump in whenever you're ready.</p>
+<p style="margin:28px 0;">
+  <a href="{{ course_url }}" style="background:#5b5bff;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block;">Start learning</a>
+</p>
+{% endblock %}

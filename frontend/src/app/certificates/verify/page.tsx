@@ -52,7 +52,7 @@ export default function VerifyCertificatePage() {
         <div className={`card mt-8 ${result.valid ? "border-emerald-500/40" : "border-red-500/40"}`}>
           {result.valid ? (
             <>
-              <p className="text-sm font-semibold text-emerald-400">✓ Valid certificate</p>
+              <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">✓ Valid certificate</p>
               <dl className="mt-4 space-y-2 text-sm">
                 <div className="flex justify-between"><dt className="text-fg-subtle">Certificate ID</dt><dd className="text-fg">{result.certificate_number}</dd></div>
                 <div className="flex justify-between"><dt className="text-fg-subtle">Course</dt><dd className="text-fg">{result.course_title}</dd></div>
@@ -65,7 +65,7 @@ export default function VerifyCertificatePage() {
               </Link>
             </>
           ) : (
-            <p className="text-sm font-semibold text-red-400">
+            <p className="text-sm font-semibold text-red-700 dark:text-red-400">
               ✗ {result.invalid_reason === "revoked" ? "This certificate has been revoked" : result.invalid_reason === "expired" ? "This certificate has expired" : "No matching certificate found"}
             </p>
           )}

@@ -105,7 +105,7 @@ export default function CreateCoursePage() {
           <p className="mt-1 text-xs text-fg-subtle">These appear on certificates students earn for this course.</p>
         </div>
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-red-700 dark:text-red-400">{error}</p>}
 
         <button type="submit" disabled={saving} className="btn-primary w-full">
           {saving ? "Creating…" : "Create course"}

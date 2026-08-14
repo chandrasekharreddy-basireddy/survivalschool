@@ -15,6 +15,42 @@ but the live network call has not been exercised from this sandbox.
 credential) prevents doing more right now. **GAP** = a known limitation,
 documented rather than hidden.
 
+## Sixth pass (v1.0.0): performance, security, reliability, accessibility, PWA, push, engagement — TESTED
+
+The hardening pass that brought this from "features work" to "1.0.0" (see
+`CHANGELOG.md` for the release entry). Each item has a dedicated doc with
+the actual evidence — this is a summary, not the source of truth.
+
+- **Performance** — Redis caching + DB index migration + a real load test
+  (~4.4x throughput improvement measured, not estimated). `docs/PERFORMANCE.md`.
+- **Security** — TOTP 2FA, GDPR export/delete, scheduled dependency
+  scanning + Dependabot. `docs/SECURITY.md`.
+- **Reliability** — a rigorous backup-restore drill (byte-identical rows,
+  migration match, real app boot against the restored DB) and inert-by-
+  default Sentry error tracking. `docs/DATABASE.md`, `docs/OBSERVABILITY.md`.
+- **Accessibility** — a real Chromium + axe-core WCAG 2.1 AA audit, both
+  themes, 22 routes: 8 violations found and fixed. `docs/ACCESSIBILITY.md`.
+- **Mobile/PWA** — a real, build-generated Serwist service worker: offline
+  app-shell caching, a real offline fallback page. `docs/PWA.md`.
+- **Web Push** — real RFC 8030/8292 push notifications via a self-generated
+  VAPID keypair, no third-party push provider account.
+  `docs/PUSH_NOTIFICATIONS.md`.
+- **Engagement** — a daily challenge (real question bank, shared per-day
+  singleton) wired into the existing streak system, dashboard widget,
+  dedicated page, history view. `docs/ENGAGEMENT.md`.
+- **Multi-agent peer review** — four independent review agents audited this
+  pass's own new code (backend security/correctness, frontend
+  correctness/accessibility, docs-vs-code fabrication check, migration/test-
+  coverage consistency) and found and fixed one **critical** bug (GDPR
+  account deletion silently failing for any user with a saved profile) plus
+  several medium/low issues, entirely before this pass shipped rather than
+  discovered afterward. `docs/PEER_REVIEW.md`.
+
+The "Audit P2 items" line in the summary table below (from an earlier pass)
+listed full PWA and an accessibility audit as deliberately deferred — both
+are now actually implemented and tested; that line is superseded by the
+items above.
+
 ## Fifth pass: 5 new subsystems — TESTED
 
 Five more subsystems, backend + frontend, verified the same way as every
@@ -603,4 +639,15 @@ git push -u origin main
 | HTTPS enforcement (app layer) | FIXED (third-pass audit resolution) |
 | Prometheus metrics | ADDED — network-layer auth required, not app-layer (third-pass audit resolution) |
 | Verified, restorable database backups | ADDED + TESTED (real pg_dump → restore → row-count match) |
-| Audit P2 items (mobile app, i18n, A/B testing, feature flags, full PWA, accessibility audit) | DEFERRED BY DESIGN — out of scope for "deployment ready," not an oversight |
+| Audit P2 items — mobile app, i18n, A/B testing, feature flags | still DEFERRED BY DESIGN (out of current scope) |
+| Full PWA (offline app shell + service worker) | TESTED (sixth pass) — see `docs/PWA.md`; supersedes the "deferred" note from an earlier pass |
+| Accessibility audit (WCAG 2.1 AA) | TESTED (sixth pass) — see `docs/ACCESSIBILITY.md`; supersedes the "deferred" note from an earlier pass |
+| Real load test with measured numbers | TESTED (sixth pass) — see `docs/PERFORMANCE.md` |
+| TOTP 2FA | TESTED (sixth pass) — see `docs/SECURITY.md` |
+| GDPR export + account deletion | TESTED (sixth pass); one critical bug found + fixed by peer review before release — see `docs/PEER_REVIEW.md` |
+| Continuous dependency scanning + Dependabot | TESTED (sixth pass) — see `docs/CI_CD.md` |
+| Backup-restore drill (rigorous) | TESTED (sixth pass) — see `docs/DATABASE.md` |
+| Sentry error tracking | TESTED, inert by default (sixth pass) — see `docs/OBSERVABILITY.md` |
+| Real Web Push notifications (VAPID, no 3rd-party account) | TESTED (sixth pass) — see `docs/PUSH_NOTIFICATIONS.md` |
+| Daily streaks + daily challenge | TESTED (sixth pass) — see `docs/ENGAGEMENT.md` |
+| Multi-agent peer review of the sixth pass itself | DONE — see `docs/PEER_REVIEW.md` |

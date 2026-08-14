@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.models.social import Notification, NotificationPreference
 from app.models.user import User
 from app.services.email_service import send_email
+from app.services.push_service import send_to_user
 
 settings = get_settings()
 
@@ -63,6 +64,16 @@ async def create_notification(
     elif category == "security" and email_template:
         # security emails bypass email_enabled too
         await send_email(user.email, title, email_template, full_name=user.full_name, **(email_context or {}))
+
+    push_allowed = category == "security" or (allowed and prefs.push_enabled)
+    if push_allowed:
+        # Real Web Push delivery (see push_service.py) — silently a no-op if
+        # the user has no active subscriptions or VAPID isn't configured.
+        # Never allowed to fail the request that triggered the notification.
+        try:
+            await send_to_user(db, user_id=user.id, title=title, body=body or title, url=link_url)
+        except Exception:  # pragma: no cover - defensive, push_service already catches per-subscription errors
+            pass
 
     return notification
 

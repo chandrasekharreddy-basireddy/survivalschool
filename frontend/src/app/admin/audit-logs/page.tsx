@@ -80,7 +80,7 @@ export default function AuditLogsPage() {
                 <td className="px-4 py-3 text-fg-muted">{l.resource_type}{l.resource_id ? ` #${l.resource_id.slice(0, 8)}` : ""}</td>
                 <td className="px-4 py-3 text-fg-subtle">{l.actor_id ? l.actor_id.slice(0, 8) : "system"}</td>
                 <td className="px-4 py-3">
-                  <span className={l.result === "success" ? "text-emerald-400" : "text-red-400"}>{l.result}</span>
+                  <span className={l.result === "success" ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}>{l.result}</span>
                 </td>
               </tr>
             ))}

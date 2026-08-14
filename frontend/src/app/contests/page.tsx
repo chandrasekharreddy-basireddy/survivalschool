@@ -22,8 +22,8 @@ interface Contest {
 
 const STATUS_LABEL: Record<string, string> = { scheduled: "Upcoming", open: "Open now", closed: "Finished" };
 const STATUS_STYLE: Record<string, string> = {
-  scheduled: "border-brand-500/40 text-brand-400",
-  open: "border-emerald-500/40 text-emerald-400",
+  scheduled: "border-brand-500/40 text-brand-600 dark:text-brand-400",
+  open: "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
   closed: "border-ink-700 text-fg-subtle",
 };
 
@@ -47,7 +47,7 @@ export default function ContestsPage() {
 
       {next && (
         <div className="card mt-6 border-brand-500/40 bg-brand-500/5">
-          <p className="text-xs uppercase tracking-widest text-brand-400">Next up</p>
+          <p className="text-xs uppercase tracking-widest text-brand-600 dark:text-brand-400">Next up</p>
           <h2 className="mt-1 text-lg font-semibold text-fg">{next.title}</h2>
           <p className="mt-1 text-sm text-fg-muted">{next.description}</p>
           <div className="mt-4 flex flex-wrap items-center gap-4">

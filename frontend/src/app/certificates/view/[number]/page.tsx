@@ -38,7 +38,7 @@ export default function CertificateViewPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-lg px-6 py-24 text-center">
-        <p className="text-red-400">{error}</p>
+        <p className="text-red-700 dark:text-red-400">{error}</p>
       </div>
     );
   }
@@ -88,7 +88,7 @@ export default function CertificateViewPage() {
         everywhere else on this page.
       */}
       <div className="relative overflow-hidden rounded-xl2 border-2 border-amber-400/60 bg-gradient-to-br from-[#0b0f19] via-[#1e1b4b] to-[#0b0f19] p-10 shadow-2xl print:rounded-none print:border-2 print:border-amber-500 sm:p-14">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-400">
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-700 dark:text-amber-400">
           Survival School &mdash; Certificate of Completion
         </p>
         <h1 className="mt-3 text-3xl font-bold text-white sm:text-4xl">{cert.course_title}</h1>
@@ -143,7 +143,7 @@ export default function CertificateViewPage() {
 
       <p className="mt-4 text-center text-xs text-fg-subtle print:hidden">
         Anyone can independently verify this certificate at{" "}
-        <Link href="/certificates/verify" className="text-brand-400 hover:underline">/certificates/verify</Link>.
+        <Link href="/certificates/verify" className="text-brand-600 underline dark:text-brand-400">/certificates/verify</Link>.
       </p>
 
       <style jsx global>{`

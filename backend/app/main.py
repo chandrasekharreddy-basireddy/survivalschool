@@ -15,6 +15,27 @@ from app.websockets.chat import router as ws_chat_router
 
 settings = get_settings()
 
+# Error tracking (Sentry) — deliberately inert unless a real SENTRY_DSN is
+# configured. No fake/placeholder DSN was fabricated for this build; this
+# guard is what makes that honest rather than a silent no-op disguised as a
+# working integration. See docs/OBSERVABILITY.md.
+if settings.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.starlette import StarletteIntegration
+
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.APP_ENV,
+        release=settings.SERVICE_VERSION,
+        traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+        integrations=[StarletteIntegration(), FastApiIntegration()],
+        # Request bodies can contain passwords/tokens on auth endpoints —
+        # never send them to a third party by default.
+        send_default_pii=False,
+        max_request_body_size="never",
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

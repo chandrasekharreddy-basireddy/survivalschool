@@ -65,7 +65,7 @@ export default function TimetablePage() {
       <CheckInBox />
       <AttendanceSummary />
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
       {entries !== null && entries.length === 0 && (
         <div className="card mt-8 text-center text-sm text-fg-muted">
@@ -188,7 +188,7 @@ function AttendanceSummary() {
         {summary.map((s) => (
           <div key={s.course_id} className="card !p-3 flex items-center justify-between text-sm">
             <span className="text-fg-muted">{s.course_title}</span>
-            <span className={`font-semibold ${s.attendance_percent >= 75 ? "text-emerald-400" : "text-amber-400"}`}>
+            <span className={`font-semibold ${s.attendance_percent >= 75 ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
               {s.attendance_percent}% ({s.present_count}/{s.total_sessions})
             </span>
           </div>

@@ -8,13 +8,17 @@ export interface CurrentUser {
   email: string;
   full_name: string;
   is_email_verified: boolean;
+  totp_enabled: boolean;
   roles: string[];
 }
+
+export type LoginResult = { mfaRequired: false } | { mfaRequired: true; mfaToken: string };
 
 interface AuthContextValue {
   user: CurrentUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<LoginResult>;
+  verifyMfa: (mfaToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -38,11 +42,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshUser().finally(() => setLoading(false));
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const tokens = await apiFetch<{ access_token: string; refresh_token: string }>("/auth/login", {
+  const login = async (email: string, password: string): Promise<LoginResult> => {
+    // POST /auth/login returns either a normal token pair, or — if the
+    // account has TOTP 2FA enabled — an MFA challenge (mfa_required: true,
+    // mfa_token) instead. Password was already correct at that point; the
+    // caller needs to collect a 6-digit code and call verifyMfa() next.
+    const res = await apiFetch<{
+      access_token?: string; refresh_token?: string; mfa_required?: boolean; mfa_token?: string;
+    }>("/auth/login", { method: "POST", auth: false, body: JSON.stringify({ email, password }) });
+
+    if (res.mfa_required && res.mfa_token) {
+      return { mfaRequired: true, mfaToken: res.mfa_token };
+    }
+    storeTokens(res.access_token!, res.refresh_token!);
+    await refreshUser();
+    return { mfaRequired: false };
+  };
+
+  const verifyMfa = async (mfaToken: string, code: string) => {
+    const tokens = await apiFetch<{ access_token: string; refresh_token: string }>("/auth/2fa/verify-login", {
       method: "POST",
       auth: false,
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ mfa_token: mfaToken, code }),
     });
     storeTokens(tokens.access_token, tokens.refresh_token);
     await refreshUser();
@@ -60,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, verifyMfa, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

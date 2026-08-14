@@ -65,14 +65,14 @@ export default function RegisterPage() {
           <input id="password" type="password" required minLength={10} className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
           <p className="mt-1 text-xs text-fg-subtle">At least 10 characters, with uppercase, lowercase, a digit, and a symbol.</p>
         </div>
-        {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
         <button type="submit" disabled={submitting} className="btn-primary w-full">
           {submitting ? "Creating account…" : "Create account"}
         </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-fg-muted">
-        Already have an account? <Link href="/login" className="text-brand-400 hover:underline">Sign in</Link>
+        Already have an account? <Link href="/login" className="text-brand-600 underline dark:text-brand-400">Sign in</Link>
       </p>
     </div>
   );

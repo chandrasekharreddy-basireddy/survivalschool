@@ -279,10 +279,10 @@ export default function InstructorTimetablePage() {
             {attendance[e.id] && (
               <div className="mt-3 rounded-lg border border-brand-500/40 bg-brand-500/5 p-3">
                 <p className="text-xs text-fg-subtle">Check-in code (valid 15 minutes) — share it aloud or on screen:</p>
-                <p className="mt-1 font-mono text-2xl font-bold tracking-widest text-brand-400">{attendance[e.id].code}</p>
+                <p className="mt-1 font-mono text-2xl font-bold tracking-widest text-brand-600 dark:text-brand-400">{attendance[e.id].code}</p>
                 <div className="mt-2 flex items-center justify-between">
                   <p className="text-xs text-fg-subtle">{(roster[e.id] || []).length} checked in</p>
-                  <button onClick={() => refreshRoster(e.id)} className="text-xs text-brand-400 hover:underline">Refresh roster</button>
+                  <button onClick={() => refreshRoster(e.id)} className="text-xs text-brand-600 dark:text-brand-400 hover:underline">Refresh roster</button>
                 </div>
                 {(roster[e.id] || []).length > 0 && (
                   <ul className="mt-2 space-y-1.5">

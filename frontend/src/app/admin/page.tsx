@@ -59,9 +59,9 @@ export default function AdminDashboardPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-fg">Admin console</h1>
         <div className="flex gap-4 text-sm">
-          <Link href="/admin/users" className="text-brand-400 hover:underline">Users</Link>
-          <Link href="/admin/audit-logs" className="text-brand-400 hover:underline">Audit logs</Link>
-          <Link href="/admin/certificates" className="text-brand-400 hover:underline">Certificates</Link>
+          <Link href="/admin/users" className="text-brand-600 dark:text-brand-400 hover:underline">Users</Link>
+          <Link href="/admin/audit-logs" className="text-brand-600 dark:text-brand-400 hover:underline">Audit logs</Link>
+          <Link href="/admin/certificates" className="text-brand-600 dark:text-brand-400 hover:underline">Certificates</Link>
         </div>
       </div>
 
@@ -72,7 +72,7 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
       {stats && (
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {TILES.map((t) => (

@@ -153,7 +153,7 @@ function CreateQuizForm() {
                 <option value="true_false">True / False</option>
               </select>
               {questions.length > 1 && (
-                <button onClick={() => setQuestions((prev) => prev.filter((_, i) => i !== qIdx))} className="text-sm text-red-400 hover:underline">Remove</button>
+                <button onClick={() => setQuestions((prev) => prev.filter((_, i) => i !== qIdx))} className="text-sm text-red-700 dark:text-red-400 hover:underline">Remove</button>
               )}
             </div>
 
@@ -182,7 +182,7 @@ function CreateQuizForm() {
               {q.question_type !== "true_false" && (
                 <button
                   onClick={() => updateQuestion(qIdx, { options: [...q.options, { text: "", is_correct: false }] })}
-                  className="text-xs text-brand-400 hover:underline"
+                  className="text-xs text-brand-600 dark:text-brand-400 hover:underline"
                 >
                   + Add option
                 </button>
@@ -194,7 +194,7 @@ function CreateQuizForm() {
 
       <button onClick={() => setQuestions((prev) => [...prev, emptyQuestion()])} className="btn-secondary mt-4">+ Add question</button>
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
       <button onClick={submit} disabled={saving || !isValid} className="btn-primary mt-6 w-full">
         {saving ? "Creating…" : "Create & publish quiz"}

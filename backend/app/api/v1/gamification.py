@@ -11,8 +11,15 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.gamification import Achievement, Badge, PointsLedger, Streak
 from app.models.user import User
+from app.services.cache_service import cache_get_versioned, cache_set_versioned
 
 router = APIRouter(prefix="/gamification", tags=["gamification"])
+
+# award_points() bumps this namespace's version on every point award (quiz
+# pass, exam pass, contest finish/top-3, lesson/course complete, badges) —
+# see gamification_service.py — so this stays correct the moment anyone's
+# score changes, not just after the TTL expires.
+_LEADERBOARD_TTL = 15
 
 
 class MyStatsOut(BaseModel):
@@ -48,6 +55,11 @@ async def my_gamification_stats(user: User = Depends(get_current_user), db: Asyn
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
 async def leaderboard(limit: int = Query(20, le=100), offset: int = Query(0, ge=0), db: AsyncSession = Depends(get_db)):
+    cache_key = f"limit={limit}:offset={offset}"
+    cached = await cache_get_versioned("gamification_leaderboard", cache_key)
+    if cached is not None:
+        return cached
+
     # Single query joining User in — avoids the N+1 (one db.get(User, ...) per
     # row) the production audit flagged here.
     result = await db.execute(
@@ -59,7 +71,9 @@ async def leaderboard(limit: int = Query(20, le=100), offset: int = Query(0, ge=
         .offset(offset)
     )
     rows = result.all()
-    return [
+    out = [
         LeaderboardEntry(rank=offset + i, student_id=student_id, full_name=full_name, total_points=int(total))
         for i, (student_id, full_name, total) in enumerate(rows, start=1)
     ]
+    await cache_set_versioned("gamification_leaderboard", cache_key, [o.model_dump(mode="json") for o in out], _LEADERBOARD_TTL)
+    return out

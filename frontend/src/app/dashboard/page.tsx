@@ -8,18 +8,28 @@ import { apiFetch } from "@/lib/api";
 interface Enrollment { id: string; course_id: string; status: string; percent_complete: number }
 interface GamificationStats { total_points: number; current_streak_days: number; longest_streak_days: number; badges: { code: string; name: string; icon: string }[] }
 interface Notification { id: string; title: string; body: string; category: string; read_at: string | null; created_at: string }
+interface DailyChallengeSummary { already_attempted: boolean; my_attempt: { is_correct: boolean; points_awarded: number } | null; current_streak_days: number }
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
   const [enrollments, setEnrollments] = useState<Enrollment[] | null>(null);
   const [stats, setStats] = useState<GamificationStats | null>(null);
   const [notifications, setNotifications] = useState<Notification[] | null>(null);
+  const [challenge, setChallenge] = useState<DailyChallengeSummary | null>(null);
+  // Distinct from "still loading" (challenge === null) — /daily-challenge/today
+  // requires a verified email, so an unverified user's fetch legitimately
+  // 403s here; without this the widget got stuck on "Loading…" forever
+  // since a caught error and "hasn't resolved yet" were indistinguishable.
+  const [challengeUnavailable, setChallengeUnavailable] = useState(false);
 
   useEffect(() => {
     if (!user) return;
     apiFetch<Enrollment[]>("/courses/me/enrollments").then(setEnrollments).catch(() => setEnrollments([]));
     apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => setStats(null));
     apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotifications([]));
+    apiFetch<DailyChallengeSummary>("/daily-challenge/today")
+      .then(setChallenge)
+      .catch(() => setChallengeUnavailable(true));
   }, [user]);
 
   if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">Loading…</div>;
@@ -49,13 +59,13 @@ export default function DashboardPage() {
           <div className="card">
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-fg">Continue learning</h2>
-              <Link href="/courses" className="text-sm text-brand-400 hover:underline">Browse courses</Link>
+              <Link href="/courses" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">Browse courses</Link>
             </div>
             {enrollments === null ? (
               <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
             ) : activeCourses.length === 0 ? (
               <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
-                No active courses yet. <Link href="/courses" className="text-brand-400 hover:underline">Enroll in your first course</Link> to get started.
+                No active courses yet. <Link href="/courses" className="text-brand-600 underline dark:text-brand-400">Enroll in your first course</Link> to get started.
               </div>
             ) : (
               <ul className="mt-4 space-y-3">
@@ -94,6 +104,29 @@ export default function DashboardPage() {
 
         <div className="space-y-6">
           <div className="card">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-fg">Daily challenge</h2>
+              <span className="text-xs text-fg-subtle">🔥 {challenge?.current_streak_days ?? stats?.current_streak_days ?? 0}d</span>
+            </div>
+            {challengeUnavailable ? (
+              <p className="mt-3 text-sm text-fg-subtle">Verify your email to unlock the daily challenge.</p>
+            ) : challenge === null ? (
+              <p className="mt-3 text-sm text-fg-subtle">Loading…</p>
+            ) : challenge.already_attempted ? (
+              <p className="mt-3 text-sm text-fg-muted">
+                {challenge.my_attempt?.is_correct ? `Done for today — you earned ${challenge.my_attempt.points_awarded} points.` : "You've answered today's challenge."}
+              </p>
+            ) : (
+              <p className="mt-3 text-sm text-fg-muted">A new question is waiting — answer it to keep your streak alive.</p>
+            )}
+            {!challengeUnavailable && (
+              <Link href="/daily-challenge" className="btn-primary mt-4 w-full !py-2 text-center text-sm">
+                {challenge?.already_attempted ? "View today's challenge" : "Take today's challenge"}
+              </Link>
+            )}
+          </div>
+
+          <div className="card">
             <h2 className="font-semibold text-fg">Your progress</h2>
             {stats === null ? (
               <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
@@ -101,11 +134,11 @@ export default function DashboardPage() {
               <>
                 <div className="mt-4 grid grid-cols-2 gap-4 text-center">
                   <div>
-                    <div className="text-2xl font-bold text-brand-400">{stats.total_points}</div>
+                    <div className="text-2xl font-bold text-brand-600 dark:text-brand-400">{stats.total_points}</div>
                     <div className="text-xs text-fg-subtle">points</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-brand-400">{stats.current_streak_days}</div>
+                    <div className="text-2xl font-bold text-brand-600 dark:text-brand-400">{stats.current_streak_days}</div>
                     <div className="text-xs text-fg-subtle">day streak</div>
                   </div>
                 </div>
@@ -125,7 +158,7 @@ export default function DashboardPage() {
           <div className="card">
             <h2 className="font-semibold text-fg">Certificates earned</h2>
             <p className="mt-2 text-sm text-fg-subtle">{completedCourses.length} course{completedCourses.length === 1 ? "" : "s"} completed</p>
-            <Link href="/quiz-history" className="mt-3 inline-block text-sm text-brand-400 hover:underline">
+            <Link href="/quiz-history" className="mt-3 inline-block text-sm text-brand-600 dark:text-brand-400 hover:underline">
               Quiz history →
             </Link>
           </div>

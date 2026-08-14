@@ -88,7 +88,7 @@ export default function ThreadDetailPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-lg px-6 py-24 text-center">
-        <p className="text-red-400">{error}</p>
+        <p className="text-red-700 dark:text-red-400">{error}</p>
         <Link href="/courses" className="btn-secondary mt-6 inline-flex">Back to courses</Link>
       </div>
     );
@@ -112,7 +112,7 @@ export default function ThreadDetailPage() {
           <button
             onClick={upvote}
             disabled={!user || voting}
-            className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm ${thread.has_voted ? "border-brand-500 bg-brand-500/10 text-brand-400" : "border-ink-700 text-fg-muted hover:border-ink-600"}`}
+            className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm ${thread.has_voted ? "border-brand-500 bg-brand-500/10 text-brand-600 dark:text-brand-400" : "border-ink-700 text-fg-muted hover:border-ink-600"}`}
           >
             ▲ {thread.upvote_count}
           </button>
@@ -123,7 +123,7 @@ export default function ThreadDetailPage() {
             <button onClick={resolve} className="btn-secondary !px-3 !py-1.5 text-xs">Mark resolved</button>
           )}
           {canDelete && (
-            <button onClick={deleteThread} disabled={deleting} className="btn-secondary !px-3 !py-1.5 text-xs text-red-400 hover:!border-red-500/50">
+            <button onClick={deleteThread} disabled={deleting} className="btn-secondary !px-3 !py-1.5 text-xs text-red-700 dark:text-red-400 hover:!border-red-500/50">
               {deleting ? "Deleting…" : "Delete thread"}
             </button>
           )}
@@ -135,7 +135,7 @@ export default function ThreadDetailPage() {
           <div key={r.id} className={`card !p-4 ${r.is_instructor_answer ? "border-brand-500/40" : ""}`}>
             <p className="text-sm text-fg-muted">{r.body}</p>
             <p className="mt-2 text-xs text-fg-subtle">
-              {r.author_name} {r.is_instructor_answer && <span className="text-brand-400">· Instructor</span>} · {formatRelative(r.created_at)}
+              {r.author_name} {r.is_instructor_answer && <span className="text-brand-600 dark:text-brand-400">· Instructor</span>} · {formatRelative(r.created_at)}
             </p>
           </div>
         ))}

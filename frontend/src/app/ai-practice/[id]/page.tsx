@@ -66,7 +66,7 @@ export default function AIPracticeSessionPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-red-400">{error}</p>
+        <p className="text-red-700 dark:text-red-400">{error}</p>
         <Link href="/ai-practice" className="btn-secondary mt-6 inline-flex">Back to AI practice</Link>
       </div>
     );
@@ -85,7 +85,7 @@ export default function AIPracticeSessionPage() {
           {result.answers.map((a, idx) => (
             <div key={a.question_id} className={`card ${a.is_correct ? "border-emerald-500/40" : "border-red-500/40"}`}>
               <p className="font-medium text-fg">{idx + 1}. {a.prompt}</p>
-              <p className={`mt-2 text-sm font-medium ${a.is_correct ? "text-emerald-400" : "text-red-400"}`}>
+              <p className={`mt-2 text-sm font-medium ${a.is_correct ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}`}>
                 {a.is_correct ? "Correct" : "Incorrect"}
               </p>
             </div>

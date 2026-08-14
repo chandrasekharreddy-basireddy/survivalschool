@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -70,8 +71,27 @@ class User(Base, UUIDPk, Timestamped):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
+    # Real TOTP 2FA (RFC 6238) — see services/totp_service.py for the full
+    # design rationale (TOTP over SMS, why the secret is "pending" until
+    # confirmed, why backup codes are hashed). totp_secret is written at
+    # setup time but totp_enabled only flips to True once the user proves
+    # their authenticator app actually has it, in POST /auth/2fa/confirm.
+    totp_secret: Mapped[str | None] = mapped_column(String(64))
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    totp_backup_codes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)  # SHA-256 hashes only
+
     roles: Mapped[list["Role"]] = relationship(secondary="user_roles")
-    profile: Mapped["Profile | None"] = relationship(back_populates="user", uselist=False)
+    # passive_deletes=True: trust the DB's own ON DELETE CASCADE on
+    # profiles.user_id (verified via pg_constraint — see
+    # app/services/gdpr_service.py's module docstring) rather than letting
+    # SQLAlchemy's unit-of-work try to manage the child row itself. Without
+    # this, deleting a User with an ORM-loaded `profile` relationship emits
+    # `UPDATE profiles SET user_id = NULL ...` before the DELETE (the
+    # default "disassociate the child" behavior for a nullable-looking
+    # one-to-one), which fails outright since profiles.user_id is NOT NULL
+    # — breaking real account deletion for any user who has ever loaded
+    # their profile (e.g. via GET /users/me/profile).
+    profile: Mapped["Profile | None"] = relationship(back_populates="user", uselist=False, passive_deletes=True)
 
     def has_permission(self, code: str) -> bool:
         return any(p.code == code for r in self.roles for p in r.permissions)

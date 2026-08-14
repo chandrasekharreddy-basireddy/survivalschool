@@ -31,6 +31,7 @@ from app.models.assessment import Question
 from app.models.contest import Contest, ContestAttempt, ContestCertificate
 from app.models.lms import Course
 from app.models.user import User
+from app.services.cache_service import bump_cache_version, cache_delete
 from app.services.gamification_service import award_points
 from app.services.notification_service import create_notification
 
@@ -114,6 +115,7 @@ async def _create_if_missing(
         # Lost a race with another worker tick / replica creating the same
         # occurrence at the same time — completely normal, not an error.
         return None
+    await bump_cache_version("contests_list")
     return contest
 
 
@@ -224,6 +226,8 @@ async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
     contest.finalized_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(contest)
+    await bump_cache_version("contests_list")
+    await cache_delete(f"contest:{contest.id}:leaderboard")
     logger.info("contest_finalized", contest_id=str(contest.id), participants=len(attempts))
     return contest
 

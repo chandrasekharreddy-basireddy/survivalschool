@@ -49,6 +49,45 @@ Boots the full stack with `docker compose up -d --build`, polls
 the stack down (`docker compose down -v`) whether the smoke test passed or
 failed.
 
+## Continuous dependency scanning (`.github/workflows/dependency-scan.yml`)
+
+Job 1's `pip-audit` and job 2's `npm audit` above only run when code
+changes trigger a push/PR. That leaves a real gap: a dependency that was
+clean last week can have a CVE disclosed against it today even if nobody
+touched the repo, and nothing would catch that until the next unrelated
+commit. `dependency-scan.yml` closes it with a separate scheduled workflow:
+
+- Runs daily at 06:15 UTC (`workflow_dispatch` also exposes a manual "run
+  now" button in the Actions tab) — independent of any push or PR.
+- `backend-dependency-scan`: `pip-audit -r requirements.txt --desc` against
+  the backend's actual pinned dependencies — blocking (job fails on any
+  known vulnerability).
+- `frontend-dependency-scan`: `npm audit --omit=dev --audit-level=high` —
+  blocking on high/critical findings, run against the frontend's real
+  `package-lock.json`.
+- `notify-on-failure`: if either scan job fails, opens (or comments on an
+  existing) GitHub issue labeled `dependency-vulnerability` linking straight
+  to the failed run, using the built-in `GITHUB_TOKEN` — no external
+  service, Slack webhook, or additional secret required.
+
+Verified locally in this build (same commands the workflow runs, against
+the real `backend/requirements.txt` and `frontend/package-lock.json`):
+`pip-audit -r requirements.txt` reports "No known vulnerabilities found";
+`npm audit --omit=dev --audit-level=high` reports "found 0 vulnerabilities".
+Both would currently pass as of this build.
+
+### Automated update PRs (`.github/dependabot.yml`)
+
+Complements the scan above — finding a vulnerability is only useful if
+something also proposes the fix. Dependabot is configured for weekly
+(Monday) update PRs across four ecosystems: `pip` (`/backend`), `npm`
+(`/frontend`), `docker` (both `/backend` and `/frontend` Dockerfiles), and
+`github-actions` (the action versions pinned in these workflow files
+themselves — a real, often-overlooked supply-chain surface). Minor/patch
+bumps within each ecosystem are grouped into one combined PR rather than a
+dozen separate ones; major version bumps still get their own PR since those
+more often need a manual look at breaking changes.
+
 ## Honest status: written and cross-checked, not yet run
 
 Every claim above about what the pipeline *does* is true by reading the

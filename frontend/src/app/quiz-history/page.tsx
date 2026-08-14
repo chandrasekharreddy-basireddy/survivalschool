@@ -48,7 +48,7 @@ export default function QuizHistoryPage() {
       ) : attempts.length === 0 ? (
         <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           No quiz attempts yet — browse courses to find one.{" "}
-          <Link href="/courses" className="text-brand-400 hover:underline">Browse courses</Link>
+          <Link href="/courses" className="text-brand-600 dark:text-brand-400 hover:underline">Browse courses</Link>
         </div>
       ) : (
         <div className="mt-8 space-y-3">

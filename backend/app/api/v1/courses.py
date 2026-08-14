@@ -29,10 +29,17 @@ from app.schemas.lms import (
 )
 from app.services.analytics_service import track_event
 from app.services.audit_service import record_audit_event
+from app.services.cache_service import bump_cache_version, cache_get_versioned, cache_set_versioned
 from app.services.email_service import send_email
 from app.services.n8n_service import emit_event
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+# Short TTL: this is a cache for the public catalog's read-heavy traffic,
+# not a source of truth — a 30s staleness window on a course list is
+# invisible to a normal browsing user, and every write path below bumps the
+# version immediately so it self-corrects the moment anything changes.
+_COURSES_LIST_TTL = 30
 
 
 async def _require_analytics_access(db: AsyncSession, user: User, course_id: uuid.UUID) -> Course:
@@ -92,6 +99,18 @@ async def list_courses(
     user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
+    # Only cache the public catalog (published_only=True, the overwhelmingly
+    # common case — anonymous browsing and the course list page). The
+    # published_only=False branch below returns caller-specific results
+    # (an instructor's own drafts, or an admin's everything) that would be
+    # unsafe to cache under a shared key, so it always hits Postgres.
+    cache_key = f"search={search or ''}:limit={limit}:offset={offset}"
+    if published_only:
+        cached = await cache_get_versioned("courses_list", cache_key)
+        if cached is not None:
+            response.headers["X-Total-Count"] = str(cached["total"])
+            return cached["courses"]
+
     stmt = select(Course).where(Course.deleted_at.is_(None))
     if published_only:
         stmt = stmt.where(Course.is_published.is_(True))
@@ -121,7 +140,11 @@ async def list_courses(
     response.headers["X-Total-Count"] = str(total)
 
     result = await db.execute(stmt.order_by(Course.created_at.desc()).limit(limit).offset(offset))
-    return result.scalars().all()
+    courses = result.scalars().all()
+    if published_only:
+        payload = {"total": total, "courses": [CourseOut.model_validate(c).model_dump(mode="json") for c in courses]}
+        await cache_set_versioned("courses_list", cache_key, payload, _COURSES_LIST_TTL)
+    return courses
 
 
 @router.post("", response_model=CourseOut, status_code=201)
@@ -138,6 +161,7 @@ async def create_course(
     await record_audit_event(db, actor_id=user.id, action="course.create", resource_type="course")
     await db.commit()
     await db.refresh(course)
+    await bump_cache_version("courses_list")
     return course
 
 
@@ -201,6 +225,7 @@ async def update_course(
     await record_audit_event(db, actor_id=user.id, action="course.update", resource_type="course", resource_id=str(course_id))
     await db.commit()
     await db.refresh(course)
+    await bump_cache_version("courses_list")
     return course
 
 
@@ -215,6 +240,7 @@ async def publish_course(
     await record_audit_event(db, actor_id=user.id, action="course.publish", resource_type="course", resource_id=str(course_id))
     await db.commit()
     await db.refresh(course)
+    await bump_cache_version("courses_list")
     return course
 
 
@@ -228,6 +254,7 @@ async def unpublish_course(
     course.is_published = False
     await db.commit()
     await db.refresh(course)
+    await bump_cache_version("courses_list")
     return course
 
 
@@ -244,6 +271,7 @@ async def delete_course(
     course.deleted_at = datetime.now(timezone.utc)
     await record_audit_event(db, actor_id=user.id, action="course.delete", resource_type="course", resource_id=str(course_id))
     await db.commit()
+    await bump_cache_version("courses_list")
     return MessageResponse(message="Course deleted.")
 
 

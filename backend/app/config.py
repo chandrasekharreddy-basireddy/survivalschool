@@ -112,7 +112,28 @@ class Settings(BaseSettings):
 
     # --- Observability ---
     LOG_LEVEL: str = "INFO"
-    SERVICE_VERSION: str = "0.1.0"
+    SERVICE_VERSION: str = "1.0.0"
+
+    # --- Error tracking (Sentry) ---
+    # Deliberately optional and inert by default: this build has no real
+    # Sentry account/DSN to wire up, and fabricating one would violate the
+    # "no fake credentials" rule for this project. SENTRY_DSN is None unless
+    # a real deployment sets it via env var — see app/main.py for the guard
+    # that skips sentry_sdk.init() entirely when it's unset, and
+    # docs/OBSERVABILITY.md for what actually gets captured once it's set.
+    SENTRY_DSN: str | None = None
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+
+    # --- Web Push (VAPID, RFC 8292) ---
+    # Self-generated keypair — no Firebase/APNs/OneSignal account needed.
+    # Generate a real pair per deployment with
+    # `backend/scripts/generate_vapid_keys.py` and set these via env vars;
+    # never commit real values (see backend/.env.example). Push sending is
+    # a no-op (silently skipped) whenever these are unset, same inert-by-
+    # default pattern as SENTRY_DSN above.
+    VAPID_PUBLIC_KEY: str | None = None
+    VAPID_PRIVATE_KEY: str | None = None
+    VAPID_SUBJECT: str = "mailto:admin@example.com"
 
     @field_validator("APP_ENV")
     @classmethod

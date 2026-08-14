@@ -55,7 +55,7 @@ export default function NotificationsPage() {
     <div className="mx-auto max-w-2xl px-6 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-fg">Notifications</h1>
-        <Link href="/settings" className="text-sm text-brand-400 hover:underline">Preferences</Link>
+        <Link href="/settings" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">Preferences</Link>
       </div>
 
       <div className="mt-4 flex gap-2">

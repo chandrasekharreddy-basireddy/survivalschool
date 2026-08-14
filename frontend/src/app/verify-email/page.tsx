@@ -72,7 +72,7 @@ function VerifyEmailInner() {
         {status === "error" && (
           <>
             <h1 className="text-xl font-bold text-fg">Verification failed</h1>
-            <p className="mt-2 text-sm text-red-400">{message}</p>
+            <p className="mt-2 text-sm text-red-700 dark:text-red-400">{message}</p>
             <form onSubmit={resendVerification} className="mt-6 space-y-3 text-left">
               <div>
                 <label className="label" htmlFor="resend-email">Resend verification email</label>

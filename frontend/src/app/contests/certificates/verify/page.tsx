@@ -60,7 +60,7 @@ export default function VerifyContestCertificatePage() {
 
       {result && (
         <div className="card mt-8 border-emerald-500/40">
-          <p className="text-sm font-semibold text-emerald-400">✓ Valid certificate</p>
+          <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">✓ Valid certificate</p>
           <dl className="mt-4 space-y-2 text-sm">
             <div className="flex justify-between"><dt className="text-fg-subtle">Certificate ID</dt><dd className="font-mono text-fg">{result.certificate_number}</dd></div>
             <div className="flex justify-between"><dt className="text-fg-subtle">Contest</dt><dd className="text-fg">{result.contest_title}</dd></div>
@@ -73,7 +73,7 @@ export default function VerifyContestCertificatePage() {
 
       {notFound && (
         <div className="card mt-8 border-red-500/40">
-          <p className="text-sm font-semibold text-red-400">✗ No matching certificate found</p>
+          <p className="text-sm font-semibold text-red-700 dark:text-red-400">✗ No matching certificate found</p>
         </div>
       )}
     </div>

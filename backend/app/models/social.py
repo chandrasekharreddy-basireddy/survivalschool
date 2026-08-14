@@ -77,3 +77,26 @@ class NotificationPreference(Base, UUIDPk, Timestamped):
     email_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # security_notifications intentionally has NO column here — security notifications
     # (login alerts, password changes) cannot be disabled; enforced in notification_service.py.
+    push_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PushSubscription(Base, UUIDPk, Timestamped):
+    """A single browser/device Web Push subscription (RFC 8030), as returned by
+    `PushManager.subscribe()` in the browser. One user can have several (phone,
+    laptop, a second browser) — each is delivered to independently.
+
+    No third-party push provider account is involved: the `endpoint` is the
+    browser vendor's own push service (Chrome -> Google's FCM endpoint,
+    Firefox -> Mozilla's autopush, Edge -> Microsoft's), reached directly by
+    the backend using this app's own self-generated VAPID keypair
+    (see app/services/push_service.py) — nothing beyond what the open Web
+    Push standard requires.
+    """
+
+    __tablename__ = "push_subscriptions"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    p256dh: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_agent: Mapped[str | None] = mapped_column(String(300))

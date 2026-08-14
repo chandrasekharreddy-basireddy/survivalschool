@@ -150,7 +150,7 @@ export default function QuizTakingPage() {
         </p>
       )}
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
       {!questions ? (
         <div className="card mt-8 text-center">
@@ -233,7 +233,7 @@ function BookmarkButton({ questionId }: { questionId: string }) {
       disabled={busy}
       aria-label={bookmarked ? "Remove bookmark" : "Bookmark this question"}
       title={bookmarked ? "Remove bookmark" : "Bookmark for practice later"}
-      className={`shrink-0 rounded-lg p-1.5 transition ${bookmarked ? "text-amber-400" : "text-fg-subtle hover:text-fg"}`}
+      className={`shrink-0 rounded-lg p-1.5 transition ${bookmarked ? "text-amber-700 dark:text-amber-400" : "text-fg-subtle hover:text-fg"}`}
     >
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill={bookmarked ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.75} className="h-5 w-5">
         <path strokeLinecap="round" strokeLinejoin="round" d="M6 3.75A2.25 2.25 0 0 1 8.25 1.5h7.5A2.25 2.25 0 0 1 18 3.75v16.5a.75.75 0 0 1-1.164.624L12 17.25l-4.836 3.624A.75.75 0 0 1 6 20.25V3.75Z" />

@@ -19,6 +19,7 @@ from app.models.assessment import (  # noqa: F401
 )
 from app.models.attendance import AttendanceRecord, AttendanceSession  # noqa: F401
 from app.models.certificate import Certificate  # noqa: F401
+from app.models.challenge import DailyChallenge, DailyChallengeAttempt  # noqa: F401
 from app.models.contest import Contest, ContestAnswer, ContestAttempt, ContestCertificate  # noqa: F401
 from app.models.discussion import DiscussionReply, DiscussionThread, DiscussionVote  # noqa: F401
 from app.models.gamification import (  # noqa: F401
@@ -45,6 +46,7 @@ from app.models.social import (  # noqa: F401
     MessageRead,
     Notification,
     NotificationPreference,
+    PushSubscription,
 )
 from app.models.system import (  # noqa: F401
     AnalyticsEvent,

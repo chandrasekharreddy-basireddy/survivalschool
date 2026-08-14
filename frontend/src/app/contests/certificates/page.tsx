@@ -44,7 +44,7 @@ export default function MyContestCertificatesPage() {
       ) : certs.length === 0 ? (
         <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           No contest certificates yet. Finish in the top 3 of a contest to earn one.{" "}
-          <Link href="/contests" className="text-brand-400 hover:underline">Browse contests</Link>
+          <Link href="/contests" className="text-brand-600 dark:text-brand-400 hover:underline">Browse contests</Link>
         </div>
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2">

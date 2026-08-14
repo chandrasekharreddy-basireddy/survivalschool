@@ -56,7 +56,7 @@ export default function FlaggedAttemptsPage() {
         submissions. These are informational only; nothing here has auto-failed or auto-submitted a student.
       </p>
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
       {attempts !== null && attempts.length === 0 && !error && (
         <div className="card mt-8 text-center text-sm text-fg-muted">No flagged attempts for this exam.</div>
@@ -74,7 +74,7 @@ export default function FlaggedAttemptsPage() {
               </div>
               <button
                 onClick={() => setExpanded(expanded === a.attempt_id ? null : a.attempt_id)}
-                className="text-xs text-brand-400 hover:underline"
+                className="text-xs text-brand-600 dark:text-brand-400 hover:underline"
               >
                 {expanded === a.attempt_id ? "Hide details" : "Show details"}
               </button>

@@ -10,6 +10,7 @@ from app.api.v1 import (
     attendance,
     auth,
     certificates,
+    challenges,
     chat,
     contests,
     courses,
@@ -51,3 +52,4 @@ api_router.include_router(search.router)
 api_router.include_router(contests.router)
 api_router.include_router(ai_practice.router)
 api_router.include_router(attendance.router)
+api_router.include_router(challenges.router)

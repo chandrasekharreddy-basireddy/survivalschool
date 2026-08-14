@@ -68,7 +68,7 @@ export default function AdminUsersPage() {
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-fg">User management</h1>
-        <Link href="/admin/audit-logs" className="text-sm text-brand-400 hover:underline">Audit logs &rarr;</Link>
+        <Link href="/admin/audit-logs" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">Audit logs &rarr;</Link>
       </div>
 
       <div className="mt-4 flex gap-3">
@@ -100,7 +100,7 @@ export default function AdminUsersPage() {
                   </div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={u.is_active ? "text-emerald-400" : "text-red-400"}>{u.is_active ? "Active" : "Deactivated"}</span>
+                  <span className={u.is_active ? "text-emerald-700 dark:text-emerald-400" : "text-red-700 dark:text-red-400"}>{u.is_active ? "Active" : "Deactivated"}</span>
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">

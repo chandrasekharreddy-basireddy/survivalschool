@@ -122,6 +122,7 @@ export default function ProfilePage() {
           title="Change avatar"
         >
           {profile?.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element -- user-uploaded avatar from arbitrary storage URL, not a static/known-dimension asset next/image needs
             <img
               src={profile.avatar_url}
               alt={`${user.full_name}'s avatar`}
@@ -157,15 +158,15 @@ export default function ProfilePage() {
 
       <div className="mt-8 grid gap-6 sm:grid-cols-3">
         <div className="card text-center">
-          <p className="text-2xl font-bold text-brand-400">{stats?.total_points ?? "—"}</p>
+          <p className="text-2xl font-bold text-brand-600 dark:text-brand-400">{stats?.total_points ?? "—"}</p>
           <p className="text-xs text-fg-subtle">points</p>
         </div>
         <div className="card text-center">
-          <p className="text-2xl font-bold text-brand-400">{stats?.current_streak_days ?? "—"}</p>
+          <p className="text-2xl font-bold text-brand-600 dark:text-brand-400">{stats?.current_streak_days ?? "—"}</p>
           <p className="text-xs text-fg-subtle">day streak</p>
         </div>
         <div className="card text-center">
-          <p className="text-2xl font-bold text-brand-400">{certs?.length ?? "—"}</p>
+          <p className="text-2xl font-bold text-brand-600 dark:text-brand-400">{certs?.length ?? "—"}</p>
           <p className="text-xs text-fg-subtle">certificates</p>
         </div>
       </div>
@@ -199,7 +200,7 @@ export default function ProfilePage() {
         <div className="card mt-6">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-fg">Certificates</h2>
-            <Link href="/certificates/me" className="text-sm text-brand-400 hover:underline">View all</Link>
+            <Link href="/certificates/me" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">View all</Link>
           </div>
           <ul className="mt-3 space-y-2">
             {certs.slice(0, 3).map((c) => (

@@ -95,7 +95,7 @@ export default function CourseDetailPage() {
       ) : (
         <p className="mt-6 text-sm text-fg-subtle">Sign in to enroll and track progress.</p>
       )}
-      {message && <p className="mt-3 text-sm text-red-400">{message}</p>}
+      {message && <p className="mt-3 text-sm text-red-700 dark:text-red-400">{message}</p>}
 
       <div className="mt-10 space-y-6">
         {course.sections.map((section) => (

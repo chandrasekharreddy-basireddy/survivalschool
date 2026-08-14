@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import uuid
 
+import structlog
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
+
+logger = structlog.get_logger("survivalschool.errors")
 
 
 class AppError(Exception):
@@ -73,6 +76,28 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+
+    # A genuinely unhandled exception (i.e. a real bug, not an AppError a
+    # route raised on purpose) — this is exactly the class of event that
+    # must never disappear silently. Always logged with a full traceback via
+    # structlog regardless of whether Sentry is configured; also forwarded
+    # to Sentry when SENTRY_DSN is set (capture_exception is a documented
+    # no-op if sentry_sdk.init() was never called, so this is safe either
+    # way — see app/main.py).
+    logger.error(
+        "unhandled_exception",
+        request_id=request_id,
+        path=request.url.path,
+        method=request.method,
+        exc_info=exc,
+    )
+    try:
+        import sentry_sdk
+
+        sentry_sdk.capture_exception(exc)
+    except ImportError:
+        pass
+
     # Deliberately no str(exc) in the response — internal details never leak to clients.
     return JSONResponse(
         status_code=500,

@@ -3,6 +3,35 @@
 Three ways to run this system, in increasing order of production-readiness.
 Each section states plainly what has and hasn't actually been exercised.
 
+See `CHANGELOG.md` for what's new in the current version
+(`SERVICE_VERSION`, also `GET /health`'s `version` field and
+`frontend/package.json`).
+
+## Extra setup steps for 1.0.0's new features
+
+None of these are required to boot the app — every one of them is designed
+to be inert/optional if skipped (see each doc for the exact inert-by-default
+behavior) — but skipping them means shipping without that feature working:
+
+1. **Error tracking (Sentry)** — optional. Set `SENTRY_DSN` (backend) and
+   `NEXT_PUBLIC_SENTRY_DSN` (frontend) to a real Sentry project's DSN.
+   Unset (the default): zero overhead, `sentry_sdk.init()` is never called.
+   See `docs/OBSERVABILITY.md`.
+2. **Web Push notifications** — optional, but needs one manual step: run
+   `backend/scripts/generate_vapid_keys.py` once per environment and put its
+   output (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`) in that
+   environment's real `.env`/secret store — **never reuse this repo's dev
+   keypair in production**, generate a fresh one. Unset (the default): the
+   `/notifications/push/*` endpoints stay live but no-op. See
+   `docs/PUSH_NOTIFICATIONS.md`.
+3. **PWA / service worker** — no setup needed; `next build` compiles
+   `frontend/src/app/sw.ts` into `frontend/public/sw.js` automatically
+   (disabled in `next dev` on purpose). See `docs/PWA.md`.
+4. **Continuous dependency scanning** — no setup needed once pushed to
+   GitHub; `.github/workflows/dependency-scan.yml` runs on its own daily
+   schedule plus `.github/dependabot.yml`'s weekly update PRs. See
+   `docs/CI_CD.md`.
+
 ## 1. Local development (`docker compose`) — structurally validated, not booted in this sandbox
 
 ```bash

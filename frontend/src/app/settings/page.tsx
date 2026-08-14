@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { getPushSupport, isSubscribedToPush, sendTestPush, subscribeToPush, unsubscribeFromPush } from "@/lib/push";
 
 interface Preferences {
   course_updates: boolean;
@@ -13,6 +14,7 @@ interface Preferences {
   announcements: boolean;
   ai_notifications: boolean;
   email_enabled: boolean;
+  push_enabled: boolean;
 }
 
 const LABELS: Record<keyof Preferences, string> = {
@@ -22,6 +24,7 @@ const LABELS: Record<keyof Preferences, string> = {
   announcements: "Platform announcements",
   ai_notifications: "AI tutor notifications",
   email_enabled: "Email notifications (in addition to in-app)",
+  push_enabled: "Browser push notifications (if subscribed below)",
 };
 
 export default function SettingsPage() {
@@ -105,11 +108,333 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      <PushNotificationsSection />
+
+      <TwoFactorSection />
+
       <div className="card mt-6 border-red-500/20">
         <h2 className="font-semibold text-fg">Security</h2>
         <p className="mt-2 text-sm text-fg-muted">Sign out of every device and session, including this one.</p>
         <button onClick={logoutAllSessions} className="btn-secondary mt-4">Sign out everywhere</button>
       </div>
+
+      <DataPrivacySection />
+    </div>
+  );
+}
+
+function PushNotificationsSection() {
+  const toast = useToast();
+  const [support, setSupport] = useState<{ supported: boolean; permission: NotificationPermission | "unsupported" } | null>(null);
+  const [subscribed, setSubscribed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    const s = getPushSupport();
+    setSupport(s);
+    if (s.supported) {
+      isSubscribedToPush().then(setSubscribed);
+    }
+  }, []);
+
+  const enable = async () => {
+    setBusy(true);
+    try {
+      await subscribeToPush();
+      setSubscribed(true);
+      toast.show("Push notifications enabled on this device.", "success");
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : "Couldn't enable push notifications.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    setBusy(true);
+    try {
+      await unsubscribeFromPush();
+      setSubscribed(false);
+      toast.show("Push notifications disabled on this device.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't disable push notifications.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const test = async () => {
+    setTesting(true);
+    try {
+      const sent = await sendTestPush();
+      toast.show(sent > 0 ? "Test notification sent — check your device." : "No active subscription to send to.", sent > 0 ? "success" : "error");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't send a test notification.", "error");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (!support) return null;
+
+  return (
+    <div className="card mt-6">
+      <h2 className="font-semibold text-fg">Push notifications</h2>
+      <p className="mt-2 text-sm text-fg-muted">
+        Get real browser notifications for exam reminders, contest results, and replies — even when this tab isn&apos;t open.
+      </p>
+
+      {!support.supported ? (
+        <p className="mt-3 text-sm text-fg-subtle">Not supported in this browser.</p>
+      ) : support.permission === "denied" ? (
+        <p className="mt-3 text-sm text-fg-subtle">
+          Notifications are blocked for this site in your browser settings — enable them there to use this.
+        </p>
+      ) : subscribed ? (
+        <div className="mt-3 flex items-center gap-2">
+          <button onClick={test} disabled={testing} className="btn-secondary !py-1.5 text-sm">
+            {testing ? "Sending…" : "Send test notification"}
+          </button>
+          <button onClick={disable} disabled={busy} className="btn-secondary !py-1.5 text-sm">
+            {busy ? "Disabling…" : "Turn off on this device"}
+          </button>
+        </div>
+      ) : (
+        <button onClick={enable} disabled={busy} className="btn-primary mt-3">
+          {busy ? "Enabling…" : "Enable on this device"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function DataPrivacySection() {
+  const { logout } = useAuth();
+  const toast = useToast();
+  const [exporting, setExporting] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const data = await apiFetch<Record<string, unknown>>("/users/me/export");
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `survivalschool-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.show("Your data export has downloaded.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't generate your export.", "error");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (deleteConfirm !== "DELETE" || !deletePassword) return;
+    setDeleting(true);
+    try {
+      await apiFetch("/users/me/delete-account", {
+        method: "POST",
+        body: JSON.stringify({ password: deletePassword, confirm: deleteConfirm }),
+      });
+      toast.show("Your account has been deleted.", "success");
+      await logout();
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't delete your account.", "error");
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <div className="card mt-6">
+      <h2 className="font-semibold text-fg">Data &amp; privacy</h2>
+      <p className="mt-2 text-sm text-fg-muted">
+        Download everything tied to your account, or permanently delete it.
+      </p>
+
+      <div className="mt-4 flex items-center justify-between border-b border-ink-700 pb-4">
+        <div>
+          <p className="text-sm font-medium text-fg">Export my data</p>
+          <p className="text-xs text-fg-subtle">A JSON file with your profile, courses, quiz/exam history, certificates, points, and more.</p>
+        </div>
+        <button onClick={exportData} disabled={exporting} className="btn-secondary shrink-0">
+          {exporting ? "Preparing…" : "Download"}
+        </button>
+      </div>
+
+      <div className="mt-4">
+        <p className="text-sm font-medium text-red-700 dark:text-red-400">Delete my account</p>
+        <p className="text-xs text-fg-subtle">
+          Permanently erases your profile, progress, attempts, and personal history. Content you posted that other
+          people rely on (discussion replies, chat messages) stays visible but is no longer attributed to you.
+          This cannot be undone.
+        </p>
+        {showDelete ? (
+          <div className="mt-3 space-y-3">
+            <div>
+              <label className="label">Confirm your password</label>
+              <input type="password" className="input" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Type DELETE to confirm</label>
+              <input className="input" value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder="DELETE" />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={deleteAccount}
+                disabled={deleting || !deletePassword || deleteConfirm !== "DELETE"}
+                className="btn-secondary text-red-700 dark:text-red-400"
+              >
+                {deleting ? "Deleting…" : "Permanently delete my account"}
+              </button>
+              <button onClick={() => { setShowDelete(false); setDeletePassword(""); setDeleteConfirm(""); }} className="btn-secondary">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setShowDelete(true)} className="btn-secondary mt-3 !py-1.5 text-sm text-red-700 dark:text-red-400">
+            Delete my account
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface TwoFactorSetupOut { secret: string; otpauth_url: string; qr_code_data_uri: string }
+
+function TwoFactorSection() {
+  const { user, refreshUser } = useAuth();
+  const toast = useToast();
+  const [setup, setSetup] = useState<TwoFactorSetupOut | null>(null);
+  const [confirmCode, setConfirmCode] = useState("");
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [disablePassword, setDisablePassword] = useState("");
+  const [showDisable, setShowDisable] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const startSetup = async () => {
+    setBusy(true);
+    try {
+      const res = await apiFetch<TwoFactorSetupOut>("/auth/2fa/setup", { method: "POST" });
+      setSetup(res);
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't start 2FA setup.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmSetup = async () => {
+    setBusy(true);
+    try {
+      const res = await apiFetch<{ backup_codes: string[] }>("/auth/2fa/confirm", {
+        method: "POST", body: JSON.stringify({ code: confirmCode.trim() }),
+      });
+      setBackupCodes(res.backup_codes);
+      setSetup(null);
+      setConfirmCode("");
+      await refreshUser();
+      toast.show("Two-factor authentication enabled.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Incorrect code — try again.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    if (!disablePassword) return;
+    setBusy(true);
+    try {
+      await apiFetch("/auth/2fa/disable", { method: "POST", body: JSON.stringify({ password: disablePassword }) });
+      setShowDisable(false);
+      setDisablePassword("");
+      await refreshUser();
+      toast.show("Two-factor authentication disabled.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Incorrect password.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!user) return null;
+
+  return (
+    <div className="card mt-6">
+      <h2 className="font-semibold text-fg">Two-factor authentication</h2>
+      <p className="mt-2 text-sm text-fg-muted">
+        Adds a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password, etc.) on top of your password.
+      </p>
+
+      {backupCodes ? (
+        <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4">
+          <p className="text-sm font-medium text-fg">Save these backup codes now — they won&apos;t be shown again.</p>
+          <p className="mt-1 text-xs text-fg-subtle">Each one can be used once if you lose access to your authenticator app.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 font-mono text-sm text-fg">
+            {backupCodes.map((c) => <span key={c} className="rounded bg-ink-900 px-2 py-1">{c}</span>)}
+          </div>
+          <button onClick={() => setBackupCodes(null)} className="btn-secondary mt-4 !py-1.5 text-sm">I&apos;ve saved these</button>
+        </div>
+      ) : setup ? (
+        <div className="mt-4 space-y-4">
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-ink-700 p-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={setup.qr_code_data_uri} alt="2FA QR code" className="h-40 w-40 rounded bg-white p-2" />
+            <p className="text-xs text-fg-subtle">Can&apos;t scan? Enter this key manually:</p>
+            <code className="rounded bg-ink-900 px-2 py-1 text-xs text-fg">{setup.secret}</code>
+          </div>
+          <div>
+            <label className="label">Enter the 6-digit code from your app</label>
+            <input
+              className="input font-mono tracking-widest" placeholder="123456" maxLength={8}
+              value={confirmCode} onChange={(e) => setConfirmCode(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={confirmSetup} disabled={busy || !confirmCode.trim()} className="btn-primary">
+              {busy ? "Verifying…" : "Enable 2FA"}
+            </button>
+            <button onClick={() => setSetup(null)} className="btn-secondary">Cancel</button>
+          </div>
+        </div>
+      ) : user.totp_enabled ? (
+        <div className="mt-4">
+          <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400">2FA is enabled on your account.</p>
+          {showDisable ? (
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="label">Confirm your password to disable 2FA</label>
+                <input type="password" className="input" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={disable} disabled={busy || !disablePassword} className="btn-secondary text-red-700 dark:text-red-400">
+                  {busy ? "Disabling…" : "Confirm disable"}
+                </button>
+                <button onClick={() => { setShowDisable(false); setDisablePassword(""); }} className="btn-secondary">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setShowDisable(true)} className="btn-secondary mt-3 !py-1.5 text-sm text-red-700 dark:text-red-400">Disable 2FA</button>
+          )}
+        </div>
+      ) : (
+        <button onClick={startSetup} disabled={busy} className="btn-primary mt-4">
+          {busy ? "Starting…" : "Set up two-factor authentication"}
+        </button>
+      )}
     </div>
   );
 }

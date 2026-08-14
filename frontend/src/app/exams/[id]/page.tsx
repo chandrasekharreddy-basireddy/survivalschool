@@ -212,13 +212,13 @@ export default function ExamTakingPage() {
           {meta && <p className="mt-1 text-sm text-fg-muted">Pass at {meta.pass_score_percent}% &middot; {Math.round(meta.time_limit_seconds / 60)} min</p>}
         </div>
         {attempt && !result && (
-          <div className={`rounded-lg border px-4 py-2 text-center font-mono text-lg ${remaining < 60 ? "border-red-500/50 text-red-400" : "border-ink-700 text-fg"}`}>
+          <div className={`rounded-lg border px-4 py-2 text-center font-mono text-lg ${remaining < 60 ? "border-red-500/50 text-red-700 dark:text-red-400" : "border-ink-700 text-fg"}`}>
             {formatDuration(remaining)}
           </div>
         )}
       </div>
 
-      {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
       {!attempt || !questions ? (
         <div className="card mt-8 text-center">

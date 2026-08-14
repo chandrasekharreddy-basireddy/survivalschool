@@ -5,6 +5,7 @@ import { ToastProvider } from "@/lib/toast";
 import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
 import { NavBar } from "@/components/NavBar";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
   title: "Survival School — Learn. Compete. Certify.",
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ToastProvider>
               <NavBar />
               <AnalyticsTracker />
+              <ServiceWorkerRegister />
               <main className="min-h-screen">{children}</main>
             </ToastProvider>
           </AuthProvider>

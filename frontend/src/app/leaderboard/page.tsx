@@ -32,7 +32,7 @@ export default function LeaderboardPage() {
       <h1 className="text-2xl font-bold text-fg">Leaderboard</h1>
       <p className="mt-1 text-sm text-fg-muted">Top learners by total points earned across courses, quizzes, and exams.</p>
 
-      {error && <p className="mt-8 text-sm text-red-400">Couldn&apos;t load the leaderboard right now.</p>}
+      {error && <p className="mt-8 text-sm text-red-700 dark:text-red-400">Couldn&apos;t load the leaderboard right now.</p>}
 
       {entries === null && !error ? (
         <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
@@ -52,7 +52,7 @@ export default function LeaderboardPage() {
                     style={{ paddingTop: entry.rank === 1 ? "2rem" : "1rem" }}
                   >
                     <div className="text-3xl">{MEDALS[entry.rank - 1]}</div>
-                    <p className={`mt-2 truncate font-semibold ${entry.student_id === user?.id ? "text-brand-400" : "text-fg"}`}>{entry.full_name}</p>
+                    <p className={`mt-2 truncate font-semibold ${entry.student_id === user?.id ? "text-brand-600 dark:text-brand-400" : "text-fg"}`}>{entry.full_name}</p>
                     <p className="text-xs text-fg-subtle">{entry.total_points} pts</p>
                   </div>
                 ) : (
@@ -65,7 +65,7 @@ export default function LeaderboardPage() {
           {rest.length > 0 && (
             <ul className="card mt-6 divide-y divide-ink-800">
               {rest.map((e) => (
-                <li key={e.student_id} className={`flex items-center justify-between py-3 ${e.student_id === user?.id ? "text-brand-400" : "text-fg"}`}>
+                <li key={e.student_id} className={`flex items-center justify-between py-3 ${e.student_id === user?.id ? "text-brand-600 dark:text-brand-400" : "text-fg"}`}>
                   <div className="flex items-center gap-4">
                     <span className="w-6 text-right text-sm text-fg-subtle">{e.rank}</span>
                     <span className="text-sm font-medium">{e.full_name}</span>

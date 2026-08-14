@@ -39,14 +39,14 @@ function ResetPasswordInner() {
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-6 py-16">
       <h1 className="text-2xl font-bold text-fg">Set a new password</h1>
       {done ? (
-        <p className="mt-8 text-sm text-emerald-400">Password updated. Redirecting to sign in…</p>
+        <p className="mt-8 text-sm text-emerald-700 dark:text-emerald-400">Password updated. Redirecting to sign in…</p>
       ) : (
         <form onSubmit={onSubmit} className="mt-8 space-y-5">
           <div>
             <label className="label" htmlFor="password">New password</label>
             <input id="password" type="password" required minLength={10} className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
-          {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+          {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
           <button type="submit" className="btn-primary w-full">Update password</button>
         </form>
       )}

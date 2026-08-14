@@ -45,6 +45,32 @@ def decode_access_token(token: str) -> dict:
     return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
 
 
+def create_mfa_pending_token(user_id: uuid.UUID) -> str:
+    """A distinct, short-lived, narrowly-scoped JWT issued after a correct
+    password but before a required TOTP code — proves "this request already
+    passed password auth" without granting API access. Its "type" claim is
+    "mfa_pending", never "access", so get_current_user's `type != "access"`
+    check (dependencies.py) rejects it outright if anyone tries to use it as
+    a bearer token anywhere else — the same token-type-confusion defense
+    already used for the access/refresh split."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "type": "mfa_pending",
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+        "jti": secrets.token_hex(16),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_mfa_pending_token(token: str) -> dict:
+    payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    if payload.get("type") != "mfa_pending":
+        raise jwt.InvalidTokenError("Not an MFA-pending token.")
+    return payload
+
+
 def new_refresh_token_pair() -> tuple[str, str, datetime]:
     """Returns (raw_token, token_hash, expires_at). Only token_hash is stored."""
     raw = generate_opaque_token()

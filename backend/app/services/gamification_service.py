@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import Achievement, Badge, PointsLedger, Streak
+from app.services.cache_service import bump_cache_version
 
 POINTS_LESSON_COMPLETE = 10
 POINTS_QUIZ_PASS = 25
@@ -21,6 +22,11 @@ POINTS_COURSE_COMPLETE = 150
 async def award_points(db: AsyncSession, student_id: uuid.UUID, amount: int, reason: str, reference_id: uuid.UUID | None = None) -> None:
     db.add(PointsLedger(student_id=student_id, amount=amount, reason=reason, reference_id=reference_id))
     await db.flush()
+    # Every point-award path (quiz/exam pass, contest finish/top-3,
+    # lesson/course complete, badges) funnels through here, so invalidating
+    # the global leaderboard cache in this one place covers every write path
+    # without needing to remember it at each of the 7 call sites.
+    await bump_cache_version("gamification_leaderboard")
 
 
 async def get_total_points(db: AsyncSession, student_id: uuid.UUID) -> int:
@@ -29,29 +35,57 @@ async def get_total_points(db: AsyncSession, student_id: uuid.UUID) -> int:
     return int(result.scalar_one())
 
 
-async def record_daily_activity(db: AsyncSession, student_id: uuid.UUID) -> Streak:
-    result = await db.execute(select(Streak).where(Streak.student_id == student_id))
-    streak = result.scalar_one_or_none()
-    today = datetime.now(timezone.utc).date()
-
-    if streak is None:
-        streak = Streak(student_id=student_id, current_streak_days=1, longest_streak_days=1,
-                         last_activity_date=datetime.now(timezone.utc))
-        db.add(streak)
-        await db.flush()
-        return streak
-
+def _apply_todays_activity(streak: Streak, today) -> None:
     last_date = streak.last_activity_date.date() if streak.last_activity_date else None
     if last_date == today:
-        return streak
+        return
     if last_date == today - timedelta(days=1):
         streak.current_streak_days += 1
     else:
         streak.current_streak_days = 1
     streak.longest_streak_days = max(streak.longest_streak_days, streak.current_streak_days)
     streak.last_activity_date = datetime.now(timezone.utc)
-    await db.flush()
-    return streak
+
+
+async def record_daily_activity(db: AsyncSession, student_id: uuid.UUID) -> Streak:
+    """Two real callers can race here now (a lesson completion and a daily
+    challenge answer landing back-to-back for the same student — see
+    app/services/daily_challenge_service.py). This is a genuine
+    read-modify-write: without locking, two concurrent requests can both
+    read the same current_streak_days, both compute "+1", and the second
+    UPDATE silently overwrites the first (a lost update, under-counting the
+    streak). `SELECT ... FOR UPDATE` serializes concurrent updates to the
+    same row within the DB itself, so the second request's read only
+    happens after the first's write commits. The insert path (no Streak row
+    yet) has a separate race — two concurrent first-ever activities for the
+    same student both trying to INSERT — handled the same SAVEPOINT-then-
+    catch-IntegrityError way the badge-award race is handled below."""
+    today = datetime.now(timezone.utc).date()
+
+    result = await db.execute(select(Streak).where(Streak.student_id == student_id).with_for_update())
+    streak = result.scalar_one_or_none()
+
+    if streak is not None:
+        _apply_todays_activity(streak, today)
+        await db.flush()
+        return streak
+
+    try:
+        async with db.begin_nested():
+            streak = Streak(student_id=student_id, current_streak_days=1, longest_streak_days=1,
+                             last_activity_date=datetime.now(timezone.utc))
+            db.add(streak)
+            await db.flush()
+        return streak
+    except IntegrityError:
+        # Lost the create race — another concurrent request inserted this
+        # student's Streak row first. Lock and apply today's activity to
+        # that row instead of erroring.
+        result = await db.execute(select(Streak).where(Streak.student_id == student_id).with_for_update())
+        streak = result.scalar_one()
+        _apply_todays_activity(streak, today)
+        await db.flush()
+        return streak
 
 
 async def evaluate_and_award_badges(db: AsyncSession, student_id: uuid.UUID, event: str, context: dict) -> list[Badge]:

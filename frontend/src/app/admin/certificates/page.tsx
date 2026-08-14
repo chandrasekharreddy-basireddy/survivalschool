@@ -111,11 +111,11 @@ export default function AdminCertificatesPage() {
               <div className="flex items-center justify-between">
                 <h2 className="font-semibold text-fg">{cert.certificate_number}</h2>
                 {cert.valid ? (
-                  <span className="text-sm text-emerald-400">Valid</span>
+                  <span className="text-sm text-emerald-700 dark:text-emerald-400">Valid</span>
                 ) : alreadyRevoked ? (
-                  <span className="text-sm text-red-400">Revoked</span>
+                  <span className="text-sm text-red-700 dark:text-red-400">Revoked</span>
                 ) : (
-                  <span className="text-sm text-amber-400">Expired</span>
+                  <span className="text-sm text-amber-700 dark:text-amber-400">Expired</span>
                 )}
               </div>
               <dl className="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
@@ -140,7 +140,7 @@ export default function AdminCertificatesPage() {
               <button
                 onClick={revoke}
                 disabled={revoking || alreadyRevoked}
-                className="btn-secondary mt-6 border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                className="btn-secondary mt-6 border-red-500/40 text-red-700 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50"
               >
                 {alreadyRevoked ? "Already revoked" : revoking ? "Revoking…" : "Revoke this certificate"}
               </button>

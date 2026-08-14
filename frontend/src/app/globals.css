@@ -16,7 +16,11 @@
   --border-strong: 209 209 201;
   --fg-0: 26 26 26;         /* primary text */
   --fg-1: 87 83 78;         /* secondary text */
-  --fg-2: 138 133 128;      /* tertiary / hint text */
+  /* tertiary / hint text — darkened from the original 138/133/128 (a real
+   * WCAG 2.1 AA failure caught by an automated axe-core scan: 3.41:1
+   * against this background, below the 4.5:1 minimum for normal text).
+   * This value gives 4.7:1. */
+  --fg-2: 115 110 106;
 }
 
 .dark {
@@ -30,7 +34,12 @@
   --border-strong: 51 61 97;
   --fg-0: 241 245 249;
   --fg-1: 203 213 225;
-  --fg-2: 100 116 139;
+  /* Same fix as :root's --fg-2, mirrored for dark mode — the original
+   * (100/116/139) also failed AA (4.02:1 against this dark background,
+   * axe-core's scan only exercised light mode, so this half of the bug
+   * wasn't caught by the automated pass; verified by hand with the same
+   * WCAG contrast formula). This value gives 4.75:1. */
+  --fg-2: 110 128 153;
 }
 
 @layer base {

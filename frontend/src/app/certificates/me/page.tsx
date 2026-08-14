@@ -43,7 +43,7 @@ export default function MyCertificatesPage() {
     <div className="mx-auto max-w-4xl px-6 py-10">
       <h1 className="text-2xl font-bold text-fg">Your certificates</h1>
       <p className="mt-1 text-sm text-fg-muted">Every course you&apos;ve completed and earned a certificate for.</p>
-      <Link href="/contests/certificates" className="mt-2 inline-block text-sm text-brand-400 hover:underline">
+      <Link href="/contests/certificates" className="mt-2 inline-block text-sm text-brand-600 dark:text-brand-400 hover:underline">
         Also see your contest certificates →
       </Link>
 
@@ -52,7 +52,7 @@ export default function MyCertificatesPage() {
       ) : certs.length === 0 ? (
         <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           No certificates yet. Complete a course to earn your first one.{" "}
-          <Link href="/courses" className="text-brand-400 hover:underline">Browse courses</Link>
+          <Link href="/courses" className="text-brand-600 dark:text-brand-400 hover:underline">Browse courses</Link>
         </div>
       ) : (
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -63,7 +63,7 @@ export default function MyCertificatesPage() {
                 {c.grade && <span className="shrink-0 rounded-full border border-amber-400/40 px-2.5 py-0.5 text-xs font-bold text-amber-300">{c.grade}</span>}
               </div>
               <p className="mt-1 text-xs text-fg-subtle">Issued {formatDate(c.issued_at)}</p>
-              {c.revoked && <p className="mt-2 text-xs font-semibold text-red-400">Revoked</p>}
+              {c.revoked && <p className="mt-2 text-xs font-semibold text-red-700 dark:text-red-400">Revoked</p>}
               {c.skills.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {c.skills.slice(0, 4).map((s) => (

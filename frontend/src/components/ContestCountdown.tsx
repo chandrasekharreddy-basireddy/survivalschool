@@ -33,13 +33,13 @@ export function ContestCountdown({ startsAt, endsAt, status }: { startsAt: strin
   if (now < starts) {
     return (
       <span className="text-sm text-fg-muted">
-        Starts in <span className="font-mono font-semibold text-brand-400">{formatRemaining(starts - now)}</span>
+        Starts in <span className="font-mono font-semibold text-brand-600 dark:text-brand-400">{formatRemaining(starts - now)}</span>
       </span>
     );
   }
   return (
     <span className="text-sm text-fg-muted">
-      Open now — closes in <span className="font-mono font-semibold text-emerald-400">{formatRemaining(ends - now)}</span>
+      Open now — closes in <span className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">{formatRemaining(ends - now)}</span>
     </span>
   );
 }

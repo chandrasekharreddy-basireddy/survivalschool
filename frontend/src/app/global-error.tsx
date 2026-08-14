@@ -1,24 +1,30 @@
 "use client";
 
-// Root-level fallback: catches errors thrown by layout.tsx itself (a normal
-// error.tsx can't, since it renders inside the layout it's meant to protect).
-// Must render its own <html>/<body> since it replaces the entire root layout.
-export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+// App Router's last-resort error boundary — catches errors the root
+// layout itself throws, which nothing else in the tree can catch. Reports
+// to Sentry when configured (captureException is a documented safe no-op
+// when NEXT_PUBLIC_SENTRY_DSN was never set, matching the rest of this
+// build's Sentry wiring — see src/instrumentation-client.ts).
+import * as Sentry from "@sentry/nextjs";
+import { useEffect } from "react";
+import "./globals.css";
+
+export default function GlobalError({ error }: { error: Error & { digest?: string } }) {
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
+
   return (
-    <html lang="en" className="dark">
-      <body className="bg-ink-950 text-fg">
-        <div className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-6 text-center">
-          <h1 className="text-xl font-bold text-fg">Survival School hit a snag.</h1>
+    <html lang="en">
+      <body className="flex min-h-screen items-center justify-center bg-ink-950 px-6 text-center">
+        <div>
+          <h1 className="text-2xl font-bold text-fg">Something went wrong</h1>
           <p className="mt-2 text-sm text-fg-muted">
-            Something broke at the application level. Reloading usually fixes it.
+            We hit an unexpected error. Try reloading the page — if it keeps happening, let us know.
           </p>
-          <button
-            onClick={() => reset()}
-            className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600"
-          >
+          <button onClick={() => window.location.reload()} className="btn-primary mt-6">
             Reload
           </button>
-          {error.digest && <p className="mt-4 text-xs text-fg-subtle">Reference: {error.digest}</p>}
         </div>
       </body>
     </html>

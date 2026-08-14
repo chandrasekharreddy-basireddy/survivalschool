@@ -29,6 +29,7 @@ export function NavBar() {
           <Link href="/contests" className="hover:text-fg">Contests</Link>
           {user && <Link href="/dashboard" className="hover:text-fg">Dashboard</Link>}
           {user && <Link href="/timetable" className="hover:text-fg">Timetable</Link>}
+          {user && <Link href="/daily-challenge" className="hover:text-fg">Daily Challenge</Link>}
           {user && <Link href="/practice" className="hover:text-fg">Practice</Link>}
           {user && <Link href="/ai-practice" className="hover:text-fg">AI Practice</Link>}
           {user && <Link href="/leaderboard" className="hover:text-fg">Leaderboard</Link>}
@@ -81,6 +82,7 @@ export function NavBar() {
             <Link href="/contests" onClick={() => setMobileOpen(false)} className="hover:text-fg">Contests</Link>
             {user && <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="hover:text-fg">Dashboard</Link>}
             {user && <Link href="/timetable" onClick={() => setMobileOpen(false)} className="hover:text-fg">Timetable</Link>}
+            {user && <Link href="/daily-challenge" onClick={() => setMobileOpen(false)} className="hover:text-fg">Daily Challenge</Link>}
             {user && <Link href="/practice" onClick={() => setMobileOpen(false)} className="hover:text-fg">Practice</Link>}
             {user && <Link href="/ai-practice" onClick={() => setMobileOpen(false)} className="hover:text-fg">AI Practice</Link>}
             {user && <Link href="/leaderboard" onClick={() => setMobileOpen(false)} className="hover:text-fg">Leaderboard</Link>}

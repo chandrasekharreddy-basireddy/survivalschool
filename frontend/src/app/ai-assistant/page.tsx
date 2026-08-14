@@ -116,7 +116,7 @@ export default function AiAssistantPage() {
           <div ref={bottomRef} />
         </div>
 
-        {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+        {error && <p className="mt-2 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
         <div className="mt-4 flex gap-3">
           <input

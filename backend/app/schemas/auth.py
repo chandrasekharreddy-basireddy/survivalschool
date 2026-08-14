@@ -33,6 +33,41 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+class MFAChallengeOut(BaseModel):
+    """Returned by POST /auth/login instead of TokenResponse when the
+    account has TOTP enabled — password was correct, but real tokens are
+    withheld until POST /auth/2fa/verify-login also confirms the code."""
+    mfa_required: bool = True
+    mfa_token: str
+
+
+class TwoFactorSetupOut(BaseModel):
+    secret: str
+    otpauth_url: str
+    qr_code_data_uri: str
+
+
+class TwoFactorConfirmIn(BaseModel):
+    code: str = Field(min_length=6, max_length=8)
+
+
+class TwoFactorConfirmOut(BaseModel):
+    backup_codes: list[str]
+
+
+class TwoFactorDisableIn(BaseModel):
+    password: str
+
+
+class TwoFactorLoginVerify(BaseModel):
+    mfa_token: str
+    # Accepts either a 6-digit TOTP code or a 16-char backup code (see
+    # totp_service.generate_backup_codes) — max_length gives a little slack
+    # above 16 for incidental whitespace a user might paste in, which gets
+    # stripped before comparison in the /2fa/verify-login handler.
+    code: str = Field(min_length=6, max_length=24)
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
@@ -67,6 +102,7 @@ class UserOut(BaseModel):
     full_name: str
     is_email_verified: bool
     is_active: bool = True
+    totp_enabled: bool = False
     roles: list[str]
 
     model_config = {"from_attributes": True}

@@ -108,10 +108,20 @@ mirrors this file and is the actual template to copy for local development.
 
 ## Observability
 
-| Variable | Default |
-|---|---|
-| `LOG_LEVEL` | `INFO` |
-| `SERVICE_VERSION` | `0.1.0` |
+| Variable | Default | Notes |
+|---|---|---|
+| `LOG_LEVEL` | `INFO` | |
+| `SERVICE_VERSION` | `0.1.0` | |
+| `SENTRY_DSN` | unset | If unset, `sentry_sdk.init()` is never called — zero overhead, zero fabricated DSN. See `docs/OBSERVABILITY.md`. |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.0` | |
+
+## Web Push (VAPID)
+
+| Variable | Default | Notes |
+|---|---|---|
+| `VAPID_PUBLIC_KEY` | unset | Generate a real per-deployment keypair with `backend/scripts/generate_vapid_keys.py`. Push sending silently no-ops if unset. See `docs/PUSH_NOTIFICATIONS.md`. |
+| `VAPID_PRIVATE_KEY` | unset | Never commit — this is a real secret, exactly like `JWT_SECRET`. |
+| `VAPID_SUBJECT` | `mailto:admin@example.com` | Contact URI sent in the VAPID JWT `sub` claim; set to a real one in production. |
 
 ## Frontend (`frontend/.env.local` or build args)
 

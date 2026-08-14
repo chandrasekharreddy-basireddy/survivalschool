@@ -1,0 +1,52 @@
+version: 2
+updates:
+  # Backend Python dependencies (backend/requirements.txt)
+  - package-ecosystem: "pip"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "backend"]
+    groups:
+      # Patch/minor bumps land as one combined PR instead of a dozen —
+      # major bumps still get their own PR since those are more likely to
+      # need a manual look at CHANGELOG/breaking changes.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # Frontend Node dependencies (frontend/package.json)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels: ["dependencies", "frontend"]
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # Backend + worker Docker base images
+  - package-ecosystem: "docker"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+
+  - package-ecosystem: "docker"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "docker"]
+
+  # The GitHub Actions used by ci.yml / dependency-scan.yml themselves —
+  # action versions are a real, commonly-overlooked supply-chain surface.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "ci"]

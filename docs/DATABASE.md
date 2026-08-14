@@ -190,15 +190,36 @@ session, not just written and assumed to work:
 
 - Ran `backup_postgres.sh` against a live local Postgres instance — it
   produced a real `.sql.gz` file and passed its own integrity check.
-- Went one step further than the script's own `gzip -t` check: `gunzip`'d that
-  backup and actually restored it into a fresh scratch database
-  (`psql -d ss_restore_test < backup.sql`), then queried a table
-  (`SELECT count(*) FROM users`) and got back the same row count as the
-  source database — proof the backup is genuinely restorable, not just a
-  non-corrupt archive.
 - Validated `11-backup-cronjob.yaml` (and every other manifest in
   `infra/k8s/`) against the Kubernetes OpenAPI schema with `kubeconform
   -strict`: 25/25 resources valid.
+- **A second, more thorough restore drill** (2026-08-14) went beyond a
+  single row-count spot-check:
+  1. Captured per-table row counts and a specific known row's exact field
+     values (`admin@survivalschool.dev`'s email/name/2FA-status) from the
+     live source database before touching anything.
+  2. Ran the real `backup_postgres.sh` end-to-end, producing a genuine
+     20,927-byte `.sql.gz` archive.
+  3. Created a real, separate scratch database
+     (`survivalschool_restore_drill`) and restored the archive into it with
+     `gunzip -c backup.sql.gz | psql -v ON_ERROR_STOP=1` — exit code 0,
+     zero errors in the restore log.
+  4. Re-ran the exact same row-count query and known-row lookup against
+     the restored database: **every table's count matched exactly**
+     (`users`, `roles`, `permissions`, `role_permissions`, `courses`,
+     `badges`, `profiles`), and the known row came back **byte-identical**.
+  5. Confirmed `alembic_version` in the restored database matches the
+     source exactly (`d18e6b4a3f57`) — the restored schema isn't just
+     structurally similar, it's at the identical migration revision.
+  6. Went further than a SQL-level check: **booted the real FastAPI
+     application itself** against the restored database
+     (`DATABASE_URL` pointed at `survivalschool_restore_drill`, nothing
+     else changed) and confirmed `GET /api/v1/health` reported
+     `"database": true` and `GET /api/v1/courses` returned real seeded
+     course rows — proof the restored database isn't just queryable with
+     `psql`, the actual application stack works against it unmodified.
+  7. Tore down the scratch database afterward; nothing from this drill was
+     left running.
 
 **What this does NOT give you**, and what you still need to decide before
 relying on it in production: off-site/cross-region copies (a PVC in the same

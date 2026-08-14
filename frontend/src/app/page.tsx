@@ -23,12 +23,12 @@ export default function LandingPage() {
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-brand-900/40 via-ink-950 to-ink-950" />
         <div className="mx-auto max-w-6xl px-6 py-24 sm:py-32">
           <div className="max-w-2xl">
-            <span className="inline-block rounded-full border border-brand-500/30 bg-brand-500/10 px-3 py-1 text-xs font-medium text-brand-400">
+            <span className="inline-block rounded-full border border-brand-500/30 bg-brand-500/10 px-3 py-1 text-xs font-medium text-brand-600 dark:text-brand-400">
               Built for universities
             </span>
             <h1 className="mt-6 text-4xl font-bold tracking-tight text-fg sm:text-6xl">
               Learning that feels like a game.
-              <span className="block text-brand-400">Assessment that means something.</span>
+              <span className="block text-brand-600 dark:text-brand-400">Assessment that means something.</span>
             </h1>
             <p className="mt-6 text-lg text-fg-muted">
               Survival School turns your course material into MCQ-driven lessons, timed exams, and a
@@ -61,7 +61,7 @@ export default function LandingPage() {
           <div className="mt-10 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             {STEPS.map((s) => (
               <div key={s.step}>
-                <div className="text-sm font-mono text-brand-400">{s.step}</div>
+                <div className="text-sm font-mono text-brand-600 dark:text-brand-400">{s.step}</div>
                 <h3 className="mt-2 font-semibold text-fg">{s.title}</h3>
                 <p className="mt-1 text-sm text-fg-muted">{s.desc}</p>
               </div>

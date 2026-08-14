@@ -145,7 +145,7 @@ export default function EditCoursePage() {
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-fg">Course details</h2>
           {canDeleteCourse && (
-            <button onClick={deleteCourse} disabled={deletingCourse} className="text-xs text-red-400 hover:underline">
+            <button onClick={deleteCourse} disabled={deletingCourse} className="text-xs text-red-700 dark:text-red-400 hover:underline">
               {deletingCourse ? "Deleting…" : "Delete course"}
             </button>
           )}
@@ -226,7 +226,7 @@ export default function EditCoursePage() {
       <div className="card mt-6">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-fg">Quizzes</h2>
-          <Link href={`/instructor/quizzes/create?course_id=${course.id}`} className="text-sm text-brand-400 hover:underline">+ New quiz</Link>
+          <Link href={`/instructor/quizzes/create?course_id=${course.id}`} className="text-sm text-brand-600 dark:text-brand-400 hover:underline">+ New quiz</Link>
         </div>
         {quizzes.length === 0 ? (
           <p className="mt-3 text-sm text-fg-subtle">No quizzes yet.</p>
@@ -235,7 +235,7 @@ export default function EditCoursePage() {
             {quizzes.map((q) => (
               <li key={q.id} className="flex items-center justify-between text-sm">
                 <span className="text-fg-muted">{q.title}</span>
-                <span className={q.is_published ? "text-emerald-400" : "text-amber-400"}>{q.is_published ? "Published" : "Draft"}</span>
+                <span className={q.is_published ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>{q.is_published ? "Published" : "Draft"}</span>
               </li>
             ))}
           </ul>
@@ -245,7 +245,7 @@ export default function EditCoursePage() {
       <div className="card mt-6">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-fg">Exams</h2>
-          <Link href={`/instructor/exams/create?course_id=${course.id}`} className="text-sm text-brand-400 hover:underline">+ New exam</Link>
+          <Link href={`/instructor/exams/create?course_id=${course.id}`} className="text-sm text-brand-600 dark:text-brand-400 hover:underline">+ New exam</Link>
         </div>
         {exams.length === 0 ? (
           <p className="mt-3 text-sm text-fg-subtle">No exams yet.</p>
@@ -255,8 +255,8 @@ export default function EditCoursePage() {
               <li key={e.id} className="flex items-center justify-between text-sm">
                 <span className="text-fg-muted">{e.title}</span>
                 <div className="flex items-center gap-3">
-                  <Link href={`/instructor/exams/${e.id}/flagged`} className="text-xs text-brand-400 hover:underline">Review flags</Link>
-                  <span className={e.is_published ? "text-emerald-400" : "text-amber-400"}>{e.is_published ? "Published" : "Draft"}</span>
+                  <Link href={`/instructor/exams/${e.id}/flagged`} className="text-xs text-brand-600 dark:text-brand-400 hover:underline">Review flags</Link>
+                  <span className={e.is_published ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}>{e.is_published ? "Published" : "Draft"}</span>
                 </div>
               </li>
             ))}
@@ -353,7 +353,7 @@ function BulkImportPanel({ courseId }: { courseId: string }) {
                     <td className="px-2 py-1.5 text-fg-subtle">{r.row_number}</td>
                     <td className="max-w-xs truncate px-2 py-1.5 text-fg-muted">{r.prompt || "—"}</td>
                     <td className="px-2 py-1.5 text-fg-muted">{r.question_type || "—"}</td>
-                    <td className={`px-2 py-1.5 ${r.error ? "text-red-400" : "text-emerald-400"}`}>{r.error || "OK"}</td>
+                    <td className={`px-2 py-1.5 ${r.error ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}>{r.error || "OK"}</td>
                   </tr>
                 ))}
               </tbody>

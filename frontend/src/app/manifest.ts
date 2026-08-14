@@ -1,9 +1,8 @@
 import type { MetadataRoute } from "next";
 
-// A filled-in manifest (installable app metadata, theme colors) — not a full
-// PWA (that's offline support / a service worker, tracked separately as a
-// P2/nice-to-have, not implemented here). This alone gets "Add to Home
-// Screen" and correct browser chrome theming working.
+// Installable app metadata (name, theme colors, start URL). Paired with a
+// real build-generated service worker (src/app/sw.ts, see docs/PWA.md) for
+// offline app-shell caching and real Web Push (docs/PUSH_NOTIFICATIONS.md).
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Survival School",

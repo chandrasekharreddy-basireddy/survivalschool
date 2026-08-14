@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
+import jwt as pyjwt
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,24 +12,32 @@ from sqlalchemy.orm import selectinload
 from app.config import get_settings
 from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
-from app.dependencies import get_client_ip, get_current_user
+from app.dependencies import get_client_ip, get_current_user, get_current_verified_user
 from app.models.user import EmailVerification, PasswordReset, RefreshToken, Role, User
 from app.models.user import Session as SessionModel
 from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
     MessageResponse,
+    MFAChallengeOut,
     RefreshRequest,
     RegisterRequest,
     ResendVerificationRequest,
     ResetPasswordRequest,
     TokenResponse,
+    TwoFactorConfirmIn,
+    TwoFactorConfirmOut,
+    TwoFactorDisableIn,
+    TwoFactorLoginVerify,
+    TwoFactorSetupOut,
     UserOut,
     VerifyEmailRequest,
 )
 from app.security.passwords import hash_password, verify_password, verify_password_dummy
 from app.security.tokens import (
     create_access_token,
+    create_mfa_pending_token,
+    decode_mfa_pending_token,
     hash_token,
     new_email_verification_token,
     new_password_reset_token,
@@ -40,6 +49,13 @@ from app.services.email_service import send_email
 from app.services.n8n_service import emit_event
 from app.services.notification_service import notify_security_event
 from app.services.rate_limit_service import enforce_rate_limit
+from app.services.totp_service import (
+    generate_backup_codes,
+    generate_secret,
+    provisioning_uri,
+    qr_code_data_uri,
+    verify_code,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -179,7 +195,7 @@ async def resend_verification(payload: ResendVerificationRequest, request: Reque
     return generic
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse | MFAChallengeOut)
 async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"login:{get_client_ip(request)}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
     await enforce_rate_limit(f"login-email:{payload.email.lower()}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
@@ -222,6 +238,17 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
     user.locked_until = None
     user.last_login_at = datetime.now(timezone.utc)
 
+    if user.totp_enabled:
+        # Password was correct, but real tokens are withheld until the
+        # matching TOTP/backup code is also verified — see
+        # POST /auth/2fa/verify-login and create_mfa_pending_token's
+        # docstring for why this can't be used as a bearer token anywhere.
+        mfa_token = create_mfa_pending_token(user.id)
+        await record_audit_event(db, actor_id=user.id, action="user.login_mfa_challenge", resource_type="user",
+                                  resource_id=str(user.id), ip_address=get_client_ip(request))
+        await db.commit()
+        return MFAChallengeOut(mfa_token=mfa_token)
+
     tokens = await _issue_tokens(db, user, request, payload.device_label)
     await record_audit_event(db, actor_id=user.id, action="user.login", resource_type="user",
                               resource_id=str(user.id), ip_address=get_client_ip(request))
@@ -234,6 +261,108 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
     )
     await db.commit()
     return tokens
+
+
+@router.post("/2fa/verify-login", response_model=TokenResponse)
+async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, db: AsyncSession = Depends(get_db)):
+    """Second step of login for accounts with TOTP enabled. Takes the
+    mfa_token from the MFAChallengeOut response plus a 6-digit TOTP code
+    (or an 8-character backup code) and, if valid, issues real tokens via
+    the exact same _issue_tokens/audit/notify path a normal password-only
+    login uses."""
+    await enforce_rate_limit(f"2fa-verify:{get_client_ip(request)}", limit=10, window_seconds=300)
+
+    try:
+        mfa_payload = decode_mfa_pending_token(payload.mfa_token)
+    except pyjwt.PyJWTError:
+        raise AuthenticationError("Your sign-in session expired — please log in again.", code="mfa_session_expired")
+
+    user = await _load_user_with_roles(db, uuid.UUID(mfa_payload["sub"]))
+    if user is None or not user.totp_enabled or not user.is_active or user.deleted_at is not None:
+        raise AuthenticationError("Your sign-in session expired — please log in again.", code="mfa_session_expired")
+
+    await enforce_rate_limit(f"2fa-verify-user:{user.id}", limit=10, window_seconds=300)
+
+    verified = verify_code(user.totp_secret, payload.code)
+    if not verified:
+        # Fall back to a one-time backup code — normalize the same way
+        # they were generated (upper-case hex, see totp_service.generate_
+        # backup_codes) before hashing and comparing.
+        normalized = payload.code.strip().upper().replace(" ", "")
+        code_hash = hash_token(normalized)
+        if code_hash in (user.totp_backup_codes or []):
+            verified = True
+            user.totp_backup_codes = [c for c in user.totp_backup_codes if c != code_hash]
+
+    if not verified:
+        await record_audit_event(db, actor_id=user.id, action="user.login_mfa_failed", resource_type="user",
+                                  resource_id=str(user.id), result="failure", ip_address=get_client_ip(request))
+        await db.commit()
+        raise AuthenticationError("Invalid authentication code.", code="invalid_2fa_code")
+
+    tokens = await _issue_tokens(db, user, request, None)
+    await record_audit_event(db, actor_id=user.id, action="user.login", resource_type="user",
+                              resource_id=str(user.id), ip_address=get_client_ip(request))
+    await track_event(db, event_type="login", user_id=user.id, source="web")
+    await db.commit()
+
+    await notify_security_event(
+        db, user, "login_alert", "New sign-in to your account",
+        device_label=None, ip_address=get_client_ip(request),
+    )
+    await db.commit()
+    return tokens
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupOut)
+async def setup_2fa(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    """Step 1: generate a new secret and return a QR code to scan into an
+    authenticator app. This does NOT enable 2FA yet — the secret is
+    "pending" until POST /auth/2fa/confirm proves the app actually has it,
+    so a user can't get locked out by a secret their app never saved."""
+    if user.totp_enabled:
+        raise ConflictError("Two-factor authentication is already enabled. Disable it first to re-set-up.")
+    secret = generate_secret()
+    user.totp_secret = secret
+    await db.commit()
+    otpauth_url = provisioning_uri(secret, user.email)
+    return TwoFactorSetupOut(secret=secret, otpauth_url=otpauth_url, qr_code_data_uri=qr_code_data_uri(otpauth_url))
+
+
+@router.post("/2fa/confirm", response_model=TwoFactorConfirmOut)
+async def confirm_2fa(payload: TwoFactorConfirmIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    """Step 2: prove the authenticator app in step 1 actually works, then
+    flip totp_enabled on and hand back one-time backup codes — shown to the
+    user exactly once here, never recoverable afterward (only their SHA-256
+    hashes are stored)."""
+    if not user.totp_secret:
+        raise ValidationAppError("Start setup first via POST /auth/2fa/setup.")
+    if user.totp_enabled:
+        raise ConflictError("Two-factor authentication is already enabled.")
+    if not verify_code(user.totp_secret, payload.code):
+        raise ValidationAppError("Incorrect code — check your authenticator app and try again.")
+
+    backup_codes = generate_backup_codes()
+    user.totp_backup_codes = [hash_token(c) for c in backup_codes]
+    user.totp_enabled = True
+    await record_audit_event(db, actor_id=user.id, action="user.2fa_enabled", resource_type="user", resource_id=str(user.id))
+    await db.commit()
+    return TwoFactorConfirmOut(backup_codes=backup_codes)
+
+
+@router.post("/2fa/disable", response_model=MessageResponse)
+async def disable_2fa(payload: TwoFactorDisableIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    """Requires re-entering the account password (not just an active
+    session) — disabling 2FA is a security-downgrading action, same bar as
+    changing a password elsewhere in this app."""
+    if not verify_password(payload.password, user.password_hash):
+        raise AuthenticationError("Incorrect password.")
+    user.totp_secret = None
+    user.totp_enabled = False
+    user.totp_backup_codes = []
+    await record_audit_event(db, actor_id=user.id, action="user.2fa_disabled", resource_type="user", resource_id=str(user.id))
+    await db.commit()
+    return MessageResponse(message="Two-factor authentication has been disabled.")
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -365,4 +494,5 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
 @router.get("/me", response_model=UserOut)
 async def get_me(user: User = Depends(get_current_user)):
     return UserOut(id=user.id, email=user.email, full_name=user.full_name,
-                    is_email_verified=user.is_email_verified, roles=[r.name for r in user.roles])
+                    is_email_verified=user.is_email_verified, totp_enabled=user.totp_enabled,
+                    roles=[r.name for r in user.roles])

@@ -172,7 +172,7 @@ export default function ContestDetailPage() {
             {leaderboard.map((e) => (
               <li key={e.student_id} className={`card !p-3 flex items-center justify-between text-sm ${e.rank <= contest.top_n_awarded ? "border-amber-500/40" : ""}`}>
                 <span className="flex items-center gap-3">
-                  <span className={`font-mono font-bold ${e.rank <= contest.top_n_awarded ? "text-amber-400" : "text-fg-subtle"}`}>#{e.rank}</span>
+                  <span className={`font-mono font-bold ${e.rank <= contest.top_n_awarded ? "text-amber-700 dark:text-amber-400" : "text-fg-subtle"}`}>#{e.rank}</span>
                   <span className="text-fg">{e.student_name}</span>
                 </span>
                 <span className="text-fg-muted">{e.score_percent}%</span>

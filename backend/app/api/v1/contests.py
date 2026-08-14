@@ -25,8 +25,23 @@ from app.schemas.contest import (
     LeaderboardEntryOut,
 )
 from app.services.audit_service import record_audit_event
+from app.services.cache_service import (
+    bump_cache_version,
+    cache_delete,
+    cache_get_json,
+    cache_get_versioned,
+    cache_set_json,
+    cache_set_versioned,
+)
 from app.services.contest_service import finalize_contest
 from app.services.scoring_service import grade_answer, summarize_attempt
+
+# Contest lists change rarely (only on create/finalize) but are read on
+# every visit to the public contests page — worth a short cache. The
+# leaderboard changes on every submission during a live contest, so it gets
+# its own much shorter TTL, invalidated directly on submit.
+_CONTESTS_LIST_TTL = 15
+_LEADERBOARD_TTL = 5
 
 router = APIRouter(prefix="/contests", tags=["contests"])
 
@@ -44,23 +59,36 @@ def _contest_out(contest: Contest) -> ContestOut:
 async def list_contests(status_filter: str | None = Query(None, alias="status"), db: AsyncSession = Depends(get_db)):
     """Public — browsing contests (and the countdown to the next one) doesn't
     require an account; only participating does."""
+    cache_key = f"status={status_filter or ''}"
+    cached = await cache_get_versioned("contests_list", cache_key)
+    if cached is not None:
+        return cached
+
     stmt = select(Contest).order_by(Contest.starts_at.desc())
     if status_filter:
         stmt = stmt.where(Contest.status == status_filter)
     contests = (await db.execute(stmt)).scalars().all()
-    return [_contest_out(c) for c in contests]
+    out = [_contest_out(c) for c in contests]
+    await cache_set_versioned("contests_list", cache_key, [o.model_dump(mode="json") for o in out], _CONTESTS_LIST_TTL)
+    return out
 
 
 @router.get("/upcoming", response_model=list[ContestOut])
 async def upcoming_contests(db: AsyncSession = Depends(get_db)):
     """The next open/scheduled contests, soonest first — powers the
     countdown widget. Public."""
+    cached = await cache_get_versioned("contests_list", "upcoming")
+    if cached is not None:
+        return cached
+
     now = datetime.now(timezone.utc)
     contests = (await db.execute(
         select(Contest).where(Contest.status.in_(["scheduled", "open"]), Contest.ends_at > now)
         .order_by(Contest.starts_at.asc()).limit(5)
     )).scalars().all()
-    return [_contest_out(c) for c in contests]
+    out = [_contest_out(c) for c in contests]
+    await cache_set_versioned("contests_list", "upcoming", [o.model_dump(mode="json") for o in out], _CONTESTS_LIST_TTL)
+    return out
 
 
 @router.post("", response_model=ContestOut, status_code=201)
@@ -75,6 +103,7 @@ async def create_contest(payload: ContestCreate, user: User = Depends(require_pe
     await record_audit_event(db, actor_id=user.id, action="contest.create", resource_type="contest")
     await db.commit()
     await db.refresh(contest)
+    await bump_cache_version("contests_list")
     return _contest_out(contest)
 
 
@@ -86,11 +115,27 @@ async def get_contest(contest_id: uuid.UUID, db: AsyncSession = Depends(get_db))
     return _contest_out(contest)
 
 
+def _leaderboard_cache_key(contest_id: uuid.UUID) -> str:
+    return f"contest:{contest_id}:leaderboard"
+
+
 @router.get("/{contest_id}/leaderboard", response_model=list[LeaderboardEntryOut])
 async def contest_leaderboard(contest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     """Public, live — shows every attempt submitted so far, ranked. During an
     open contest this updates in real time as students finish; after
-    finalization it matches the permanent rank/certificate record."""
+    finalization it matches the permanent rank/certificate record.
+
+    Cached for a few seconds: this is the single hottest read during a live
+    contest (every participant's client polls it), and the underlying query
+    joins and sorts every submitted attempt on every request. A 5-second
+    staleness window is invisible to a human refreshing a leaderboard, and
+    the cache is invalidated immediately on every submit anyway, so the
+    window only matters for concurrent requests arriving within the same
+    few seconds."""
+    cached = await cache_get_json(_leaderboard_cache_key(contest_id))
+    if cached is not None:
+        return cached
+
     contest = await db.get(Contest, contest_id)
     if contest is None:
         raise NotFoundError("Contest not found.")
@@ -100,13 +145,15 @@ async def contest_leaderboard(contest_id: uuid.UUID, db: AsyncSession = Depends(
         .where(ContestAttempt.contest_id == contest_id, ContestAttempt.status == "submitted")
         .order_by(ContestAttempt.score_percent.desc(), ContestAttempt.time_taken_seconds.asc(), ContestAttempt.submitted_at.asc())
     )).all()
-    return [
+    out = [
         LeaderboardEntryOut(
             rank=attempt.rank or idx, student_id=attempt.student_id, student_name=name,
             score_percent=attempt.score_percent or 0, time_taken_seconds=attempt.time_taken_seconds,
         )
         for idx, (attempt, name) in enumerate(rows, start=1)
     ]
+    await cache_set_json(_leaderboard_cache_key(contest_id), [o.model_dump(mode="json") for o in out], _LEADERBOARD_TTL)
+    return out
 
 
 @router.post("/{contest_id}/attempts", response_model=ContestAttemptStartOut, status_code=201)
@@ -203,6 +250,7 @@ async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, 
     await record_audit_event(db, actor_id=user.id, action="contest.attempt_submitted", resource_type="contest_attempt", resource_id=str(attempt.id))
     await db.commit()
     await db.refresh(attempt)
+    await cache_delete(_leaderboard_cache_key(attempt.contest_id))
     return ContestResultOut.model_validate(attempt)
 
 

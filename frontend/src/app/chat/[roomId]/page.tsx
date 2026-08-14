@@ -122,7 +122,7 @@ export default function ChatRoomPage() {
     <div className="mx-auto flex h-[calc(100vh-4.5rem)] max-w-2xl flex-col px-6 py-6">
       <div className="flex items-center justify-between">
         <Link href="/chat" className="text-sm text-fg-muted hover:text-fg">&larr; All rooms</Link>
-        <span className={`text-xs ${connected ? "text-emerald-400" : "text-fg-subtle"}`}>{connected ? "Live" : "Connecting…"}</span>
+        <span className={`text-xs ${connected ? "text-emerald-700 dark:text-emerald-400" : "text-fg-subtle"}`}>{connected ? "Live" : "Connecting…"}</span>
       </div>
 
       <div className="card mt-4 flex-1 space-y-3 overflow-y-auto">

@@ -70,7 +70,7 @@ export default function CourseAnalyticsPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-red-400">{error}</p>
+        <p className="text-red-700 dark:text-red-400">{error}</p>
         <Link href="/instructor/courses" className="btn-secondary mt-6 inline-flex">Back to your courses</Link>
       </div>
     );

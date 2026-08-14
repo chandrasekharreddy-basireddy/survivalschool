@@ -17,6 +17,15 @@ build/
 .turbo/
 *.tsbuildinfo
 
+# Serwist/next-pwa service worker build output — regenerated on every
+# `next build` (frontend/next.config.mjs's withSerwistInit), contains a
+# per-build hashed asset manifest, not hand-maintained source. Source is
+# frontend/src/app/sw.ts, which IS tracked.
+frontend/public/sw.js
+frontend/public/sw.js.map
+frontend/public/swe-worker-*.js
+frontend/public/swe-worker-*.js.map
+
 # Env / secrets
 .env
 .env.*

@@ -1,34 +1,138 @@
 # Power BI setup guide
 
-You asked to be given the connection steps rather than have this configured
-for you, since it needs your actual Power BI tenant. Here's exactly how to
-connect it. This document also states plainly what this codebase does and
-does not provide toward that integration — read the "What's real vs. not
-yet built" section before you start.
+This platform now ships **two** real, independent ways to get data into
+Power BI: a REST API push-dataset integration (this document's primary
+focus, as of this pass) and the direct-Postgres pull model documented
+further below (still valid, still zero backend code changes, and a good
+fallback if you'd rather not stand up an Azure AD app).
 
-## What's real vs. not yet built
+## What's real
 
-- **Real and populated**: `app/services/analytics_service.py::track_event()`
-  writes every significant platform event (lesson completions, quiz/exam
-  submissions, certificate issuances, etc.) to the `analytics_events` table
-  — append-only, deliberately decoupled from the transactional tables so
-  Power BI queries never touch hot OLTP paths. This table, plus
-  `audit_logs`, `enrollments`, `quiz_attempts`, `exam_attempts`,
-  `certificates`, and `points`, are all real Postgres tables with real data
-  the moment the platform is used.
-- **Not built**: `POWERBI_TENANT_ID` / `POWERBI_CLIENT_ID` /
-  `POWERBI_CLIENT_SECRET` / `POWERBI_WORKSPACE_ID` exist as settings in
-  `app/config.py` but **no code anywhere calls the Power BI REST API** — no
-  push-dataset integration, no scheduled dataflow trigger, nothing. Those
-  settings are there so a future integration has somewhere to read
-  credentials from; they don't do anything yet. This document describes the
-  path that works today (Power BI pulling from Postgres directly), not a
-  feature that was built and is waiting for your credentials.
+- **Push-dataset REST API integration** (`app/services/powerbi_service.py`):
+  a real service-principal (Azure AD app, client-credentials grant) OAuth2
+  flow against `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`,
+  followed by real Power BI REST API calls
+  (`https://api.powerbi.com/v1.0/myorg/groups/{workspaceId}/datasets`) that
+  create (if missing) a `SurvivalSchool Daily Engagement` push dataset and
+  push one aggregate row per day into its `DailyEngagement` table. Wired
+  into the daily background job (`app/workers/worker.py::run_powerbi_sync`,
+  every 24h) and into an admin-only manual-trigger endpoint
+  (`POST /api/v1/admin/powerbi/sync`) for on-demand testing. Covered by
+  real tests in `backend/tests/test_powerbi.py` — Azure AD token requests,
+  Power BI dataset-create/list/push calls, and the aggregation math are all
+  asserted against seeded data, and the inert-when-unconfigured path is
+  asserted to make zero HTTP calls.
+- **Inert by default**: exactly like `app/services/push_service.py` (VAPID
+  keys) and `app/services/n8n_service.py` (webhook URL) — if any of
+  `POWERBI_TENANT_ID` / `POWERBI_CLIENT_ID` / `POWERBI_CLIENT_SECRET` /
+  `POWERBI_WORKSPACE_ID` is unset, the sync is a logged no-op. No fabricated
+  credentials are baked in anywhere; a real deployment sets its own via env
+  vars.
+- **Data pushed is aggregate-only, never per-student**: one row per
+  calendar day — active student count, quiz attempts/pass rate/average
+  score, daily challenge completions/correct rate, points awarded. No
+  `user_id`, no email, no name — see the schema below. This mirrors the PII
+  discipline already documented for the pull model further down this file.
+- **Also still real**: `app/services/analytics_service.py::track_event()`
+  writes every significant platform event to the append-only
+  `analytics_events` table, which both the push-dataset aggregation and the
+  pull-model approach below read from.
 
-## Recommended approach: Power BI Desktop → PostgreSQL connector (direct query)
+## Setup: push-dataset REST API integration
 
-This works today, requires zero backend code changes, and is the standard
-way Power BI connects to a Postgres-backed application.
+### 1. Register an Azure AD app (service principal)
+
+In the [Azure Portal](https://portal.azure.com) → **Azure Active
+Directory → App registrations → New registration**:
+
+- Name it something like `survivalschool-powerbi-push`.
+- Supported account types: single tenant is fine for this use case.
+- No redirect URI needed (this is a client-credentials/daemon flow, not an
+  interactive login).
+- After creation, note the **Application (client) ID** and **Directory
+  (tenant) ID** from the app's Overview page.
+
+### 2. Create a client secret
+
+App registration → **Certificates & secrets → New client secret**. Copy the
+secret **value** immediately (Azure only shows it once) — this becomes
+`POWERBI_CLIENT_SECRET`.
+
+### 3. Enable service principal access in the Power BI tenant
+
+Power BI Service → **Settings → Admin portal → Tenant settings →
+Developer settings → "Allow service principals to use Power BI APIs"** —
+enable it for your organization (or a security group containing this app).
+This step is required or every API call will get a 403 regardless of the
+next step.
+
+### 4. Grant the app access to your workspace
+
+In the Power BI Service, open the workspace you want this data pushed to
+→ **Access → Add people or groups** → search for the app registration by
+name → add it as **Contributor** or higher (Contributor can create/write
+datasets; Admin is not required). Note the workspace's ID (from its URL,
+`app.powerbi.com/groups/{workspaceId}/...`) — this becomes
+`POWERBI_WORKSPACE_ID`.
+
+### 5. Set the four environment variables
+
+In `backend/.env` (see `backend/.env.example`):
+
+```
+POWERBI_TENANT_ID=<Directory (tenant) ID from step 1>
+POWERBI_CLIENT_ID=<Application (client) ID from step 1>
+POWERBI_CLIENT_SECRET=<client secret value from step 2>
+POWERBI_WORKSPACE_ID=<workspace ID from step 4>
+```
+
+All four must be set for the integration to activate — a partially-set
+group is treated as unconfigured (fails safe to inert, per
+`powerbi_configured()` in `app/services/powerbi_service.py`).
+
+### 6. Verify it
+
+Restart the backend (or the worker), then as an admin user call:
+
+```
+POST /api/v1/admin/powerbi/sync
+Authorization: Bearer <admin access token>
+```
+
+A `{"status": "synced", "date": "...", ...}` response means the dataset
+was created (first run) or found, and yesterday's aggregate row was pushed.
+A `{"status": "skipped", "reason": "powerbi_not_configured"}` response means
+one of the four env vars is still missing.
+
+In the Power BI Service, open the target workspace and you should see a new
+dataset named **SurvivalSchool Daily Engagement**. Build a report against
+its `DailyEngagement` table — it accumulates one row per day going forward
+(the scheduled worker job runs this automatically every 24 hours; the admin
+endpoint is for on-demand testing/backfill, not a substitute for it).
+
+### 7. Dataset schema (`DailyEngagement` table)
+
+| Column | Type | Meaning |
+|---|---|---|
+| `Date` | DateTime | Calendar day (UTC midnight) this row summarizes |
+| `ActiveStudents` | Int64 | Distinct students with at least one tracked analytics event that day |
+| `QuizAttempts` | Int64 | Quiz attempts submitted that day |
+| `QuizPassRate` | Double | Fraction (0–1) of that day's submitted quiz attempts that passed |
+| `AverageQuizScore` | Double | Mean `score_percent` across that day's submitted quiz attempts |
+| `DailyChallengeCompletions` | Int64 | Daily-challenge attempts submitted that day |
+| `DailyChallengeCorrectRate` | Double | Fraction (0–1) of that day's daily-challenge attempts answered correctly |
+| `PointsAwarded` | Int64 | Sum of gamification points awarded that day |
+
+No student-identifying column exists in this table by design (spec section
+50: data minimization) — join to per-student detail is intentionally not
+possible from this dataset; use the pull model below if you need
+per-student drill-down.
+
+## Alternative / complementary approach: Power BI Desktop → PostgreSQL connector (direct query)
+
+Still fully supported, requires zero backend code changes, and is the
+better choice if you want per-student drill-down (the push dataset above
+is aggregate-only) or don't want to stand up an Azure AD app at all.
 
 ### 1. Create a read-only reporting database user
 
@@ -106,15 +210,3 @@ credentials via an on-premises data gateway if your database isn't
 publicly reachable, or directly if it is (with the connection properly
 firewalled to Power BI's egress IP ranges — check Microsoft's published
 IP list for your region before opening that up).
-
-## If you later want a real Power BI REST API push-dataset integration
-
-That's a materially different (and larger) piece of work than the pull
-model above: registering an Azure AD app, implementing OAuth2 client
-credentials flow against `POWERBI_TENANT_ID`/`POWERBI_CLIENT_ID`/
-`POWERBI_CLIENT_SECRET`, and a backend job that pushes rows to a Power BI
-streaming/push dataset on a schedule. None of that exists in this codebase
-yet — the settings are placeholders for exactly this future work. The
-pull-model approach above is almost certainly what you want first: it needs
-no backend code, works today, and is how most Power BI + Postgres
-integrations are actually built in practice.

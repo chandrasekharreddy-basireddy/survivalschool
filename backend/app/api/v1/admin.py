@@ -23,6 +23,7 @@ from app.models.user import User
 from app.redis_client import check_redis_health
 from app.schemas.auth import UserOut
 from app.services.audit_service import record_audit_event
+from app.services.powerbi_service import sync_daily_engagement
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 settings = get_settings()
@@ -188,3 +189,29 @@ async def activate_user(
     return UserOut(id=target.id, email=target.email, full_name=target.full_name,
                     is_email_verified=target.is_email_verified, is_active=target.is_active,
                     roles=[r.name for r in target.roles])
+
+
+class PowerBISyncOut(BaseModel):
+    status: str
+    reason: str | None = None
+    date: str | None = None
+
+
+@router.post("/powerbi/sync", response_model=PowerBISyncOut)
+async def trigger_powerbi_sync(
+    admin: User = Depends(require_permission("analytics.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manual on-demand trigger for the daily Power BI aggregate-analytics
+    push (same code path as the worker's scheduled job — see
+    app/workers/worker.py::run_powerbi_sync) so an admin can test/verify the
+    integration without waiting for the next scheduled run. Returns
+    status=skipped (not an error) if POWERBI_* env vars aren't configured."""
+    result = await sync_daily_engagement(db)
+    await record_audit_event(
+        db, actor_id=admin.id, action="powerbi.sync_triggered",
+        resource_type="powerbi_dataset", resource_id=result.get("date"),
+        metadata={"status": result["status"]},
+    )
+    await db.commit()
+    return PowerBISyncOut(status=result["status"], reason=result.get("reason"), date=result.get("date"))

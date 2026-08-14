@@ -25,6 +25,7 @@ from app.models.user import Session as SessionModel
 from app.services.contest_service import check_and_create_scheduled_contests, check_and_finalize_contests
 from app.services.email_service import send_email
 from app.services.n8n_service import emit_event
+from app.services.powerbi_service import sync_daily_engagement
 
 logger = structlog.get_logger("survivalschool.worker")
 settings = get_settings()
@@ -109,11 +110,22 @@ async def run_contest_scheduler() -> None:
         logger.info("contests_finalized", count=len(finalized), titles=[c.title for c in finalized])
 
 
+async def run_powerbi_sync() -> None:
+    """Pushes yesterday's aggregate engagement stats to Power BI (see
+    app/services/powerbi_service.py). No-op, logged, if POWERBI_* env vars
+    aren't set — same inert-by-default pattern as send_inactivity_reminders'
+    n8n dependency."""
+    async with AsyncSessionLocal() as db:
+        result = await sync_daily_engagement(db)
+    logger.info("powerbi_sync_job_done", status=result["status"])
+
+
 JOBS = [
     (cleanup_expired_tokens, 3600),
     (recompute_leaderboard_snapshot, 300),
     (send_inactivity_reminders, 86400),
     (run_contest_scheduler, 300),  # every 5 minutes — see docstring above
+    (run_powerbi_sync, 86400),  # once daily — pushes yesterday's aggregate stats
 ]
 
 

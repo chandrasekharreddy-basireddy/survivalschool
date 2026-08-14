@@ -15,6 +15,23 @@ but the live network call has not been exercised from this sandbox.
 credential) prevents doing more right now. **GAP** = a known limitation,
 documented rather than hidden.
 
+## 2026-08-14: real Power BI push-dataset integration — TESTED
+
+Replaced the earlier "guidance only" Power BI section with a real, working
+integration: `app/services/powerbi_service.py` does a real service-principal
+(Azure AD client-credentials) OAuth2 flow and pushes daily aggregate
+engagement stats (active students, quiz pass rate/avg score, daily-challenge
+completion/correct rate, points awarded — no PII) to a Power BI push
+dataset, wired into both the daily worker job and a new admin-only manual
+trigger (`POST /api/v1/admin/powerbi/sync`). Inert by default (same pattern
+as Sentry/VAPID/n8n) when `POWERBI_*` env vars are unset. Covered by
+`backend/tests/test_powerbi.py` — token-request payload, dataset
+create/reuse schema, aggregation math against seeded data, and the
+inert-when-unconfigured no-HTTP-call guarantee are all asserted. See
+`docs/POWERBI.md` for setup steps (Azure AD app registration + workspace
+grant). The direct-Postgres pull-model guidance from the earlier pass is
+still documented and still valid as a complementary/fallback approach.
+
 ## Sixth pass (v1.0.0): performance, security, reliability, accessibility, PWA, push, engagement — TESTED
 
 The hardening pass that brought this from "features work" to "1.0.0" (see
@@ -500,14 +517,22 @@ their own exam score).
   backend code gap.
 - Full detail + a `curl` command to verify the live hop: `docs/N8N.md`.
 
-## Power BI — GUIDANCE PROVIDED, NOT INTEGRATED
+## Power BI — TESTED (push-dataset REST API integration, real service principal flow)
 
-- Per your request, no code integration was attempted — `docs/POWERBI.md`
-  gives you the exact steps to connect Power BI Desktop to the platform's
-  Postgres data directly (the standard, working-today approach), including
-  a read-only reporting role and a note on which tables/columns to expose.
-  The `POWERBI_*` settings exist in config as placeholders for a possible
-  future REST-API push-dataset integration, which does not exist yet.
+- `app/services/powerbi_service.py` implements a real Azure AD
+  client-credentials OAuth2 flow and pushes daily aggregate engagement
+  stats to a Power BI push dataset via the real Power BI REST API. Wired
+  into the daily worker job and an admin-only manual-trigger endpoint
+  (`POST /api/v1/admin/powerbi/sync`). Inert by default when `POWERBI_*`
+  env vars are unset (same inert-by-default pattern as Sentry/VAPID/n8n) —
+  a real deployment supplies its own Azure AD app credentials, nothing here
+  is fabricated. Covered by `backend/tests/test_powerbi.py`: OAuth2 grant
+  payload, dataset-create schema, aggregation math against seeded data, and
+  the inert-when-unconfigured no-HTTP-call guarantee.
+- `docs/POWERBI.md` also still documents the direct-Postgres pull model
+  (Power BI Desktop → PostgreSQL connector) as a complementary/fallback
+  approach for per-student drill-down, since the push dataset is
+  aggregate-only by design (no PII).
 
 ## WebSocket chat — TESTED (persistence path), GAP (multi-replica), GAP (no automated test)
 
@@ -625,7 +650,7 @@ git push -u origin main
 | Frontend build | TESTED (no automated test suite — GAP) |
 | Sarvam AI | CONFIGURED, BLOCKED (sandbox network) |
 | n8n automation | Workflow TESTED; backend network hop BLOCKED (sandbox network) |
-| Power BI | Guidance delivered, not integrated (by design, per your request) |
+| Power BI | TESTED — real push-dataset REST API integration (service-principal OAuth2), inert by default; direct-Postgres pull-model guidance also retained (2026-08-14) |
 | WebSocket chat | Persistence path TESTED; multi-replica broadcast is a GAP |
 | Docker images | Structurally validated; build BLOCKED (sandbox network) |
 | CI/CD pipeline | Written + cross-checked; not yet run (blocked on GitHub push) |

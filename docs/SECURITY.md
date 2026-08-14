@@ -29,7 +29,21 @@ specific file and, where applicable, a specific passing test.
   `test_account_locks_after_repeated_failures`.
 - **Generic failure messages**: wrong password and non-existent email return
   the same generic error, not "user not found" vs "wrong password" — verified
-  by `test_login_wrong_password_is_generic`.
+  by `test_login_wrong_password_is_generic` and
+  `test_login_nonexistent_email_matches_wrong_password_response`.
+- **Timing-safe login**: the response *body* being identical for "wrong
+  password" and "no such account" isn't the whole story — a second security
+  pass on this codebase found that the "no such account" branch was
+  returning immediately, skipping the (deliberately slow) Argon2id verify
+  that the "wrong password" branch pays, which made the two paths
+  distinguishable by response latency alone. Fixed by calling
+  `verify_password_dummy()` — a real Argon2id verify against a fixed dummy
+  hash — on the not-found branch, so both paths cost the same regardless of
+  which email is being probed. See `app/security/passwords.py` and
+  `tests/test_passwords.py` (which asserts the dummy verify does real,
+  non-trivial hashing work rather than being a no-op — a live A/B timing
+  comparison would be flaky under CI jitter, so the test checks an absolute
+  floor instead).
 - **Email verification**: required before a user can access verified-only
   endpoints (`dependencies.get_current_verified_user`); tokens expire after
   `EMAIL_VERIFICATION_TTL_HOURS` (default 24h).
@@ -54,11 +68,63 @@ specific file and, where applicable, a specific passing test.
 - **Idempotent submission**: duplicate submit of an already-submitted attempt
   does not re-score or double-award points — verified by
   `test_duplicate_quiz_submission_is_idempotent`.
+- **Concurrent-submit race, closed**: a second security pass found that the
+  idempotency check above only works if two concurrent submits for the same
+  attempt are serialized against each other — without that, two requests
+  (double-click, a client retry racing the original, two open tabs) could
+  both read `status == "in_progress"` before either committed, both grade,
+  and both award points/badges. `app/api/v1/quizzes.py::submit_attempt` and
+  `app/api/v1/exams.py::submit_exam_attempt` now fetch the attempt with
+  `with_for_update=True`, which takes a row lock so a second concurrent
+  request blocks until the first commits, then correctly observes
+  `status == "submitted"` and takes the idempotent early return. This is
+  proven, not just asserted: `tests/test_concurrency.py` fires 8 genuinely
+  concurrent submit requests at the same attempt through the real ASGI app
+  and checks the points ledger reflects exactly one grading pass — this test
+  was confirmed to actually fail without the fix (reverted the lock,
+  reran, watched it fail, restored the fix, reran, watched it pass) before
+  being kept as a permanent regression test.
+- **Achievement/certificate insert races**: the same class of race exists
+  one level down — `evaluate_and_award_badges()` and `issue_certificate()`
+  both do a select-then-insert that a concurrent request can race. The
+  database's unique constraints (`uq_achievement_student_badge`,
+  `uq_certificate_student_course`) already prevented a duplicate row from
+  ever being persisted, but the *losing* request used to surface as an
+  unhandled `IntegrityError` (a raw 500) instead of gracefully treating "lost
+  the race" the same as "already awarded." Both now wrap the insert in a
+  `SAVEPOINT` (`db.begin_nested()`) and catch `IntegrityError`, so the
+  losing request's own transaction (which may include other legitimate
+  work, like the quiz/exam result that triggered the check) still commits
+  normally.
 - **Exam question options never leak `is_correct`** to student-facing
   responses (`schemas` layer strips it) before submission.
 - **Gamification points/badges are entirely server-computed** — no endpoint
   accepts a client-supplied point value. Verified by
   `test_gamification_points_and_badges_are_server_computed`.
+
+## Client IP resolution (`X-Forwarded-For` trust)
+
+A second security pass on this codebase found that `get_client_ip()`
+(`app/dependencies.py`) trusted the client-supplied `X-Forwarded-For` header
+unconditionally, with no check that the request actually came through a
+trusted reverse proxy. That value fed directly into the per-IP login/register
+rate limiter and the audit-log/session IP address fields — meaning any
+direct caller could set an arbitrary `X-Forwarded-For` value to get a fresh
+rate-limit bucket per request (defeating brute-force throttling) or to
+poison the IP address recorded in security audit logs.
+
+Fixed with a new `TRUST_PROXY_HEADERS` setting, **default `false`**: the app
+now uses the raw TCP peer address (which a client cannot spoof) unless this
+deployment is explicitly known to sit behind a reverse proxy that
+sets/overwrites the header itself. The Kubernetes manifests set it to `true`
+(`infra/k8s/01-configmap.yaml`) since that deployment always sits behind
+ingress-nginx; `docker-compose.yml`/local dev leave it `false` since the
+backend is directly reachable there. **If you deploy this behind a different
+reverse proxy topology, set this explicitly** — leaving it `false` behind a
+real proxy means every request appears to come from the proxy's IP (a
+usability bug: one bad actor could exhaust the shared rate-limit bucket for
+everyone), and leaving it `true` without a real proxy in front reopens the
+spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
 
 ## Rate limiting
 
@@ -107,10 +173,29 @@ specific file and, where applicable, a specific passing test.
   `jinja2`, `python-dotenv`, `pytest`, `uvicorn`, and `gunicorn` were all
   bumped to patched versions during this build specifically to close
   vulnerabilities `pip-audit` originally flagged.
-- Frontend: `npm audit` flags advisories tied to the Next.js 14.x line and
-  the transitive dependency tree is broad; the direct `postcss` dependency
-  was bumped to a patched version (8.5.26) during this build. A major-version
-  upgrade to Next.js 16 was deliberately deferred — see "Known gaps" below.
+- Frontend: `npm audit` reports **zero vulnerabilities** as of this session.
+  This was previously a known, deliberately-deferred gap (Next.js 14.2.x had
+  21 open advisories — DoS, XSS, SSRF, and cache-poisoning classes — none of
+  which are fixed anywhere in the 14.x line; Vercel's security backports stop
+  at 15.5.x). A second security pass upgraded to Next.js 15.5.23 + React
+  19.2.8 rather than deferring again, specifically chosen as the *lowest*
+  version satisfying every advisory's fixed-version threshold (some needed
+  ≥15.5.10, the last needed ≥15.5.21) — a smaller jump than the latest
+  major (16.3.1) that npm's own `audit fix --force` suggested. This was safe
+  to verify fully: every page in this app is a client component
+  (`"use client"`) using the `useParams`/`useSearchParams` hooks rather than
+  server-component `params`/`searchParams` props, so Next 15's breaking
+  change in that area doesn't touch this codebase at all — confirmed by
+  grepping every `page.tsx` before starting the upgrade, not assumed.
+  `npm run lint`, `npm run typecheck`, and `npm run build` all pass
+  post-upgrade with zero errors across all 12 routes. Two more vulnerabilities
+  survived the Next.js bump itself — a `sharp` (image processing) advisory
+  and a nested `postcss` copy bundled inside `next`'s own `node_modules`,
+  neither of which npm's normal dependency resolution reaches since they're
+  transitive/optional deps of `next` itself — closed via an `overrides`
+  block in `package.json` forcing both to patched versions (`sharp` is
+  unused by this app in the first place; grepped for `next/image` and found
+  no usage anywhere in `src/`).
 - Backend container images are scanned with Trivy in CI
   (`.github/workflows/ci.yml`, `docker-build` job) — this has not yet run
   against a real build, since this sandbox cannot push to a container
@@ -137,15 +222,34 @@ specific file and, where applicable, a specific passing test.
 - No mypy/pyright static type checking gate in CI for the backend.
 - Rate limiter fails open on Redis outage (see above) — acceptable for an
   MVP, worth reconsidering for a public production launch under active
-  attack.
+  attack. Combined with `TRUST_PROXY_HEADERS` being misconfigured (see
+  above), these are the two remaining ways an attacker could blunt
+  login/register throttling; both are documented, deliberate tradeoffs with
+  a stated default that fails toward safety, not silent gaps.
+- `start_exam_attempt`/`start_attempt` (starting a new attempt, as opposed to
+  submitting one) still has a narrower, lower-severity race: two concurrent
+  "start" calls for the same student+quiz could both pass the
+  `max_attempts` check and both create an attempt row, in the rare case a
+  student double-clicks "start" right at their attempt limit. Worst case is
+  one extra attempt, not a scoring/points integrity issue like the submit
+  race that was fixed — noted here rather than fixed in this pass since the
+  submit-side race was the one with real integrity impact.
 - No WAF / DDoS layer is provisioned — that's an infrastructure decision for
   wherever this is actually deployed (Cloudflare, AWS WAF, etc.), not
   something the application code can provide.
 - No automated dependency-update bot (Dependabot/Renovate) is configured —
   the versions in `requirements.txt`/`package.json` are a snapshot as of this
   build and will drift.
-- Next.js major-version security advisories are not resolved (deferred, not
-  fixed) — see `docs/CI_CD.md` and the frontend section above.
+- The `Profile.avatar_url` / `Course.cover_image_url` fields are stored and
+  returned to clients as plain strings with no validation that they're
+  actually image URLs, and there is no file-upload endpoint implemented yet
+  despite `STORAGE_BACKEND`/`STORAGE_LOCAL_PATH` existing in config — when
+  that endpoint is built, the storage key/filename must be server-generated
+  (e.g. a UUID), never derived from client-supplied input, to avoid a path
+  traversal vulnerability that doesn't exist today only because the feature
+  doesn't exist today.
 - No penetration test or third-party security audit has been performed —
-  everything above is internal static/dependency scanning and integration
-  testing, not an external adversarial review.
+  everything above is internal static/dependency scanning, integration
+  testing, and two internal security review passes (one during initial
+  build, a second deeper pass specifically hunting for logic bugs and races
+  that static tools don't catch), not an external adversarial review.

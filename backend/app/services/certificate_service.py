@@ -5,6 +5,7 @@ import secrets
 
 import qrcode
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -27,8 +28,21 @@ async def issue_certificate(db: AsyncSession, student: User, course: Course) -> 
         return existing
 
     cert = Certificate(certificate_number=_generate_certificate_number(), student_id=student.id, course_id=course.id)
-    db.add(cert)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(cert)
+            await db.flush()
+    except IntegrityError:
+        # Lost a race with a concurrent request completing the same course for
+        # the same student (e.g. two tabs finishing the last lesson at once).
+        # The unique constraint on (student_id, course_id) already prevented a
+        # duplicate certificate — re-select the one the other request created
+        # instead of surfacing a 500 for what is, from the student's
+        # perspective, a completely normal course completion.
+        existing = (await db.execute(
+            select(Certificate).where(Certificate.student_id == student.id, Certificate.course_id == course.id)
+        )).scalar_one()
+        return existing
     return cert
 
 

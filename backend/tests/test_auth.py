@@ -40,6 +40,23 @@ async def test_login_wrong_password_is_generic(client):
     assert resp.json()["error"]["code"] == "invalid_credentials"
 
 
+async def test_login_nonexistent_email_matches_wrong_password_response(client):
+    # Both branches must be indistinguishable to the caller: same status,
+    # same error code, same message. This is the observable half of the
+    # timing-attack mitigation in app/security/passwords.py — the response
+    # *shape* was already identical before that fix; what was fixable only
+    # via response latency (not visible to this test) is now closed too. See
+    # tests/test_passwords.py for the timing-cost assertion itself.
+    real_email = await register_and_verify(client)
+    real_resp = await client.post("/auth/login", json={"email": real_email, "password": "WrongPassword1!"})
+
+    nonexistent_resp = await client.post("/auth/login", json={"email": unique_email(), "password": "WrongPassword1!"})
+
+    assert real_resp.status_code == nonexistent_resp.status_code == 401
+    assert real_resp.json()["error"]["code"] == nonexistent_resp.json()["error"]["code"] == "invalid_credentials"
+    assert real_resp.json()["error"]["message"] == nonexistent_resp.json()["error"]["message"]
+
+
 async def test_account_locks_after_repeated_failures(client):
     email = await register_and_verify(client)
     for _ in range(5):

@@ -8,11 +8,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.database import get_db
 from app.models.user import Role, User
 from app.models.user import Session as SessionModel
 from app.security.tokens import decode_access_token
+
+settings = get_settings()
 
 
 async def get_current_user(
@@ -90,7 +93,25 @@ def require_role(*role_names: str):
 
 
 def get_client_ip(request: Request) -> str | None:
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    """Resolve the caller's IP for rate limiting and audit logs.
+
+    X-Forwarded-For is attacker-controlled input on any request that reaches
+    this app directly (not through a trusted proxy) — trusting it
+    unconditionally would let a client mint a fresh rate-limit bucket per
+    request just by changing the header, and would let them write whatever
+    they want into the audit trail's ip_address field. Only read it when
+    TRUST_PROXY_HEADERS is explicitly enabled for this deployment (i.e. you
+    know a reverse proxy sits in front of the app and sets/overwrites this
+    header itself); otherwise always use the raw TCP peer address, which the
+    client cannot spoof.
+    """
+    if settings.TRUST_PROXY_HEADERS:
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # The proxy appends the real client IP as the first hop; anything
+            # after it may have been set by the client before reaching the
+            # proxy and should not be trusted either, but the leftmost value
+            # is what a standard single reverse-proxy setup (nginx-ingress,
+            # an ALB, etc.) is expected to have set correctly.
+            return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None

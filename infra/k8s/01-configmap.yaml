@@ -22,6 +22,12 @@ data:
   ACCESS_TOKEN_TTL_MINUTES: "15"
   REFRESH_TOKEN_TTL_DAYS: "30"
 
+  # This deployment sits behind the ingress-nginx controller (09-ingress.yaml),
+  # which sets/overwrites X-Forwarded-For for every request it proxies — safe
+  # to trust here. Set to "false" if you ever run the backend Service directly
+  # reachable without going through that ingress.
+  TRUST_PROXY_HEADERS: "true"
+
   CORS_ORIGINS: "https://app.survivalschool.example"
   FRONTEND_URL: "https://app.survivalschool.example"
 

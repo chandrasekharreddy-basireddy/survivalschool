@@ -18,7 +18,7 @@ matching `docker-compose.yml` exactly.
 succeeds (the compose file is structurally valid — correct service
 dependencies, healthchecks, env wiring, volumes). The backend and frontend
 were run and tested directly on the host (not inside Docker) against real
-local Postgres/Redis instances, which is how the 24 passing backend tests
+local Postgres/Redis instances, which is how the 30 passing backend tests
 and the successful frontend production build were produced.
 
 **What was NOT verified:** actually building and running the Docker images.

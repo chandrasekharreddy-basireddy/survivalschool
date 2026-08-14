@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +58,13 @@ class Quiz(Base, UUIDPk, Timestamped):
 
 class QuizAttempt(Base, UUIDPk, Timestamped):
     __tablename__ = "quiz_attempts"
+    __table_args__ = (
+        # start_attempt() counts prior attempts by (student_id, quiz_id) and
+        # current_attempt() filters by (student_id, quiz_id, status) on every
+        # call — both hot paths that otherwise fall back to intersecting two
+        # single-column indexes.
+        Index("ix_quiz_attempts_student_quiz_status", "student_id", "quiz_id", "status"),
+    )
 
     quiz_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("quizzes.id", ondelete="CASCADE"), nullable=False, index=True
@@ -110,6 +117,13 @@ class Exam(Base, UUIDPk, Timestamped):
 
 class ExamAttempt(Base, UUIDPk, Timestamped):
     __tablename__ = "exam_attempts"
+    __table_args__ = (
+        # start_exam_attempt() filters prior attempts by (student_id, exam_id)
+        # and specifically hunts for a status == "in_progress" row every time
+        # a student opens/resumes an exam — same reasoning as the matching
+        # index on quiz_attempts above.
+        Index("ix_exam_attempts_student_exam_status", "student_id", "exam_id", "status"),
+    )
 
     exam_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True

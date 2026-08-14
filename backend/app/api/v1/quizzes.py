@@ -131,7 +131,15 @@ async def current_attempt(quiz_id: uuid.UUID, user: User = Depends(get_current_v
 
 @router.post("/attempts/{attempt_id}/submit", response_model=AttemptResultOut)
 async def submit_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
-    attempt = await db.get(QuizAttempt, attempt_id)
+    # with_for_update takes a row lock on this attempt for the rest of the
+    # transaction. Without it, two concurrent submits (double-click, a client
+    # retry racing the original request, two open tabs) can both read
+    # status == "in_progress" before either commits, both grade, and both
+    # award points/badges — the idempotency check below only closes that gap
+    # if reads are serialized against each other, which requires the lock.
+    # A second request now simply blocks here until the first one commits,
+    # then re-reads with status == "submitted" and takes the early return.
+    attempt = await db.get(QuizAttempt, attempt_id, with_for_update=True)
     if attempt is None or attempt.student_id != user.id:
         raise NotFoundError("Attempt not found.")
     if attempt.status != "in_progress":

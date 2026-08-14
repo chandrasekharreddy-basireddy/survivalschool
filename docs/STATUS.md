@@ -15,42 +15,127 @@ but the live network call has not been exercised from this sandbox.
 credential) prevents doing more right now. **GAP** = a known limitation,
 documented rather than hidden.
 
+## Second-pass security & bug audit — TESTED, fixes verified
+
+A dedicated follow-up pass specifically hunted for bugs and vulnerabilities
+static tools (ruff/pip-audit/bandit/npm audit) can't catch — logic bugs,
+races, trust assumptions — using an independent deep-dive review of both the
+backend and frontend, then verifying every finding by reading the actual
+code before fixing anything, and re-verifying every fix with tests or
+re-runs of the tooling rather than trusting the review's own claims.
+Confirmed real and fixed:
+
+- **Login timing side-channel**: the "no such account" login branch used to
+  skip Argon2id hashing entirely, making it measurably faster than the
+  "wrong password" branch even though both returned an identical error
+  message — an attacker could enumerate valid emails by response latency.
+  Fixed with a real dummy-hash verify on that branch
+  (`app/security/passwords.py::verify_password_dummy`), proven by a test
+  that checks it does genuine non-trivial hashing work rather than
+  comparing two live timing measurements against each other (which would be
+  flaky under CI jitter).
+- **Double-submit race on quiz/exam attempts**: two concurrent submits for
+  the same attempt (double-click, a client retry, two open tabs) could both
+  pass the "not yet submitted" check before either committed, both grade,
+  and both award points/badges. Fixed with a row lock
+  (`with_for_update=True`) that serializes concurrent submits against each
+  other. This is the one fix in this pass proven with an actual concurrency
+  test, not just a code read: `tests/test_concurrency.py` fires 8 genuinely
+  simultaneous submit requests through the real app and checks points were
+  awarded exactly once — confirmed to fail with the lock removed, confirmed
+  to pass with it restored, before being kept as a permanent regression
+  test.
+- **Unhandled race on badge/certificate awards**: the database's unique
+  constraints already prevented duplicate rows, but the *losing* side of a
+  race used to surface as a raw unhandled 500 instead of gracefully
+  treating "lost the race" as "already awarded." Fixed with a `SAVEPOINT` +
+  `IntegrityError` catch in both `gamification_service.py` and
+  `certificate_service.py`.
+- **`X-Forwarded-For` trusted unconditionally**: any direct caller could
+  spoof this client-supplied header to get a fresh rate-limit bucket per
+  request (defeating login/register brute-force throttling) or to poison
+  the IP address recorded in audit logs. Fixed with a new
+  `TRUST_PROXY_HEADERS` setting, default `false` (fail safe to the raw TCP
+  peer address); the Kubernetes manifests set it `true` since that
+  deployment genuinely sits behind a trusted reverse proxy.
+- **Missing composite indexes**: `quiz_attempts`/`exam_attempts` lacked a
+  combined index on the exact `(student_id, quiz_id/exam_id, status)` triple
+  every attempt-start/resume query filters on. Added via a new, applied
+  Alembic migration.
+- **A hallucinated claim caught inside the code itself**: the WebSocket
+  `ConnectionManager`'s own docstring claimed it was "backed by Redis
+  pub/sub" for multi-replica deployments — it isn't; it's a plain in-memory
+  dict. Corrected the docstring to state the real, still-open limitation
+  (see `docs/REALTIME.md`) rather than leave an inaccurate claim sitting in
+  the source.
+- **Frontend**: Next.js 14.2.35 had 21 open security advisories with no fix
+  anywhere in the 14.x line (Vercel's backports stop at 15.5.x) — this was
+  a previously deferred, documented gap. This pass actually closed it:
+  upgraded to Next.js 15.5.23 + React 19.2.8 (the lowest version satisfying
+  every advisory, not the latest major), verified safe in advance by
+  confirming every page in this app is a client component using hooks
+  rather than the server-component props Next 15 changed, then verified
+  after the fact with a full lint/typecheck/build pass across all 12
+  routes. Two more vulnerabilities surfaced from `next`'s own bundled,
+  unreachable-by-normal-resolution dependencies (`sharp`, a nested
+  `postcss`) — closed via `package.json` `overrides`. `npm audit` now
+  reports **zero vulnerabilities**, down from 21.
+- **Frontend admin page** silently showed a raw, untyped error message on
+  fetch failure instead of the consistent `ApiError`-aware fallback every
+  other page uses — fixed to match.
+- **Cross-platform correctness** (specifically checked because this is
+  meant to also be tested on a Windows 11 laptop, not only Linux): grepped
+  for case-sensitivity mismatches between imports and actual filenames on
+  this case-sensitive Linux sandbox (found none, and added
+  `forceConsistentCasingInFileNames` to `tsconfig.json` so TypeScript itself
+  catches this class of bug on any OS going forward, not just here); added
+  a `.gitattributes` normalizing line endings so a Windows checkout can't
+  corrupt a future shell script; added Windows 11 (PowerShell/cmd) setup
+  instructions to `docs/CONTRIBUTING.md` alongside the existing bash/zsh
+  ones, rather than assuming one platform.
+
+Full detail and the reasoning behind each fix: `docs/SECURITY.md`,
+`docs/DATABASE.md`, `docs/TESTING.md`, `docs/CONTRIBUTING.md`.
+
 ## Backend core — TESTED
 
 - FastAPI app boots, connects to a real local PostgreSQL 16 + Redis 7.
 - 44-table schema created via Alembic (`alembic upgrade head`) against a real
-  database — not just modeled in Python, actually applied.
-- **24/24 tests passing** (`APP_ENV=test python -m pytest -q`), all
+  database — not just modeled in Python, actually applied; a second
+  migration (composite indexes, see above) was added and applied during
+  this session's follow-up audit.
+- **30/30 tests passing** (`APP_ENV=test python -m pytest -q`), all
   integration-style against real Postgres/Redis, covering: registration,
   email verification, login, account lockout, refresh-token rotation +
-  reuse detection, logout/logout-all session revocation, password reset;
-  RBAC enforcement (permission checks, 401s, SUPER_ADMIN bypass);
-  server-authoritative quiz scoring including a direct cheat-attempt test;
-  idempotent submission; certificate issuance + public verification;
-  server-computed gamification; Redis-backed rate limiting. Full breakdown
-  in `docs/TESTING.md`.
+  reuse detection, logout/logout-all session revocation, password reset,
+  the login-timing mitigation; RBAC enforcement (permission checks, 401s,
+  SUPER_ADMIN bypass); server-authoritative quiz scoring including a direct
+  cheat-attempt test; idempotent submission; a genuine 8-way concurrency
+  test proving the double-submit race is closed; certificate issuance +
+  public verification; server-computed gamification; Redis-backed rate
+  limiting. Full breakdown in `docs/TESTING.md`.
 - `ruff check app tests`: **zero errors**.
 - `pip-audit -r requirements.txt`: **zero known vulnerabilities** (fixed
   during this session by upgrading fastapi, starlette, pyjwt,
   python-multipart, jinja2, python-dotenv, pytest, uvicorn, gunicorn,
   setuptools).
-- `bandit -r app -ll`: zero medium/high findings; two low-severity findings
-  reviewed and are not real issues (one tightened anyway — see
-  `docs/SECURITY.md`).
+- `bandit -r app -ll`: zero medium/high findings; one low-severity finding
+  reviewed and is not a real issue (a password-policy message string
+  heuristically flagged as a hardcoded password) — see `docs/SECURITY.md`.
 
 ## Frontend — TESTED (build), GAP (no test suite)
 
 - `npm run lint`, `npm run typecheck`, `npm run build` all succeed.
 - All pages (login, register, forgot/reset password, verify-email,
   dashboard, courses, course detail, certificate verification, admin) build
-  successfully as part of that production build.
+  successfully as part of that production build, now on Next.js 15.5.23 +
+  React 19.2.8 (see above).
 - **GAP**: no Jest/Playwright/Cypress test suite exists — frontend
   correctness beyond "it builds and type-checks" has not been automated.
   Noted as a real gap in `docs/TESTING.md`, not silently omitted.
-- `npm audit`: Next.js 14.x line has open advisories; the direct `postcss`
-  dependency was patched (8.5.26). A Next.js 16 major-version upgrade was
-  deliberately deferred as too large a change to fully validate in this
-  build's timeline — documented, not fixed.
+- `npm audit`: **zero vulnerabilities** — see the second-pass audit section
+  above for how the previous 21 Next.js advisories were actually resolved,
+  not just deferred again.
 
 ## RBAC / auth / anti-cheat — TESTED
 
@@ -192,6 +277,11 @@ git push -u origin main
 |---|---|
 | Backend API + business logic | TESTED |
 | Auth / RBAC / anti-cheat | TESTED |
+| Login timing side-channel | FIXED + TESTED (second-pass audit) |
+| Quiz/exam double-submit race | FIXED + TESTED with a real concurrency test (second-pass audit) |
+| Client IP / rate-limit spoofing | FIXED (second-pass audit) |
+| Frontend dependency vulnerabilities | FIXED — 21 → 0 (second-pass audit, Next.js 15.5.23 upgrade) |
+| Cross-platform (Windows 11) correctness | Checked + hardened (second-pass audit) — see `docs/CONTRIBUTING.md` |
 | Database schema + migrations | TESTED |
 | Frontend build | TESTED (no automated test suite — GAP) |
 | Sarvam AI | CONFIGURED, BLOCKED (sandbox network) |

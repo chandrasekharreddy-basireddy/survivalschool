@@ -20,7 +20,7 @@ described in `docs/TESTING.md`).
    flagged).
 4. `alembic upgrade head` against the service-container Postgres.
 5. `pytest --cov=app --cov-report=term-missing --cov-report=xml` — the same
-   24 tests described in `docs/TESTING.md`, run with `AI_PROVIDER=mock` and
+   30 tests described in `docs/TESTING.md`, run with `AI_PROVIDER=mock` and
    `EMAIL_BACKEND=console` so CI never needs real Sarvam/SMTP credentials.
 6. Upload `coverage.xml` as a build artifact.
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 
 interface DashboardStats {
   total_students: number;
@@ -32,7 +32,9 @@ export default function AdminDashboardPage() {
 
   useEffect(() => {
     if (!user) return;
-    apiFetch<DashboardStats>("/admin/dashboard").then(setStats).catch((e) => setError(e.message));
+    apiFetch<DashboardStats>("/admin/dashboard")
+      .then(setStats)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."));
   }, [user]);
 
   if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-slate-400">Loading…</div>;

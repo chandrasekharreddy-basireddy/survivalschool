@@ -1,12 +1,12 @@
 # Testing
 
-## Backend: 24 tests, all passing against real infrastructure
+## Backend: 30 tests, all passing against real infrastructure
 
 ```bash
 cd backend
 source .venv/bin/activate
 APP_ENV=test python -m pytest -q
-# 24 passed
+# 30 passed
 ```
 
 These are integration tests running against a **real local PostgreSQL 16 and
@@ -18,9 +18,11 @@ pytest-asyncio's per-test event loops (see `docs/DATABASE.md`).
 
 | File | What it proves |
 |---|---|
-| `test_auth.py` (8 tests) | Weak-password rejection; full register→verify→login flow; duplicate registration conflict; generic wrong-password error; account lockout after repeated failures; refresh-token rotation and reuse-detection revoking the session; logout-all revoking every session; password reset revoking existing sessions |
+| `test_auth.py` (9 tests) | Weak-password rejection; full register→verify→login flow; duplicate registration conflict; generic wrong-password error (both the response body *and*, via `test_login_nonexistent_email_matches_wrong_password_response`, that a nonexistent email produces an identical response to a wrong password); account lockout after repeated failures; refresh-token rotation and reuse-detection revoking the session; logout-all revoking every session; password reset revoking existing sessions |
+| `test_passwords.py` (3 tests) | The login-timing-attack mitigation actually does real Argon2id work rather than being a no-op — see `docs/SECURITY.md` for why this checks an absolute time floor rather than comparing two live measurements (comparative timing assertions are flaky under CI jitter) |
 | `test_rbac.py` (4 tests) | Student cannot create a course; unauthenticated request gets a real 401 (not a 403 or a silent pass); an instructor cannot publish another instructor's content without the right permission; `SUPER_ADMIN` bypasses per-permission checks |
 | `test_quiz_and_certificate_flow.py` (4 tests) | **Quiz scoring ignores a client-submitted `is_correct: true`** on a wrong answer (the single most important anti-cheat test in the suite); duplicate submission of an already-submitted attempt is a no-op, not a double-score; completing a course issues a certificate that is independently verifiable via the public endpoint; gamification points/badges are computed server-side, never accepted from the client |
+| `test_concurrency.py` (2 tests) | **Genuinely concurrent** submits (`asyncio.gather`, 8-way) for the same quiz/exam attempt only grade and award points once — proves the `with_for_update` row-lock fix actually closes the race, not just that the code looks correct. This test was confirmed to fail when the lock was temporarily reverted, then pass once restored, before being kept as a regression test. |
 | `test_rate_limiting.py` (2 tests) | The Redis-backed limiter actually blocks after its configured threshold; limits are scoped per key (one user hitting a limit doesn't block a different user) |
 | `test_scoring_service.py` (6 tests) | Unit tests of the pure grading functions in isolation: single-choice correct/incorrect, multiple-choice requires an exact set match (partial credit is not awarded), short-answer normalizes whitespace/case before comparing, pass/fail boundary at the configured threshold, zero-possible-points attempts never register as passed |
 
@@ -31,8 +33,19 @@ Every test in this suite performs real HTTP requests against a real FastAPI
 which run real SQLAlchemy queries against a real Postgres database, and (for
 the rate-limiting tests) real Redis `INCR`/`EXPIRE` calls. Nothing in this
 suite is a unit test with every dependency mocked out — the closest thing to
-a pure unit test is `test_scoring_service.py`, which tests grading logic
-that genuinely has no I/O.
+a pure unit test is `test_scoring_service.py`/`test_passwords.py`, which
+test pure functions that genuinely have no I/O (grading logic, password
+hashing).
+
+`test_concurrency.py` deserves a specific callout: it's the one place in
+this suite that tests for the *absence* of a race condition, which is a
+different (and easier to get wrong) kind of test than asserting a single
+request behaves correctly. The methodology that makes it trustworthy: the
+test was written, confirmed to fail against the pre-fix code (by temporarily
+reverting the fix), then confirmed to pass against the fixed code, before
+being committed as a permanent regression test. A concurrency test that was
+only ever run against already-fixed code can't tell you whether it would
+actually have caught the bug — this one demonstrably would have.
 
 ## Running the full verification chain locally
 
@@ -43,7 +56,7 @@ ruff check app tests              # lint — must be zero errors
 pip-audit -r requirements.txt     # dependency vulnerability scan — must be clean
 bandit -r app -ll                 # security static analysis, medium+ severity
 alembic upgrade head              # apply schema to whatever DB DATABASE_URL points at
-APP_ENV=test python -m pytest -q  # the 24 tests above
+APP_ENV=test python -m pytest -q  # the 30 tests above
 ```
 
 ```bash

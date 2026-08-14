@@ -136,7 +136,14 @@ async def autosave_answer(attempt_id: uuid.UUID, payload: AnswerSubmit, user: Us
 
 @router.post("/attempts/{attempt_id}/submit", response_model=AttemptResultOut)
 async def submit_exam_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
-    attempt = await db.get(ExamAttempt, attempt_id)
+    # See the matching comment in quizzes.py::submit_attempt — with_for_update
+    # closes the race where two concurrent submits for the same attempt both
+    # observe status == "in_progress" and both grade/award points before
+    # either commits. The submission_client_token check below still matters
+    # for its own case (a client-side retry that reuses the same token), but
+    # it doesn't protect against two genuinely different concurrent requests
+    # without this lock.
+    attempt = await db.get(ExamAttempt, attempt_id, with_for_update=True)
     if attempt is None or attempt.student_id != user.id:
         raise NotFoundError("Attempt not found.")
 

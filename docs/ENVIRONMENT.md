@@ -42,6 +42,12 @@ mirrors this file and is the actual template to copy for local development.
 | `MAX_FAILED_LOGIN_ATTEMPTS` | `5` | |
 | `ACCOUNT_LOCK_MINUTES` | `15` | |
 
+## Client IP resolution
+
+| Variable | Default | Notes |
+|---|---|---|
+| `TRUST_PROXY_HEADERS` | `false` | Set `true` only when this app sits behind a reverse proxy you know sets/overwrites `X-Forwarded-For` itself (the Kubernetes manifests do this — `infra/k8s/01-configmap.yaml` sets it `true` since that deployment always sits behind ingress-nginx). Leaving it `false` behind a real proxy means rate limiting and audit logs see the proxy's IP for every request, not each client's; leaving it `true` without a real proxy in front lets any caller spoof their IP. See `docs/SECURITY.md`. |
+
 ## Rate limits
 
 | Variable | Default |

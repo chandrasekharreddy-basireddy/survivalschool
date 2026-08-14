@@ -26,7 +26,7 @@ from app.schemas.auth import (
     UserOut,
     VerifyEmailRequest,
 )
-from app.security.passwords import hash_password, verify_password
+from app.security.passwords import hash_password, verify_password, verify_password_dummy
 from app.security.tokens import (
     create_access_token,
     hash_token,
@@ -193,6 +193,10 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
     generic_error = AuthenticationError("Invalid email or password.", code="invalid_credentials")
 
     if user is None:
+        # Burn the same Argon2id verify cost the "user exists, wrong password"
+        # branch below pays, so response latency can't be used to enumerate
+        # which emails have accounts even though the error message is identical.
+        verify_password_dummy()
         raise generic_error
 
     if user.locked_until and user.locked_until > datetime.now(timezone.utc):

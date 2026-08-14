@@ -45,6 +45,18 @@ class Settings(BaseSettings):
     MAX_FAILED_LOGIN_ATTEMPTS: int = 5
     ACCOUNT_LOCK_MINUTES: int = 15
 
+    # --- Client IP resolution ---
+    # X-Forwarded-For is a client-supplied header — trusting it unconditionally
+    # lets any direct caller set an arbitrary value, which would let an
+    # attacker get a fresh rate-limit bucket per request (defeating login/
+    # register brute-force throttling) and poison the IP address recorded in
+    # audit logs and session records. Only trust it when this deployment is
+    # actually known to sit behind a reverse proxy that sets/overwrites this
+    # header correctly (nginx-ingress, an ALB, Cloudflare, etc.) — the default
+    # is off, so a misconfigured or missing proxy fails safe to the raw TCP
+    # peer address rather than failing open to a spoofable header.
+    TRUST_PROXY_HEADERS: bool = False
+
     # --- Rate limits (spec section 49) — configurable so environments (and
     # the test suite, which legitimately calls these endpoints far more often
     # than any real client would in the same window) can tune them without

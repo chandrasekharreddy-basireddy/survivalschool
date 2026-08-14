@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.gamification import Achievement, Badge, PointsLedger, Streak
@@ -77,9 +78,24 @@ async def evaluate_and_award_badges(db: AsyncSession, student_id: uuid.UUID, eve
         existing = (await db.execute(
             select(Achievement).where(Achievement.student_id == student_id, Achievement.badge_id == badge.id)
         )).scalar_one_or_none()
-        if existing is None:
-            db.add(Achievement(student_id=student_id, badge_id=badge.id))
-            await award_points(db, student_id, 20, reason="badge", reference_id=badge.id)
-            awarded.append(badge)
-    await db.flush()
+        if existing is not None:
+            continue
+
+        # The select-then-insert above has a race window: two concurrent
+        # requests evaluating the same badge for the same student (e.g. two
+        # quiz submissions completing at the same instant) can both see
+        # "not yet awarded" and both try to insert. The database's unique
+        # constraint on (student_id, badge_id) is the real guard; a SAVEPOINT
+        # here means the request that loses the race only rolls back its own
+        # badge insert, not the whole transaction — so the quiz/exam result,
+        # points ledger entries, and everything else this request already
+        # did still commit normally.
+        try:
+            async with db.begin_nested():
+                db.add(Achievement(student_id=student_id, badge_id=badge.id))
+                await award_points(db, student_id, 20, reason="badge", reference_id=badge.id)
+                await db.flush()
+        except IntegrityError:
+            continue
+        awarded.append(badge)
     return awarded

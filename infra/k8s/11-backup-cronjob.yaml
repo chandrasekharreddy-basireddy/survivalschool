@@ -1,0 +1,108 @@
+# Nightly logical (pg_dump) backup of Postgres, uploaded to a PVC-backed
+# directory. This ONLY makes sense as-is when running the in-cluster Postgres
+# StatefulSet (03-postgres.yaml) for staging/demo. For real production, prefer
+# your managed Postgres provider's built-in automated backups + PITR (RDS
+# automated backups, Cloud SQL automated backups, etc.) and treat this
+# CronJob as a supplementary/fallback mechanism, not the primary one — see
+# docs/DATABASE.md for the full honest discussion of what this does and
+# doesn't cover.
+#
+# The backup volume here (backup-storage) is intentionally NOT the same PVC
+# postgres-data uses — a backup that lives on the same volume as the primary
+# data provides no protection against volume-level loss/corruption. Point
+# this at a separate StorageClass, and for real durability, have an
+# out-of-cluster step (not included here) sync backup-storage's contents to
+# object storage (S3/GCS) on a schedule — a PVC alone is not off-site backup.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-backup-storage
+  namespace: survivalschool
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: survivalschool
+spec:
+  schedule: "0 3 * * *" # 03:00 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: pg-backup
+              image: postgres:16-alpine # ships pg_dump matching the server's major version
+              command: ["/scripts/backup_postgres.sh"]
+              env:
+                - name: DATABASE_URL_SYNC
+                  valueFrom:
+                    secretKeyRef:
+                      name: survivalschool-secrets
+                      key: DATABASE_URL_SYNC
+                - name: BACKUP_DIR
+                  value: /backups
+                - name: RETENTION_DAYS
+                  value: "14"
+              volumeMounts:
+                - name: backup-storage
+                  mountPath: /backups
+                - name: backup-script
+                  mountPath: /scripts
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+          volumes:
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: postgres-backup-storage
+            - name: backup-script
+              configMap:
+                name: postgres-backup-script
+                defaultMode: 0755
+---
+# The script is small enough to ship as a ConfigMap rather than requiring a
+# custom image build — keeps this CronJob deployable with only the stock
+# postgres:16-alpine image. If it grows past "small shell script", bake it
+# into a dedicated image instead.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-backup-script
+  namespace: survivalschool
+data:
+  backup_postgres.sh: |
+    #!/usr/bin/env sh
+    set -eu
+    : "${DATABASE_URL_SYNC:?DATABASE_URL_SYNC must be set}"
+    BACKUP_DIR="${BACKUP_DIR:-/backups}"
+    RETENTION_DAYS="${RETENTION_DAYS:-14}"
+    TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+    OUT_FILE="${BACKUP_DIR}/survivalschool-${TIMESTAMP}.sql.gz"
+    mkdir -p "${BACKUP_DIR}"
+    echo "[backup] starting pg_dump -> ${OUT_FILE}"
+    pg_dump --dbname="${DATABASE_URL_SYNC}" --no-owner --no-privileges --format=plain | gzip -9 > "${OUT_FILE}"
+    SIZE_BYTES=$(stat -c%s "${OUT_FILE}")
+    if [ "${SIZE_BYTES}" -lt 100 ]; then
+      echo "[backup] ERROR: output suspiciously small (${SIZE_BYTES} bytes)" >&2
+      rm -f "${OUT_FILE}"
+      exit 1
+    fi
+    gzip -t "${OUT_FILE}"
+    echo "[backup] wrote ${OUT_FILE} (${SIZE_BYTES} bytes), integrity OK"
+    find "${BACKUP_DIR}" -name 'survivalschool-*.sql.gz' -mtime "+${RETENTION_DAYS}" -print -delete
+    echo "[backup] done"

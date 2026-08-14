@@ -15,6 +15,7 @@ from app.dependencies import get_current_verified_user, require_permission
 from app.models.assessment import Question, QuestionOption, Quiz, QuizAnswer, QuizAttempt
 from app.models.user import User
 from app.schemas.assessment import (
+    AttemptHistoryOut,
     AttemptResultOut,
     AttemptSubmit,
     QuestionCreate,
@@ -74,6 +75,14 @@ async def create_quiz(
     return quiz
 
 
+@router.get("/{quiz_id}", response_model=QuizOut)
+async def get_quiz(quiz_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    quiz = await db.get(Quiz, quiz_id)
+    if quiz is None:
+        raise NotFoundError("Quiz not found.")
+    return quiz
+
+
 @router.post("/{quiz_id}/publish", response_model=QuizOut)
 async def publish_quiz(quiz_id: uuid.UUID, user: User = Depends(require_permission("quiz.manage")), db: AsyncSession = Depends(get_db)):
     quiz = await db.get(Quiz, quiz_id)
@@ -116,6 +125,24 @@ async def start_attempt(quiz_id: uuid.UUID, user: User = Depends(get_current_ver
     # but to keep the response a flat list matching QuestionPublicOut we expose attempt id
     # through a dedicated endpoint below instead.
     return [QuestionPublicOut.model_validate(q) for q in ordered]
+
+
+@router.get("/me/attempts", response_model=list[AttemptHistoryOut])
+async def my_quiz_attempts(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(
+        select(QuizAttempt, Quiz.title)
+        .join(Quiz, Quiz.id == QuizAttempt.quiz_id)
+        .where(QuizAttempt.student_id == user.id)
+        .order_by(QuizAttempt.started_at.desc())
+    )).all()
+    return [
+        AttemptHistoryOut(
+            id=a.id, quiz_id=a.quiz_id, title=title, attempt_number=a.attempt_number,
+            status=a.status, score_percent=a.score_percent, passed=a.passed,
+            started_at=a.started_at, submitted_at=a.submitted_at,
+        )
+        for a, title in rows
+    ]
 
 
 @router.get("/{quiz_id}/attempts/current", response_model=dict)

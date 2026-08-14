@@ -6,8 +6,49 @@ import uuid
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import RedirectResponse
+
+from app.config import get_settings
 
 logger = structlog.get_logger("survivalschool.request")
+settings = get_settings()
+
+# Health-check paths are exempt from the HTTPS redirect: Kubernetes probes and
+# load-balancer health checks commonly hit the pod directly over plain HTTP
+# (they run inside the cluster network, never through the TLS-terminating
+# ingress), so redirecting them would make every probe fail and the pod would
+# be killed for "not being healthy" while actually serving traffic fine.
+_HTTPS_REDIRECT_EXEMPT_PATHS = {f"{settings.API_V1_PREFIX}/health", f"{settings.API_V1_PREFIX}/live"}
+
+
+class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
+    """Redirects HTTP -> HTTPS in production.
+
+    Deliberately NOT Starlette's built-in HTTPSRedirectMiddleware, which only
+    ever looks at `request.url.scheme` — behind a reverse proxy/ingress that
+    terminates TLS (the standard production topology here, see
+    docs/DEPLOYMENT.md), the connection FastAPI actually sees is always plain
+    HTTP even when the original client request was HTTPS, so that check alone
+    would redirect-loop every request. Instead this respects
+    `X-Forwarded-Proto`, but ONLY when TRUST_PROXY_HEADERS is set (the same
+    guardrail app/dependencies.py::get_client_ip() uses for X-Forwarded-For) —
+    otherwise a spoofed header could be used to bypass the redirect entirely.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if settings.APP_ENV != "production" or request.url.path in _HTTPS_REDIRECT_EXEMPT_PATHS:
+            return await call_next(request)
+
+        if settings.TRUST_PROXY_HEADERS:
+            scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+        else:
+            scheme = request.url.scheme
+
+        if scheme != "https":
+            https_url = request.url.replace(scheme="https")
+            return RedirectResponse(url=str(https_url), status_code=308)
+
+        return await call_next(request)
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):

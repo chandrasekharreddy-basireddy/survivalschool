@@ -41,21 +41,23 @@ require a specific permission (see `docs/SECURITY.md`).
 |---|---|---|
 | GET | `/users/me/profile` | Own profile detail |
 | PATCH | `/users/me/profile` | Update own profile |
-| GET | `/users` | List users (`users.read`) |
+| GET | `/users` | List users, paginated + searchable (`users.read`) |
 | POST | `/users/{user_id}/roles/{role_name}` | Grant a role (`users.update`) |
 
 ## Courses (`/courses`)
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/courses` | List published courses |
-| POST | `/courses` | Create course (`courses.create`) |
+| GET | `/courses` | List courses — paginated (`limit`/`offset`, total in `X-Total-Count` header). `published_only=true` (default) is public; `published_only=false` requires auth and only returns the caller's own courses unless they hold `system.manage` |
+| POST | `/courses` | Create course (`courses.create`) — accepts `skills`/`specialization`, shown on certificates |
 | GET | `/courses/{course_id}` | Course detail with sections/lessons |
 | PATCH | `/courses/{course_id}` | Update course (`courses.update`) |
 | POST | `/courses/{course_id}/publish` | Publish |
 | POST | `/courses/{course_id}/unpublish` | Unpublish |
 | DELETE | `/courses/{course_id}` | Delete (`courses.delete`) |
 | POST | `/courses/{course_id}/sections` | Add a section (`lessons.manage`) |
+| GET | `/courses/{course_id}/quizzes` | List quizzes for a course |
+| GET | `/courses/{course_id}/exams` | List exams for a course |
 | POST | `/courses/{course_id}/enroll` | Self-enroll; emits `course.enrolled` to n8n |
 | GET | `/courses/me/enrollments` | Own enrollments |
 
@@ -71,29 +73,45 @@ require a specific permission (see `docs/SECURITY.md`).
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/quizzes` | Create quiz (`quiz.create`) |
+| GET | `/quizzes/{quiz_id}` | Quiz metadata |
 | POST | `/quizzes/{quiz_id}/publish` | Publish (`quiz.manage`) |
 | POST | `/quizzes/{quiz_id}/attempts` | Start an attempt — returns questions **without** `is_correct` |
 | GET | `/quizzes/{quiz_id}/attempts/current` | Resume an in-progress attempt |
 | POST | `/quizzes/attempts/{attempt_id}/submit` | Server-side grading; ignores any client-submitted score |
+| GET | `/quizzes/me/attempts` | Own attempt history across all quizzes |
 
 ## Exams (`/exams`)
 
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/exams` | Create exam (`exam.manage`) |
+| GET | `/exams/{exam_id}` | Exam metadata |
 | POST | `/exams/{exam_id}/publish` | Publish |
 | POST | `/exams/{exam_id}/attempts` | Start a timed, server-deadlined attempt (rate-limited: `RATE_LIMIT_EXAM_START_PER_HOUR`) |
 | GET | `/exams/attempts/{attempt_id}/questions` | Fetch this attempt's fixed question order |
 | PUT | `/exams/attempts/{attempt_id}/autosave` | Periodic autosave of in-progress answers |
 | POST | `/exams/attempts/{attempt_id}/submit` | Idempotent submit (`submission_client_token` + status check) |
+| GET | `/exams/attempts/{attempt_id}/review` | Post-submission answer review — 409 if the attempt hasn't been submitted yet (prevents mid-exam answer leakage) |
+| GET | `/exams/me/attempts` | Own attempt history across all exams |
 
 ## Certificates (`/certificates`)
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/certificates/me` | Own earned certificates |
-| GET | `/certificates/verify/{certificate_number}` | **Public**, unauthenticated — PII-minimized verification |
+| GET | `/certificates/verify/{certificate_number}` | **Public**, unauthenticated — PII-minimized verification; flags `revoked` and expiry (`invalid_reason`) |
 | GET | `/certificates/{certificate_number}/qr` | QR code pointing at the public verification URL |
+| GET | `/certificates/{certificate_number}/pdf` | Server-rendered PDF (WeasyPrint). Returns 503 if the PDF renderer's system libraries aren't installed in this deployment rather than crashing the app |
+| POST | `/certificates/{certificate_number}/revoke` | Revoke a certificate (`certificates.manage`, admin-only); recorded as an audit event |
+
+Certificate fields are **snapshotted at issuance**, not live-joined: `grade`,
+`score_percent` are computed once from the student's best submitted
+quiz/exam scores in the course (see grade bands in `docs/DATABASE.md`), and
+`skills`, `specialization`, `instructor_name` are copied from the Course/User
+records at that moment. This is deliberate — a certificate's printed content
+should never silently change because an instructor later edits the course.
+`expires_at` is set only when `CERTIFICATE_VALIDITY_DAYS` is configured
+(unset by default — certificates don't expire unless a deployment opts in).
 
 ## Gamification (`/gamification`)
 
@@ -142,8 +160,18 @@ require a specific permission (see `docs/SECURITY.md`).
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/admin/dashboard` | Aggregate platform metrics (`analytics.view`) |
-| GET | `/admin/audit-logs` | Audit log stream (`system.manage`) |
-| GET | `/admin/system-health` | DB/Redis/n8n/Sarvam configuration status |
+| GET | `/admin/audit-logs` | Audit log stream (`system.manage`); filterable by `actor_id`, `action`, `resource_type`, `result`, `since`, `until` |
+| GET | `/admin/system-health` | DB/Redis/n8n/Sarvam configuration status, plus DB latency, app version, environment, and process uptime |
+| GET | `/admin/users` | List/search users (`system.manage`) |
+| POST | `/admin/users/{user_id}/deactivate` | Deactivate a user — immediately locks them out of authenticated endpoints (`system.manage`) |
+| POST | `/admin/users/{user_id}/activate` | Reactivate a user (`system.manage`) |
+
+## Files (`/files`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/files` | Multipart upload. Validated by **real content-sniffing** (`python-magic`/libmagic against the actual bytes) against an allowlist of MIME types — a disguised executable with a spoofed `Content-Type` header is rejected, not trusted. Size-capped streaming read. Requires `files.upload` |
+| GET | `/files/{file_id}` | Fetch a file. Public files are open to anyone, including anonymous callers; private files require the owner or an admin |
 
 ## Error format
 

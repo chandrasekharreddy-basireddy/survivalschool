@@ -15,6 +15,101 @@ but the live network call has not been exercised from this sandbox.
 credential) prevents doing more right now. **GAP** = a known limitation,
 documented rather than hidden.
 
+## Third-pass: PRODUCTION_AUDIT.md resolution — TESTED, fixes verified
+
+You uploaded a 517-line `PRODUCTION_AUDIT.md` (P0/P1/P2 tiers covering the
+certificate system, backend gaps, missing frontend pages, security,
+infrastructure, testing, and docs) and asked to solve everything in it and
+make the system deployment-ready. What follows is what was actually done,
+not what the audit merely asked for — several audit claims were themselves
+checked against the real code before being acted on, and one was corrected
+rather than blindly implemented.
+
+**Certificate system (P0)** — previously certificates carried no grade,
+score, skills, or instructor info, and had no PDF or revocation path.
+Fixed: `grade`/`score_percent` are now computed server-side
+(`certificate_service.py::_compute_grade_and_score`) from the student's best
+*submitted* quiz/exam scores in that course — never client-supplied, never
+guessed; `skills`/`specialization`/`instructor_name` are snapshotted from the
+Course/User records at issuance time so a certificate's printed content
+can't silently change if an instructor edits the course later; a real PDF is
+generated server-side with WeasyPrint (`GET
+/certificates/{number}/pdf`) — verified by downloading one and confirming
+real `%PDF` magic bytes and a real page render, not just a 200 status; an
+admin-only revoke endpoint exists and is audit-logged; public verification
+now flags revocation and expiry. See `docs/API.md` and
+`docs/DATABASE.md`.
+
+**Backend gaps (P1)** — added 8 endpoints the audit flagged as missing:
+course-scoped quiz/exam listing, quiz/exam attempt history, exam-attempt
+review (blocked with a 409 until the attempt is actually submitted, so a
+student can never read answers mid-exam), single quiz/exam metadata, admin
+user management (list/search/deactivate/reactivate — deactivation is
+checked to immediately lock the user out, not just flip a flag nobody
+reads), and a real file-upload endpoint (`POST /files`) that content-sniffs
+the actual bytes with `python-magic` against an allowlist rather than
+trusting the client's `Content-Type` header — verified by uploading a
+renamed executable and confirming it's rejected on content, not just
+extension. Fixed two N+1 query patterns (`courses/me/enrollments`-adjacent
+leaderboard query, certificate listing) with single joined queries instead.
+Added `limit`/`offset` pagination with an `X-Total-Count` header to
+`/courses` and `/gamification/leaderboard`.
+
+**A real vulnerability introduced and caught during this same pass**: while
+adding `published_only=false` draft-course visibility for instructors'
+dashboards, the first implementation gated it on `courses.read` — which
+every instructor holds for unrelated reasons (viewing published courses).
+That would have let any instructor browse every other instructor's
+unpublished drafts. The test written for this exact feature
+(`test_unpublished_courses_are_not_leaked_to_anonymous_or_other_instructors`)
+caught it — the assertion failed because a second instructor could see the
+first instructor's draft. Fixed by gating the escape hatch on `system.manage`
+(admin-only) instead, scoping everyone else to their own drafts. Re-ran the
+test, confirmed it now passes. Left in here deliberately rather than
+scrubbed from the record, per your standing instruction that nothing be
+hidden.
+
+**Frontend pages (P1)** — the audit listed roughly 20 pages referenced by
+the nav or API but never built. All now exist and match the existing
+Tailwind dark-theme design system (`.card`/`.btn-primary`/`.input`
+conventions, per your project instruction to use one consistent design
+everywhere): quiz-taking, timed exam-taking with autosave and countdown,
+exam review, public certificate view, own-certificates list, leaderboard,
+profile, notifications, settings, AI assistant, instructor course/section/
+lesson/quiz/exam creation and editing, admin user management, admin audit
+logs, and a live WebSocket chat room UI. Also fixed a real, previously
+missing favicon (404 on every page load) and added `sitemap.ts`/
+`manifest.ts`. Verified with a live Playwright browser session against the
+real running stack, not just `next build` succeeding — see `docs/TESTING.md`
+for exactly what that session did.
+
+**Security/infra items (P1)** — HTTPS is now enforced at the app layer
+(`HTTPSRedirectMiddleware`), correctly conditioned on `TRUST_PROXY_HEADERS`
+the same way the existing IP-spoofing fix is, so it doesn't trust a
+spoofable header unless this deployment is actually behind a trusted proxy.
+Prometheus metrics are exposed at `/metrics`
+(`prometheus-fastapi-instrumentator`) — network-layer restricted, not
+app-layer authenticated, so it must not be exposed publicly (see
+`docs/DEPLOYMENT.md`). A nightly Postgres backup CronJob was added with its
+own dedicated PVC and **verified end-to-end**: ran a real `pg_dump`,
+`gunzip`'d it, restored into a scratch database, and confirmed matching row
+counts against the source — not just "the YAML exists," an actual restore
+was proven to work. The Kubernetes manifest set was re-validated with
+`kubeconform -strict`: 25/25 resources valid across 11 files (up from 10).
+
+**Tests**: 30 → 44 backend tests (`test_new_endpoints.py`, 14 new tests
+covering every item above). All passing against real Postgres/Redis, same
+methodology as the rest of the suite — see `docs/TESTING.md`.
+
+**Deliberately left out of scope, not an oversight**: the audit's P2 tier
+(native mobile app, i18n/localization, A/B testing infrastructure, feature
+flags, full offline-capable PWA with service worker, a dedicated
+accessibility audit) was not built. These are real, legitimate roadmap
+items, but building them now would not have made the system more
+"deployment ready" — they're expansions of scope, not gaps that block a
+correct, secure launch. Flagging this explicitly rather than silently
+skipping it or, worse, stubbing something fake to look like it was done.
+
 ## Second-pass security & bug audit — TESTED, fixes verified
 
 A dedicated follow-up pass specifically hunted for bugs and vulnerabilities
@@ -102,10 +197,11 @@ Full detail and the reasoning behind each fix: `docs/SECURITY.md`,
 - FastAPI app boots, connects to a real local PostgreSQL 16 + Redis 7.
 - 44-table schema created via Alembic (`alembic upgrade head`) against a real
   database — not just modeled in Python, actually applied; a second
-  migration (composite indexes, see above) was added and applied during
-  this session's follow-up audit.
-- **30/30 tests passing** (`APP_ENV=test python -m pytest -q`), all
-  integration-style against real Postgres/Redis, covering: registration,
+  migration (composite indexes) and a third (certificate grade/score/skills,
+  see the audit-resolution section above) were added and applied during
+  this build.
+- **44/44 tests passing** (`APP_ENV=test python -m pytest -q`), up from 30 —
+  all integration-style against real Postgres/Redis, covering: registration,
   email verification, login, account lockout, refresh-token rotation +
   reuse detection, logout/logout-all session revocation, password reset,
   the login-timing mitigation; RBAC enforcement (permission checks, 401s,
@@ -220,8 +316,10 @@ their own exam score).
 
 ## Kubernetes manifests — SCHEMA-VALID, BLOCKED (no cluster)
 
-- 23 resources across 11 files, validated with `kubeconform` against real
-  Kubernetes API schemas — all valid.
+- 25 resources across 11 files, validated with `kubeconform -strict` against
+  real Kubernetes API schemas — all valid. (Grew from 23/10 with the
+  addition of the nightly Postgres backup CronJob + its dedicated PVC — see
+  "Backups" in `docs/DEPLOYMENT.md`.)
 - Caught and fixed a real bug during this pass: a ConfigMap value used
   `$(POSTGRES_PASSWORD)` shell-style substitution, which Kubernetes does
   **not** expand for `envFrom`/`configMapKeyRef` values — that would have
@@ -290,5 +388,14 @@ git push -u origin main
 | WebSocket chat | Persistence path TESTED; multi-replica broadcast is a GAP |
 | Docker images | Structurally validated; build BLOCKED (sandbox network) |
 | CI/CD pipeline | Written + cross-checked; not yet run (blocked on GitHub push) |
-| Kubernetes manifests | Schema-valid; never applied to a cluster |
+| Kubernetes manifests | Schema-valid (25/25 resources); never applied to a cluster |
 | GitHub push | BLOCKED (sandbox authorization) — archive delivered instead |
+| Certificate system (grade/score/skills/PDF/revoke) | FIXED + TESTED (third-pass audit resolution) |
+| Missing backend endpoints (8 added) | FIXED + TESTED (third-pass audit resolution) |
+| Missing frontend pages (~20 added) | BUILT + verified live via Playwright (third-pass audit resolution) |
+| Draft-course visibility permission bug | FOUND + FIXED + TESTED (introduced and caught within this same pass) |
+| Real file uploads with content-sniffing | FIXED + TESTED (third-pass audit resolution) |
+| HTTPS enforcement (app layer) | FIXED (third-pass audit resolution) |
+| Prometheus metrics | ADDED — network-layer auth required, not app-layer (third-pass audit resolution) |
+| Verified, restorable database backups | ADDED + TESTED (real pg_dump → restore → row-count match) |
+| Audit P2 items (mobile app, i18n, A/B testing, feature flags, full PWA, accessibility audit) | DEFERRED BY DESIGN — out of scope for "deployment ready," not an oversight |

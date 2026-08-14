@@ -49,13 +49,44 @@ real green run would additionally prove.
 
 ## 3. Kubernetes — manifests are schema-valid, cluster deployment unverified
 
-`infra/k8s/*.yaml` is a complete, kubeconform-validated manifest set
-(namespace, config, secret template, Postgres StatefulSet, Redis Deployment,
-migration Job, backend/worker/frontend Deployments with HPAs and a PDB,
-Ingress, NetworkPolicies). See `infra/k8s/README.md` for the full honest
-status — in short: **schema-valid, never applied to a real cluster**, and
-every `image:` field is a placeholder because no image has actually been
-built and pushed yet (see #1 above).
+`infra/k8s/*.yaml` is a complete, kubeconform-validated manifest set across
+11 files, 25 resources total (namespace, config, secret template, Postgres
+StatefulSet, Redis Deployment, migration Job, backend/worker/frontend
+Deployments with HPAs and a PDB, Ingress, NetworkPolicies, and a nightly
+Postgres backup CronJob with its own dedicated PVC — see "Backups" below).
+See `infra/k8s/README.md` for the full honest status — in short:
+**schema-valid, never applied to a real cluster**, and every `image:` field
+is a placeholder because no image has actually been built and pushed yet
+(see #1 above).
+
+## Backups
+
+`infra/k8s/11-backup-cronjob.yaml` runs `infra/scripts/backup_postgres.sh`
+nightly: `pg_dump | gzip`, an integrity check on the resulting archive, and
+retention pruning of old backups. It writes to `postgres-backup-storage`, a
+PVC **deliberately separate** from the live `postgres-data` PVC — a backup
+that lives on the same disk as the thing it's backing up isn't a real
+backup. This was verified end-to-end in this session, not just written and
+assumed correct: ran the script against a real local Postgres instance,
+`gunzip`'d the resulting archive, restored it into a separate scratch
+database, and confirmed `SELECT count(*) FROM users` matched the source
+exactly. What this does **not** provide, so a real production launch should
+add it before relying on this alone: off-site/cross-region copies (the PVC
+is still in the same cluster/zone as the primary), point-in-time recovery
+(this is periodic full dumps, not WAL archiving), and a tested large-scale
+restore drill under production data volume.
+
+## Monitoring
+
+`GET /metrics` exposes Prometheus-format metrics
+(`prometheus-fastapi-instrumentator`) — request counts, latencies, and
+in-progress requests by route. **This endpoint has no application-layer
+authentication** — it must be restricted at the network layer (a
+`NetworkPolicy` allowing only your cluster's Prometheus scraper, or an
+ingress rule blocking `/metrics` from the public internet) before this goes
+anywhere near production. Nothing in this codebase enforces that
+restriction for you; it's an infrastructure step for whoever stands up the
+actual cluster. See `docs/SECURITY.md`.
 
 ## Environment variables required for production
 

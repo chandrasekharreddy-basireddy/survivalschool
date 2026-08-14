@@ -73,7 +73,7 @@ async def list_users(
     result = await db.execute(stmt.limit(limit).offset(offset))
     users = result.scalars().all()
     return [UserOut(id=u.id, email=u.email, full_name=u.full_name, is_email_verified=u.is_email_verified,
-                     roles=[r.name for r in u.roles]) for u in users]
+                     is_active=u.is_active, roles=[r.name for r in u.roles]) for u in users]
 
 
 @router.post("/{user_id}/roles/{role_name}", response_model=UserOut)
@@ -96,4 +96,5 @@ async def assign_role(
                               resource_id=str(user_id), metadata={"role": role_name})
     await db.commit()
     return UserOut(id=target.id, email=target.email, full_name=target.full_name,
-                    is_email_verified=target.is_email_verified, roles=[r.name for r in target.roles])
+                    is_email_verified=target.is_email_verified, is_active=target.is_active,
+                    roles=[r.name for r in target.roles])

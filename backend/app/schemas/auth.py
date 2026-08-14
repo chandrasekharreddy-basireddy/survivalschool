@@ -66,6 +66,7 @@ class UserOut(BaseModel):
     email: str
     full_name: str
     is_email_verified: bool
+    is_active: bool = True
     roles: list[str]
 
     model_config = {"from_attributes": True}

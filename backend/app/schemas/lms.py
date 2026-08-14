@@ -49,6 +49,8 @@ class CourseCreate(BaseModel):
     difficulty: str = "beginner"
     estimated_hours: int = 0
     cover_image_url: str | None = None
+    skills: list[str] = []
+    specialization: str | None = None
 
 
 class CourseUpdate(BaseModel):
@@ -57,6 +59,8 @@ class CourseUpdate(BaseModel):
     difficulty: str | None = None
     estimated_hours: int | None = None
     cover_image_url: str | None = None
+    skills: list[str] | None = None
+    specialization: str | None = None
 
 
 class CourseOut(BaseModel):
@@ -68,6 +72,9 @@ class CourseOut(BaseModel):
     is_published: bool
     estimated_hours: int
     cover_image_url: str | None
+    skills: list[str] = []
+    specialization: str | None = None
+    instructor_id: uuid.UUID | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

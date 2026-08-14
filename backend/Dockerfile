@@ -10,7 +10,16 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 FROM python:3.11-slim AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends libpq5 curl \
+# libpq5: Postgres client. curl: healthcheck. The rest (pango/cairo/gdk-pixbuf/
+# fonts): required at runtime by weasyprint for GET /certificates/{number}/pdf
+# (HTML->PDF certificate generation) — weasyprint imports these as shared
+# libraries via cffi at call time, so they must be present in the final image,
+# not just at pip-install time in the builder stage.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 curl \
+    libpango-1.0-0 libpangocairo-1.0-0 libpangoft2-1.0-0 libcairo2 \
+    libgdk-pixbuf-2.0-0 libffi8 fonts-dejavu-core shared-mime-info \
+    libmagic1 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1000 appuser \
     && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser

@@ -114,3 +114,39 @@ class ExamOut(BaseModel):
     is_published: bool
 
     model_config = {"from_attributes": True}
+
+
+class AttemptHistoryOut(BaseModel):
+    """Used by GET /quizzes/me/attempts and GET /exams/me/attempts — a
+    student's own attempt history with the assessment title joined in, so the
+    frontend doesn't need N follow-up requests to label each row."""
+    id: uuid.UUID
+    quiz_id: uuid.UUID | None = None
+    exam_id: uuid.UUID | None = None
+    title: str
+    attempt_number: int
+    status: str
+    score_percent: int | None
+    passed: bool | None
+    started_at: datetime
+    submitted_at: datetime | None
+
+
+class ReviewAnswerOut(BaseModel):
+    question_id: uuid.UUID
+    prompt: str
+    question_type: str
+    selected_option_ids: list[uuid.UUID]
+    correct_option_ids: list[uuid.UUID]
+    is_correct: bool | None
+    points_awarded: int
+    points_possible: int
+    explanation: str | None = None
+
+
+class AttemptReviewOut(BaseModel):
+    attempt_id: uuid.UUID
+    status: str
+    score_percent: int | None
+    passed: bool | None
+    answers: list[ReviewAnswerOut]

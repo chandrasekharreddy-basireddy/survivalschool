@@ -58,7 +58,25 @@ specific file and, where applicable, a specific passing test.
 - Permissions are decoupled from role names (`app/seed.py::PERMISSIONS`,
   `ROLE_PERMISSIONS`) — six roles (`STUDENT`, `INSTRUCTOR`, `MODERATOR`,
   `SUPPORT`, `ADMIN`, `SUPER_ADMIN`) map to a shared permission vocabulary, so
-  adding a new role never requires touching route code.
+  adding a new role never requires touching route code. This build added
+  `certificates.manage` (certificate revocation, ADMIN-only) and
+  `files.upload` (STUDENT/INSTRUCTOR/ADMIN).
+- **A permission-escalation bug found and fixed while building
+  `published_only=false` draft-course visibility** (instructors need to see
+  their own unpublished drafts on their dashboard): the first
+  implementation gated the "see drafts beyond your own" escape hatch on
+  `courses.read` — a permission every instructor already holds for the
+  unrelated purpose of viewing *published* courses. That would have let any
+  instructor browse every other instructor's private, unpublished course
+  content. This was not caught by manual review; it was caught by the test
+  written specifically for this feature
+  (`test_unpublished_courses_are_not_leaked_to_anonymous_or_other_instructors`
+  in `tests/test_new_endpoints.py`), which failed on first run because a
+  second instructor account really could see the first instructor's draft.
+  Fixed by gating the escape hatch on `system.manage` instead (ADMIN/
+  SUPER_ADMIN only); every other caller is scoped to their own drafts.
+  Re-ran the test, confirmed it passes. Recorded here rather than quietly
+  fixed and omitted, consistent with "don't hide things."
 
 ## Data integrity / anti-cheat
 
@@ -152,6 +170,24 @@ spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
   `infra/k8s/09-ingress.yaml`, `docker-compose.yml` does not terminate TLS
   itself — put a reverse proxy or cloud load balancer in front of it for any
   non-localhost deployment).
+- **HTTPS enforcement**: `HTTPSRedirectMiddleware` (`app/core/middleware.py`)
+  redirects plain-HTTP requests to HTTPS at the app layer, as defense in
+  depth on top of ingress-level TLS termination. It follows the exact same
+  spoofing-safe pattern already established for `X-Forwarded-For`: it only
+  trusts the `X-Forwarded-Proto` header when `TRUST_PROXY_HEADERS=True` (the
+  same setting, not a second one to keep in sync); with it `False` (the
+  default), the middleware checks the actual connection scheme, which a
+  client cannot spoof. `/api/v1/health` and `/api/v1/live` are exempted so
+  Kubernetes probes (which hit the pod over plain HTTP inside the cluster
+  network) don't get redirected and fail.
+- **Metrics endpoint**: `GET /metrics` (Prometheus text format, via
+  `prometheus-fastapi-instrumentator`) is **not** app-layer authenticated —
+  it relies entirely on network-layer restriction (a `NetworkPolicy`/
+  ingress rule that only allows the cluster's Prometheus scraper to reach
+  it). If you expose this backend directly to the internet without that
+  network restriction in place, `/metrics` is publicly readable. This is
+  called out explicitly in `docs/DEPLOYMENT.md` — it is not wired to
+  require a bearer token today.
 
 ## Secrets handling
 
@@ -196,6 +232,16 @@ spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
   block in `package.json` forcing both to patched versions (`sharp` is
   unused by this app in the first place; grepped for `next/image` and found
   no usage anywhere in `src/`).
+- Three packages were added to `requirements.txt` for the certificate/
+  monitoring/upload work: `weasyprint==69.0` (server-side PDF rendering —
+  its system-library dependencies, `libpango`/`libcairo`/`libgdk-pixbuf`/
+  `libmagic1`, are installed in `backend/Dockerfile`'s runtime stage;
+  imported lazily inside `generate_certificate_pdf_bytes()` so a deployment
+  missing those libraries returns a clean 503 instead of crashing the whole
+  app at import time), `prometheus-fastapi-instrumentator==8.1.0` (metrics),
+  and `python-magic==0.4.27` (real content-sniffing for file uploads, also
+  needs `libmagic1` at runtime). `pip-audit -r requirements.txt` was re-run
+  after adding them and still reports zero known vulnerabilities.
 - Backend container images are scanned with Trivy in CI
   (`.github/workflows/ci.yml`, `docker-build` job) — this has not yet run
   against a real build, since this sandbox cannot push to a container
@@ -241,13 +287,25 @@ spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
   the versions in `requirements.txt`/`package.json` are a snapshot as of this
   build and will drift.
 - The `Profile.avatar_url` / `Course.cover_image_url` fields are stored and
-  returned to clients as plain strings with no validation that they're
-  actually image URLs, and there is no file-upload endpoint implemented yet
-  despite `STORAGE_BACKEND`/`STORAGE_LOCAL_PATH` existing in config — when
-  that endpoint is built, the storage key/filename must be server-generated
-  (e.g. a UUID), never derived from client-supplied input, to avoid a path
-  traversal vulnerability that doesn't exist today only because the feature
-  doesn't exist today.
+  returned to clients as plain strings with no server-side validation that
+  they're actually image URLs.
+- **Update**: a real file-upload endpoint now exists (`POST /files`,
+  `app/api/v1/files.py`), closing what was previously an open gap. It does
+  real content-sniffing with `python-magic` against the actual uploaded
+  bytes — checked against an explicit MIME-to-extension allowlist
+  (`_ALLOWED_MIME_TO_EXT`) — rather than trusting the client-supplied
+  `Content-Type` header, and the storage key is server-generated (a UUID),
+  never derived from the client-supplied filename, so path traversal isn't
+  possible through this endpoint. Verified by `tests/test_new_endpoints.py`:
+  a renamed executable with a spoofed image `Content-Type` is rejected on
+  its real content, and a genuine image is accepted. Access control:
+  `files.upload` permission gates who can upload (STUDENT, INSTRUCTOR,
+  ADMIN all hold it); a private file is only readable by its owner or an
+  admin, verified by a dedicated test for both a different authenticated
+  user and an anonymous caller. Storage is local-disk only in this build —
+  the `STORAGE_BACKEND: Literal["local", "s3"]` setting's `s3` value remains
+  a documented, unimplemented option, not a working feature (see
+  `docs/DEPLOYMENT.md`).
 - No penetration test or third-party security audit has been performed —
   everything above is internal static/dependency scanning, integration
   testing, and two internal security review passes (one during initial

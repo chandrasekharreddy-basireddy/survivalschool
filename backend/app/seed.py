@@ -36,17 +36,20 @@ PERMISSIONS = [
     "chat.moderate",
     "notifications.manage",
     "system.manage",
+    "certificates.manage",
+    "files.upload",
 ]
 
 ROLE_PERMISSIONS = {
-    "STUDENT": [],
+    "STUDENT": ["files.upload"],
     "INSTRUCTOR": ["courses.create", "courses.read", "courses.update", "lessons.manage",
-                   "quiz.create", "quiz.manage", "exam.manage", "results.view"],
+                   "quiz.create", "quiz.manage", "exam.manage", "results.view", "files.upload"],
     "MODERATOR": ["chat.moderate", "users.read"],
     "SUPPORT": ["users.read", "notifications.manage"],
     "ADMIN": ["users.read", "users.update", "courses.create", "courses.read", "courses.update",
               "courses.delete", "lessons.manage", "quiz.create", "quiz.manage", "exam.manage",
-              "results.view", "analytics.view", "chat.moderate", "notifications.manage"],
+              "results.view", "analytics.view", "chat.moderate", "notifications.manage",
+              "certificates.manage", "files.upload", "system.manage"],
     "SUPER_ADMIN": PERMISSIONS,  # also implicitly bypasses all checks — see dependencies.py
 }
 

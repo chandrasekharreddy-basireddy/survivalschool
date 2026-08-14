@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -36,6 +37,14 @@ class Course(Base, UUIDPk, Timestamped):
     )
     estimated_hours: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Instructor-defined, shown on the course page and copied (snapshotted) onto
+    # any certificate issued for this course at issuance time — see
+    # certificate_service.issue_certificate(). Changing these later does not
+    # retroactively change certificates already issued, which is intentional:
+    # a certificate should reflect what was true when it was earned.
+    skills: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    specialization: Mapped[str | None] = mapped_column(String(200))
 
     sections: Mapped[list["CourseSection"]] = relationship(
         back_populates="course", order_by="CourseSection.order_index", cascade="all, delete-orphan"

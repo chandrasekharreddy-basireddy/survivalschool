@@ -14,7 +14,17 @@ from app.database import get_db
 from app.dependencies import get_current_verified_user, require_permission
 from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question
 from app.models.user import User
-from app.schemas.assessment import AnswerSubmit, AttemptResultOut, AttemptSubmit, ExamCreate, ExamOut, QuestionPublicOut
+from app.schemas.assessment import (
+    AnswerSubmit,
+    AttemptHistoryOut,
+    AttemptResultOut,
+    AttemptReviewOut,
+    AttemptSubmit,
+    ExamCreate,
+    ExamOut,
+    QuestionPublicOut,
+    ReviewAnswerOut,
+)
 from app.services.analytics_service import track_event
 from app.services.audit_service import record_audit_event
 from app.services.gamification_service import POINTS_EXAM_PASS, award_points, evaluate_and_award_badges
@@ -36,6 +46,14 @@ async def create_exam(payload: ExamCreate, user: User = Depends(require_permissi
     await record_audit_event(db, actor_id=user.id, action="exam.create", resource_type="exam")
     await db.commit()
     await db.refresh(exam)
+    return exam
+
+
+@router.get("/{exam_id}", response_model=ExamOut)
+async def get_exam(exam_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    exam = await db.get(Exam, exam_id)
+    if exam is None:
+        raise NotFoundError("Exam not found.")
     return exam
 
 
@@ -95,6 +113,70 @@ async def start_exam_attempt(exam_id: uuid.UUID, user: User = Depends(get_curren
 
     return {"attempt_id": str(attempt.id), "server_deadline_at": deadline.isoformat(),
             "remaining_seconds": exam.time_limit_seconds, "resumed": False}
+
+
+@router.get("/me/attempts", response_model=list[AttemptHistoryOut])
+async def my_exam_attempts(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(
+        select(ExamAttempt, Exam.title)
+        .join(Exam, Exam.id == ExamAttempt.exam_id)
+        .where(ExamAttempt.student_id == user.id)
+        .order_by(ExamAttempt.started_at.desc())
+    )).all()
+    return [
+        AttemptHistoryOut(
+            id=a.id, exam_id=a.exam_id, title=title, attempt_number=a.attempt_number,
+            status=a.status, score_percent=a.score_percent, passed=a.passed,
+            started_at=a.started_at, submitted_at=a.submitted_at,
+        )
+        for a, title in rows
+    ]
+
+
+@router.get("/attempts/{attempt_id}/review", response_model=AttemptReviewOut)
+async def review_exam_attempt(attempt_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    """Post-submission review: shows the student what they answered vs. the
+    correct options. Deliberately requires status == 'submitted' — an
+    in-progress attempt never exposes correct answers (that would let a
+    student reload the review endpoint mid-exam to cheat)."""
+    attempt = await db.get(ExamAttempt, attempt_id)
+    if attempt is None or attempt.student_id != user.id:
+        raise NotFoundError("Attempt not found.")
+    if attempt.status != "submitted":
+        raise ConflictError("This attempt hasn't been submitted yet.")
+
+    answer_rows = (await db.execute(
+        select(ExamAnswer).where(ExamAnswer.attempt_id == attempt_id)
+    )).scalars().all()
+    answers_by_qid = {a.question_id: a for a in answer_rows}
+
+    question_ids = [uuid.UUID(q) for q in attempt.question_order]
+    questions = (await db.execute(
+        select(Question).where(Question.id.in_(question_ids)).options(selectinload(Question.options))
+    )).scalars().all()
+    questions_by_id = {q.id: q for q in questions}
+
+    review_answers = []
+    for qid in question_ids:
+        question = questions_by_id.get(qid)
+        if question is None:
+            continue
+        ans = answers_by_qid.get(qid)
+        correct_ids = [o.id for o in question.options if o.is_correct]
+        review_answers.append(ReviewAnswerOut(
+            question_id=qid, prompt=question.prompt, question_type=question.question_type,
+            selected_option_ids=[uuid.UUID(i) for i in (ans.selected_option_ids if ans else [])],
+            correct_option_ids=correct_ids,
+            is_correct=ans.is_correct if ans else None,
+            points_awarded=ans.points_awarded if ans else 0,
+            points_possible=question.points,
+            explanation=question.explanation,
+        ))
+
+    return AttemptReviewOut(
+        attempt_id=attempt.id, status=attempt.status, score_percent=attempt.score_percent,
+        passed=attempt.passed, answers=review_answers,
+    )
 
 
 @router.get("/attempts/{attempt_id}/questions", response_model=list[QuestionPublicOut])

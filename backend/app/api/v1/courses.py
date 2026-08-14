@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query, Response
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError
 from app.database import get_db
-from app.dependencies import get_current_user, get_current_verified_user, require_permission
+from app.dependencies import get_current_user, get_current_user_optional, get_current_verified_user, require_permission
+from app.models.assessment import Exam, Quiz
 from app.models.lms import Course, CourseProgress, CourseSection, Enrollment, Lesson
 from app.models.user import User
+from app.schemas.assessment import ExamOut, QuizOut
 from app.schemas.auth import MessageResponse
 from app.schemas.lms import (
     CourseCreate,
@@ -32,16 +34,43 @@ router = APIRouter(prefix="/courses", tags=["courses"])
 
 @router.get("", response_model=list[CourseOut])
 async def list_courses(
+    response: Response,
     published_only: bool = Query(True),
     search: str | None = Query(None),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+    user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(Course).where(Course.deleted_at.is_(None))
     if published_only:
         stmt = stmt.where(Course.is_published.is_(True))
+    else:
+        # Unpublished courses can contain draft titles/descriptions an
+        # instructor isn't ready to make public yet — never let this branch
+        # be reachable anonymously, and even authenticated, only surface an
+        # instructor's OWN drafts unless the caller can already read all
+        # courses (courses.read / SUPER_ADMIN), matching the same
+        # backend-enforced-authorization pattern used everywhere else here.
+        if user is None:
+            raise AuthenticationError("Sign in to view unpublished courses.")
+        # Deliberately NOT gated on courses.read — every INSTRUCTOR has that
+        # permission for legitimate, unrelated reasons, and it would let any
+        # instructor browse every other instructor's unpublished drafts.
+        # system.manage (ADMIN/SUPER_ADMIN only) is the actual "see everyone's
+        # drafts" bar; anyone else only ever sees their own.
+        if not (user.has_permission("system.manage") or user.has_role("SUPER_ADMIN")):
+            stmt = stmt.where(Course.instructor_id == user.id)
     if search:
         stmt = stmt.where(Course.title.ilike(f"%{search}%"))
-    result = await db.execute(stmt.order_by(Course.created_at.desc()))
+
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    # Total count exposed via header (not the JSON body) so this stays a
+    # backward-compatible array response for existing clients — the audit
+    # flagged this endpoint as unbounded, not as needing an envelope change.
+    response.headers["X-Total-Count"] = str(total)
+
+    result = await db.execute(stmt.order_by(Course.created_at.desc()).limit(limit).offset(offset))
     return result.scalars().all()
 
 
@@ -73,6 +102,24 @@ async def get_course(course_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if course is None:
         raise NotFoundError("Course not found.")
     return course
+
+
+@router.get("/{course_id}/quizzes", response_model=list[QuizOut])
+async def list_course_quizzes(course_id: uuid.UUID, published_only: bool = Query(True), db: AsyncSession = Depends(get_db)):
+    stmt = select(Quiz).where(Quiz.course_id == course_id)
+    if published_only:
+        stmt = stmt.where(Quiz.is_published.is_(True))
+    result = await db.execute(stmt.order_by(Quiz.created_at.asc()))
+    return result.scalars().all()
+
+
+@router.get("/{course_id}/exams", response_model=list[ExamOut])
+async def list_course_exams(course_id: uuid.UUID, published_only: bool = Query(True), db: AsyncSession = Depends(get_db)):
+    stmt = select(Exam).where(Exam.course_id == course_id)
+    if published_only:
+        stmt = stmt.where(Exam.is_published.is_(True))
+    result = await db.execute(stmt.order_by(Exam.created_at.asc()))
+    return result.scalars().all()
 
 
 @router.patch("/{course_id}", response_model=CourseOut)

@@ -1,12 +1,12 @@
 # Testing
 
-## Backend: 30 tests, all passing against real infrastructure
+## Backend: 44 tests, all passing against real infrastructure
 
 ```bash
 cd backend
 source .venv/bin/activate
 APP_ENV=test python -m pytest -q
-# 30 passed
+# 44 passed
 ```
 
 These are integration tests running against a **real local PostgreSQL 16 and
@@ -25,6 +25,7 @@ pytest-asyncio's per-test event loops (see `docs/DATABASE.md`).
 | `test_concurrency.py` (2 tests) | **Genuinely concurrent** submits (`asyncio.gather`, 8-way) for the same quiz/exam attempt only grade and award points once — proves the `with_for_update` row-lock fix actually closes the race, not just that the code looks correct. This test was confirmed to fail when the lock was temporarily reverted, then pass once restored, before being kept as a regression test. |
 | `test_rate_limiting.py` (2 tests) | The Redis-backed limiter actually blocks after its configured threshold; limits are scoped per key (one user hitting a limit doesn't block a different user) |
 | `test_scoring_service.py` (6 tests) | Unit tests of the pure grading functions in isolation: single-choice correct/incorrect, multiple-choice requires an exact set match (partial credit is not awarded), short-answer normalizes whitespace/case before comparing, pass/fail boundary at the configured threshold, zero-possible-points attempts never register as passed |
+| `test_new_endpoints.py` (14 tests) | The second-pass audit response (see `docs/STATUS.md`): course quiz/exam listing + pagination via `X-Total-Count`; quiz/exam attempt history; exam review only unlocks after submit (never mid-exam); certificate grade/score/skills are computed from real attempt data and the certificate can be revoked (and a non-admin is rejected trying); the certificate PDF endpoint returns real, well-formed PDF bytes; admin user management (list/search, deactivate — and a deactivated user is immediately locked out — reactivate); expanded system-health detail; audit-log filtering; file upload rejects a disguised executable via real content-sniffing (not the client-supplied header) and accepts a valid image; a private file is inaccessible to a different user and to anonymous requests; unpublished courses are never visible to anonymous callers or to a *different* instructor, only to their owner (or an admin); leaderboard N+1 fix still returns correctly ranked results |
 
 ## What "passing" actually means here
 
@@ -56,7 +57,7 @@ ruff check app tests              # lint — must be zero errors
 pip-audit -r requirements.txt     # dependency vulnerability scan — must be clean
 bandit -r app -ll                 # security static analysis, medium+ severity
 alembic upgrade head              # apply schema to whatever DB DATABASE_URL points at
-APP_ENV=test python -m pytest -q  # the 30 tests above
+APP_ENV=test python -m pytest -q  # the 44 tests above
 ```
 
 ```bash
@@ -84,7 +85,10 @@ is meaningful for this codebase.
 
 - **WebSocket chat** has no automated test coverage (see `docs/REALTIME.md`)
   — connect/auth/broadcast/persist behavior was manually reviewed against
-  the Starlette WebSocket API, not exercised by an automated client.
+  the Starlette WebSocket API, not exercised by an automated client. The
+  frontend `/chat/[roomId]` client (`src/lib/ws.ts`) was manually exercised
+  against the real backend WebSocket during this build (see below), but that
+  was a one-time manual pass, not a repeatable automated test.
 - **Sarvam AI live calls** and **n8n backend→webhook HTTP calls** are
   untested from this sandbox due to network egress restrictions — see
   `docs/AI.md` and `docs/N8N.md`. Both are exercised through their
@@ -96,10 +100,30 @@ is meaningful for this codebase.
   access.
 - **No load/performance testing** has been performed.
 - **No frontend component/e2e tests** exist yet (no Jest/Playwright/Cypress
-  suite) — the frontend's only automated verification is
-  `npm run lint` + `npm run typecheck` + a successful production build.
-  This is a real gap for a platform this size and should be prioritized
-  before this becomes a long-lived production codebase, not just an MVP.
+  suite committed to the repo) — the frontend's only *automated, repeatable*
+  verification is `npm run lint` + `npm run typecheck` + a successful
+  production build. This is a real gap for a platform this size and should
+  be prioritized before this becomes a long-lived production codebase, not
+  just an MVP.
+
+  What *was* done in this session, one time, manually, with Playwright
+  against the actual running stack (real Postgres/Redis, real FastAPI
+  backend, real `next start` production build) — not committed as a suite,
+  so it doesn't protect against regressions, but real evidence the pages
+  work as built, not just that they compile: registered and verified two
+  real accounts through the API, promoted one to INSTRUCTOR by hand,
+  created a real course/section/lesson/quiz through the actual instructor
+  endpoints, enrolled a student, answered the quiz correctly, completed the
+  lesson (which triggered real certificate issuance with a computed grade
+  and score), then loaded `/certificates/view/{number}` and
+  `/certificates/me` and `/profile` and `/leaderboard` and `/dashboard` in a
+  real Chromium browser — logged in through the actual `/login` form, not a
+  seeded session — and confirmed zero console/page errors and correct
+  rendering (screenshots retained). Also downloaded
+  `/certificates/{number}/pdf` and confirmed it's a real, valid PDF
+  (`file` reports `PDF document, version 1.7`). The next real step here is
+  turning that manual pass into a committed Playwright suite that runs in CI
+  — tracked, not done.
 - **No cascade-delete test** exists for the `ondelete="CASCADE"` foreign
   keys described in `docs/DATABASE.md` — the schema declares the behavior,
   but no test asserts it end-to-end.

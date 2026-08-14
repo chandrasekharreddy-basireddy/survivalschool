@@ -24,6 +24,7 @@ before production use, not as verified infrastructure.
 | `08-frontend.yaml` | Next.js frontend Deployment, Service, HPA |
 | `09-ingress.yaml` | TLS ingress for API + app hosts (assumes ingress-nginx + cert-manager) |
 | `10-networkpolicy.yaml` | Default-deny plus explicit allow rules between tiers |
+| `11-backup-cronjob.yaml` | Nightly `pg_dump` CronJob + dedicated backup PVC — see `docs/DATABASE.md#backups` |
 
 ## Known gaps / what you must decide before this is real production infra
 

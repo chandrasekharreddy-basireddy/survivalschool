@@ -2,5 +2,15 @@ User-agent: *
 Allow: /
 Disallow: /dashboard
 Disallow: /admin
+Disallow: /profile
+Disallow: /settings
+Disallow: /notifications
+Disallow: /chat
+Disallow: /ai-assistant
+Disallow: /instructor
+Disallow: /quiz
+Disallow: /exams
+Disallow: /certificates/me
+Disallow: /certificates/view
 
 Sitemap: /sitemap.xml

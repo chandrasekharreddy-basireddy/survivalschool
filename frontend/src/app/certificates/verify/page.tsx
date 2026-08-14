@@ -1,14 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 
 interface VerifyResult {
   valid: boolean;
   certificate_number?: string;
   course_title?: string;
-  student_first_name?: string;
+  student_full_name?: string;
+  grade?: string;
   issued_at?: string;
+  invalid_reason?: string;
 }
 
 export default function VerifyCertificatePage() {
@@ -53,12 +56,18 @@ export default function VerifyCertificatePage() {
               <dl className="mt-4 space-y-2 text-sm">
                 <div className="flex justify-between"><dt className="text-slate-500">Certificate ID</dt><dd className="text-slate-200">{result.certificate_number}</dd></div>
                 <div className="flex justify-between"><dt className="text-slate-500">Course</dt><dd className="text-slate-200">{result.course_title}</dd></div>
-                <div className="flex justify-between"><dt className="text-slate-500">Awarded to</dt><dd className="text-slate-200">{result.student_first_name}</dd></div>
+                <div className="flex justify-between"><dt className="text-slate-500">Awarded to</dt><dd className="text-slate-200">{result.student_full_name}</dd></div>
+                {result.grade && <div className="flex justify-between"><dt className="text-slate-500">Grade</dt><dd className="text-slate-200">{result.grade}</dd></div>}
                 <div className="flex justify-between"><dt className="text-slate-500">Issued</dt><dd className="text-slate-200">{result.issued_at?.slice(0, 10)}</dd></div>
               </dl>
+              <Link href={`/certificates/view/${result.certificate_number}`} className="btn-primary mt-6 w-full">
+                View full certificate
+              </Link>
             </>
           ) : (
-            <p className="text-sm font-semibold text-red-400">✗ No matching certificate found</p>
+            <p className="text-sm font-semibold text-red-400">
+              ✗ {result.invalid_reason === "revoked" ? "This certificate has been revoked" : result.invalid_reason === "expired" ? "This certificate has expired" : "No matching certificate found"}
+            </p>
           )}
         </div>
       )}

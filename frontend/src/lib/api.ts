@@ -30,6 +30,14 @@ export function clearTokens() {
   window.localStorage.removeItem("ss_refresh_token");
 }
 
+/** Current access token, for callers that need to hand it to something other
+ * than apiFetch — e.g. the WebSocket chat handshake, which must pass the
+ * token as a query param since browsers can't set custom headers on a WS
+ * upgrade request. */
+export function getAccessToken(): string | undefined {
+  return getStoredTokens().access;
+}
+
 async function tryRefresh(): Promise<string | null> {
   const { refresh } = getStoredTokens();
   if (!refresh) return null;

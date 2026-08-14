@@ -4,12 +4,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.api.v1.router import api_router
 from app.config import get_settings
 from app.core.exceptions import AppError, app_error_handler, unhandled_exception_handler
 from app.core.logging import configure_logging
-from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import HTTPSRedirectMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
 from app.websockets.chat import router as ws_chat_router
 
 settings = get_settings()
@@ -40,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
 app.add_exception_handler(AppError, app_error_handler)
@@ -47,6 +49,17 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_chat_router)
+
+# /metrics — Prometheus scrape endpoint (request counts/latencies by
+# path+method+status, Python/process metrics). Deliberately not
+# authenticated: the standard pattern is to restrict it at the network layer
+# (see infra/k8s/10-networkpolicy.yaml, which should only allow the
+# in-cluster Prometheus to reach this port) rather than in application code.
+# excluded_handlers keeps docs/metrics/health noise out of the metrics
+# themselves.
+Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False
+)
 
 
 @app.get("/")

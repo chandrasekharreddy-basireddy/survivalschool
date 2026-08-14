@@ -1,0 +1,141 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useAuth } from "@/lib/auth-context";
+import { apiFetch, ApiError } from "@/lib/api";
+import { useToast } from "@/lib/toast";
+
+interface Profile {
+  bio: string | null;
+  avatar_url: string | null;
+  timezone: string;
+  locale: string;
+}
+
+interface GamificationStats {
+  total_points: number;
+  current_streak_days: number;
+  longest_streak_days: number;
+  badges: { code: string; name: string; icon: string; awarded_at: string }[];
+}
+
+interface CertificateOut {
+  certificate_number: string;
+  course_title: string;
+}
+
+export default function ProfilePage() {
+  const { user, loading } = useAuth();
+  const toast = useToast();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [stats, setStats] = useState<GamificationStats | null>(null);
+  const [certs, setCerts] = useState<CertificateOut[] | null>(null);
+  const [bio, setBio] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    apiFetch<Profile>("/users/me/profile").then((p) => { setProfile(p); setBio(p.bio || ""); }).catch(() => {});
+    apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => {});
+    apiFetch<CertificateOut[]>("/certificates/me").then(setCerts).catch(() => setCerts([]));
+  }, [user]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await apiFetch<Profile>("/users/me/profile", { method: "PATCH", body: JSON.stringify({ bio }) });
+      setProfile(updated);
+      toast.show("Profile updated.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't save your profile.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-md px-6 py-24 text-center">
+        <p className="text-slate-300">Sign in to view your profile.</p>
+        <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="flex items-center gap-4">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-purple-500 text-xl font-bold text-white">
+          {user.full_name.slice(0, 1).toUpperCase()}
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-white">{user.full_name}</h1>
+          <p className="text-sm text-slate-500">{user.email}</p>
+          <div className="mt-1 flex gap-1.5">
+            {user.roles.map((r) => (
+              <span key={r} className="rounded bg-ink-800 px-2 py-0.5 text-[11px] uppercase tracking-wide text-slate-400">{r}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8 grid gap-6 sm:grid-cols-3">
+        <div className="card text-center">
+          <p className="text-2xl font-bold text-brand-400">{stats?.total_points ?? "—"}</p>
+          <p className="text-xs text-slate-500">points</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-2xl font-bold text-brand-400">{stats?.current_streak_days ?? "—"}</p>
+          <p className="text-xs text-slate-500">day streak</p>
+        </div>
+        <div className="card text-center">
+          <p className="text-2xl font-bold text-brand-400">{certs?.length ?? "—"}</p>
+          <p className="text-xs text-slate-500">certificates</p>
+        </div>
+      </div>
+
+      {stats && stats.badges.length > 0 && (
+        <div className="card mt-6">
+          <h2 className="font-semibold text-white">Badges</h2>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {stats.badges.map((b) => (
+              <span key={b.code} className="rounded-full bg-brand-500/10 px-3 py-1 text-xs text-brand-300">{b.name}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="card mt-6">
+        <h2 className="font-semibold text-white">About</h2>
+        <textarea
+          className="input mt-3 min-h-[100px]"
+          value={bio}
+          onChange={(e) => setBio(e.target.value)}
+          placeholder="Tell other students a bit about yourself…"
+          maxLength={500}
+        />
+        <button onClick={save} disabled={saving || !profile} className="btn-primary mt-3">
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+
+      {certs && certs.length > 0 && (
+        <div className="card mt-6">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-white">Certificates</h2>
+            <Link href="/certificates/me" className="text-sm text-brand-400 hover:underline">View all</Link>
+          </div>
+          <ul className="mt-3 space-y-2">
+            {certs.slice(0, 3).map((c) => (
+              <li key={c.certificate_number} className="text-sm text-slate-300">{c.course_title}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <Link href="/settings" className="mt-6 inline-block text-sm text-slate-400 hover:text-white">Account settings &rarr;</Link>
+    </div>
+  );
+}

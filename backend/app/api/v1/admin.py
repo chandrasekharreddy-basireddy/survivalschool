@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
+from app.core.exceptions import NotFoundError
+from app.core.runtime import PROCESS_STARTED_AT
 from app.database import check_db_health, get_db
 from app.dependencies import require_permission
 from app.models.assessment import ExamAttempt, QuizAttempt
@@ -15,8 +21,11 @@ from app.models.lms import Course, Enrollment
 from app.models.system import AuditLog
 from app.models.user import User
 from app.redis_client import check_redis_health
+from app.schemas.auth import UserOut
+from app.services.audit_service import record_audit_event
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+settings = get_settings()
 
 
 class AdminDashboardOut(BaseModel):
@@ -42,8 +51,13 @@ class AuditLogOut(BaseModel):
 
 class SystemHealthOut(BaseModel):
     database: bool
+    database_latency_ms: float | None
     redis: bool
+    redis_latency_ms: float | None
     status: str
+    app_version: str
+    environment: str
+    uptime_seconds: float
 
 
 @router.get("/dashboard", response_model=AdminDashboardOut)
@@ -69,9 +83,34 @@ async def admin_dashboard(user: User = Depends(require_permission("analytics.vie
 
 
 @router.get("/audit-logs", response_model=list[AuditLogOut])
-async def audit_logs(limit: int = Query(50, le=200), user: User = Depends(require_permission("system.manage")), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit))
-    rows = result.scalars().all()
+async def audit_logs(
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+    actor_id: uuid.UUID | None = Query(None),
+    action: str | None = Query(None, description="Exact match, e.g. 'certificate.revoke'"),
+    resource_type: str | None = Query(None),
+    result: str | None = Query(None, pattern=r"^(success|failure)$"),
+    since: datetime | None = Query(None, description="ISO 8601 — only logs at/after this time"),
+    until: datetime | None = Query(None, description="ISO 8601 — only logs at/before this time"),
+    user: User = Depends(require_permission("system.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(AuditLog)
+    if actor_id is not None:
+        stmt = stmt.where(AuditLog.actor_id == actor_id)
+    if action is not None:
+        stmt = stmt.where(AuditLog.action == action)
+    if resource_type is not None:
+        stmt = stmt.where(AuditLog.resource_type == resource_type)
+    if result is not None:
+        stmt = stmt.where(AuditLog.result == result)
+    if since is not None:
+        stmt = stmt.where(AuditLog.created_at >= since)
+    if until is not None:
+        stmt = stmt.where(AuditLog.created_at <= until)
+
+    result_rows = await db.execute(stmt.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset))
+    rows = result_rows.scalars().all()
     return [AuditLogOut(
         id=str(r.id), actor_id=str(r.actor_id) if r.actor_id else None, action=r.action,
         resource_type=r.resource_type, resource_id=r.resource_id, result=r.result,
@@ -81,6 +120,71 @@ async def audit_logs(limit: int = Query(50, le=200), user: User = Depends(requir
 
 @router.get("/system-health", response_model=SystemHealthOut)
 async def system_health(user: User = Depends(require_permission("system.manage"))):
+    db_start = time.perf_counter()
     db_ok = await check_db_health()
+    db_latency_ms = round((time.perf_counter() - db_start) * 1000, 2) if db_ok else None
+
+    redis_start = time.perf_counter()
     redis_ok = await check_redis_health()
-    return SystemHealthOut(database=db_ok, redis=redis_ok, status="ok" if (db_ok and redis_ok) else "degraded")
+    redis_latency_ms = round((time.perf_counter() - redis_start) * 1000, 2) if redis_ok else None
+
+    return SystemHealthOut(
+        database=db_ok, database_latency_ms=db_latency_ms,
+        redis=redis_ok, redis_latency_ms=redis_latency_ms,
+        status="ok" if (db_ok and redis_ok) else "degraded",
+        app_version=settings.SERVICE_VERSION, environment=settings.APP_ENV,
+        uptime_seconds=round(time.time() - PROCESS_STARTED_AT, 1),
+    )
+
+
+@router.get("/users", response_model=list[UserOut])
+async def admin_list_users(
+    q: str | None = Query(None),
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(require_permission("users.read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Same query as GET /users — kept here too under /admin because that's
+    where the admin frontend (and the production audit) expects it."""
+    stmt = select(User).options(selectinload(User.roles)).where(User.deleted_at.is_(None))
+    if q:
+        stmt = stmt.where(User.email.ilike(f"%{q}%") | User.full_name.ilike(f"%{q}%"))
+    result = await db.execute(stmt.order_by(User.created_at.desc()).limit(limit).offset(offset))
+    users = result.scalars().all()
+    return [UserOut(id=u.id, email=u.email, full_name=u.full_name, is_email_verified=u.is_email_verified,
+                     is_active=u.is_active, roles=[r.name for r in u.roles]) for u in users]
+
+
+@router.post("/users/{user_id}/deactivate", response_model=UserOut)
+async def deactivate_user(
+    user_id: uuid.UUID,
+    admin: User = Depends(require_permission("users.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
+    if target is None:
+        raise NotFoundError("User not found.")
+    target.is_active = False
+    await record_audit_event(db, actor_id=admin.id, action="user.deactivated", resource_type="user", resource_id=str(user_id))
+    await db.commit()
+    return UserOut(id=target.id, email=target.email, full_name=target.full_name,
+                    is_email_verified=target.is_email_verified, is_active=target.is_active,
+                    roles=[r.name for r in target.roles])
+
+
+@router.post("/users/{user_id}/activate", response_model=UserOut)
+async def activate_user(
+    user_id: uuid.UUID,
+    admin: User = Depends(require_permission("users.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
+    if target is None:
+        raise NotFoundError("User not found.")
+    target.is_active = True
+    await record_audit_event(db, actor_id=admin.id, action="user.activated", resource_type="user", resource_id=str(user_id))
+    await db.commit()
+    return UserOut(id=target.id, email=target.email, full_name=target.full_name,
+                    is_email_verified=target.is_email_verified, is_active=target.is_active,
+                    roles=[r.name for r in target.roles])

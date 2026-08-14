@@ -47,16 +47,19 @@ async def my_gamification_stats(user: User = Depends(get_current_user), db: Asyn
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
-async def leaderboard(limit: int = Query(20, le=100), db: AsyncSession = Depends(get_db)):
+async def leaderboard(limit: int = Query(20, le=100), offset: int = Query(0, ge=0), db: AsyncSession = Depends(get_db)):
+    # Single query joining User in — avoids the N+1 (one db.get(User, ...) per
+    # row) the production audit flagged here.
     result = await db.execute(
-        select(PointsLedger.student_id, func.sum(PointsLedger.amount).label("total"))
-        .group_by(PointsLedger.student_id)
+        select(PointsLedger.student_id, User.full_name, func.sum(PointsLedger.amount).label("total"))
+        .join(User, User.id == PointsLedger.student_id)
+        .group_by(PointsLedger.student_id, User.full_name)
         .order_by(func.sum(PointsLedger.amount).desc())
         .limit(limit)
+        .offset(offset)
     )
     rows = result.all()
-    out = []
-    for rank, (student_id, total) in enumerate(rows, start=1):
-        student = await db.get(User, student_id)
-        out.append(LeaderboardEntry(rank=rank, student_id=student_id, full_name=student.full_name if student else "Unknown", total_points=int(total)))
-    return out
+    return [
+        LeaderboardEntry(rank=offset + i, student_id=student_id, full_name=full_name, total_points=int(total))
+        for i, (student_id, full_name, total) in enumerate(rows, start=1)
+    ]

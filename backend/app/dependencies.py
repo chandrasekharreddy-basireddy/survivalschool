@@ -64,6 +64,24 @@ async def get_current_verified_user(user: User = Depends(get_current_user)) -> U
     return user
 
 
+async def get_current_user_optional(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """Same checks as get_current_user, but returns None instead of raising
+    when there's no (or an invalid) token — for endpoints that serve public
+    content to anonymous callers but still need to know who's asking when
+    someone IS logged in (e.g. GET /files/{id}, where a public file is
+    visible to anyone but a private one still needs an owner check)."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    try:
+        return await get_current_user(request, authorization, db)
+    except AuthenticationError:
+        return None
+
+
 def require_permission(*permission_codes: str):
     """Backend-enforced authorization. Every protected endpoint declares the
     permission(s) it needs; the frontend hiding a button is never sufficient

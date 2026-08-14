@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR: int = 3
     RATE_LIMIT_EXAM_START_PER_HOUR: int = 10
 
+    # --- Certificates ---
+    # Days a certificate remains valid after issuance; None (default) means
+    # certificates never expire. Set to an integer (e.g. 730 for 2 years) for
+    # time-limited certifications (spec section 8: "Expiry date (optional)").
+    CERTIFICATE_VALIDITY_DAYS: int | None = None
+
     # --- CORS ---
     CORS_ORIGINS: str = "http://localhost:3000"
 

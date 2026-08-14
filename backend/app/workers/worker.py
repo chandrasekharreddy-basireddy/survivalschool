@@ -22,6 +22,7 @@ from app.models.gamification import LeaderboardSnapshot, PointsLedger
 from app.models.lms import CourseProgress
 from app.models.user import EmailVerification, PasswordReset, RefreshToken
 from app.models.user import Session as SessionModel
+from app.services.contest_service import check_and_create_scheduled_contests, check_and_finalize_contests
 from app.services.email_service import send_email
 from app.services.n8n_service import emit_event
 
@@ -94,10 +95,25 @@ async def send_inactivity_reminders() -> None:
     logger.info("inactivity_reminders_sent", count=len(stalled))
 
 
+async def run_contest_scheduler() -> None:
+    """Creates any weekly (Sat/Sun morning+evening IST) or monthly contest
+    occurrence whose scheduled start has arrived, and finalizes (ranks +
+    awards top-3 certificates for) any contest whose window has closed.
+    Both halves are idempotent — see app/services/contest_service.py."""
+    async with AsyncSessionLocal() as db:
+        created = await check_and_create_scheduled_contests(db)
+        finalized = await check_and_finalize_contests(db)
+    if created:
+        logger.info("contests_created", count=len(created), titles=[c.title for c in created])
+    if finalized:
+        logger.info("contests_finalized", count=len(finalized), titles=[c.title for c in finalized])
+
+
 JOBS = [
     (cleanup_expired_tokens, 3600),
     (recompute_leaderboard_snapshot, 300),
     (send_inactivity_reminders, 86400),
+    (run_contest_scheduler, 300),  # every 5 minutes — see docstring above
 ]
 
 

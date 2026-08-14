@@ -29,6 +29,15 @@ export; and global search across published courses and discussions. Light
 and dark mode throughout, switchable per-user, no flash-of-wrong-theme on
 load.
 
+Also: platform-wide, auto-scheduled weekly/monthly **contests** with a live
+leaderboard and top-3 certificates; **AI-generated mock practice
+questions** that are structurally isolated from the real question bank and
+never award gamification points; **bulk question import** (CSV/XLSX,
+all-or-nothing); **exam integrity monitoring** (tab-blur/copy/paste/
+fullscreen-exit detection, log-only, never used to auto-fail a student); and
+**attendance**, taken via short-lived check-in codes tied to the real
+timetable.
+
 ## Quick start
 
 ```bash

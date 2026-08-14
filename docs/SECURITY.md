@@ -138,6 +138,48 @@ specific file and, where applicable, a specific passing test.
   accepts a client-supplied point value. Verified by
   `test_gamification_points_and_badges_are_server_computed`.
 
+## Contests, AI practice, bulk import, attendance
+
+- **Exam integrity monitoring is log-only, never punitive.** `PUT
+  /exams/attempts/{attempt_id}/events` records tab-blur/fullscreen-exit/
+  copy/paste/right-click events to `ExamAttempt.flagged_events`, but no code
+  path ever uses that log to auto-submit or auto-fail an attempt — it only
+  surfaces for instructor review via `GET
+  /exams/{exam_id}/attempts/flagged`. This is deliberate, documented in code
+  comments in `app/api/v1/exams.py`: events like these have real false-
+  positive causes (a dropped network connection, an OS notification
+  stealing window focus) that have nothing to do with cheating, so treating
+  them as automatic evidence would unfairly penalize honest students. The
+  events endpoint is capped at 200 events/attempt and always returns
+  `{"logged": true|false}` rather than failing the request.
+- **AI-generated practice questions are structurally isolated from the real
+  question bank and never award points.** `ai_mock_sessions`/
+  `ai_generated_questions`/`ai_generated_question_options`/`ai_mock_answers`
+  (`app/models/ai_practice.py`) share no foreign key or code path with
+  `questions`/`question_options`, the table quizzes/exams/contests actually
+  draw from — an AI-generated question cannot end up in a quiz, exam, or
+  contest by construction, not just by convention. Submitting an AI mock
+  session is graded server-side (same never-trust-the-client principle as
+  every other assessment path) but awards zero gamification points and never
+  contributes to a certificate or grade, matching the existing practice-mode
+  pattern (`docs/API.md`).
+- **Bulk question import is all-or-nothing and permission+ownership
+  gated.** `POST /questions/bulk-import` requires `quiz.create` or
+  `exam.manage` plus verified ownership of the target course (or
+  `system.manage`) — an instructor cannot bulk-import questions into another
+  instructor's course. A commit (`dry_run=false`) only writes anything if
+  every row in the uploaded file validates; if any row fails, nothing is
+  inserted, closing off a partial-import state where an instructor can't
+  tell which rows actually landed.
+- **Attendance check-in codes expire after 15 minutes.**
+  `CODE_VALIDITY_MINUTES = 15` in `app/services/attendance_service.py` — a
+  check-in code is only valid for 15 minutes from when the session was
+  opened (or reopened, which rotates a fresh code), limiting how long a code
+  shared aloud in a classroom stays usable. Opening a session is also
+  restricted to the timetable entry's actual scheduled weekday and an active
+  term, so an instructor can't open attendance for a class that isn't
+  scheduled today.
+
 ## Client IP resolution (`X-Forwarded-For` trust)
 
 A second security pass on this codebase found that `get_client_ip()`

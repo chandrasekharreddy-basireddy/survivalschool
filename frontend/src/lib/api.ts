@@ -57,11 +57,16 @@ export async function apiFetch<T = unknown>(
   options: RequestInit & { auth?: boolean } = {}
 ): Promise<T> {
   const { auth = true, headers, ...rest } = options;
+  const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
   const doFetch = async (accessOverride?: string) => {
     const { access } = getStoredTokens();
     const token = accessOverride || access;
     const finalHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
+      // FormData bodies (multipart file uploads) must NOT have an explicit
+      // Content-Type — the browser sets one itself, including the boundary
+      // string, and a hardcoded "application/json" here would corrupt the
+      // upload.
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(headers as Record<string, string>),
     };
     if (auth && token) finalHeaders["Authorization"] = `Bearer ${token}`;

@@ -5,10 +5,13 @@ from fastapi import APIRouter
 from app.api.v1 import (
     admin,
     ai,
+    ai_practice,
     analytics,
+    attendance,
     auth,
     certificates,
     chat,
+    contests,
     courses,
     discussions,
     exams,
@@ -45,3 +48,6 @@ api_router.include_router(timetable.router)
 api_router.include_router(discussions.router)
 api_router.include_router(practice.router)
 api_router.include_router(search.router)
+api_router.include_router(contests.router)
+api_router.include_router(ai_practice.router)
+api_router.include_router(attendance.router)

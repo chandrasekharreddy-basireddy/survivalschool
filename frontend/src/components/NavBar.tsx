@@ -26,9 +26,11 @@ export function NavBar() {
 
         <div className="hidden items-center gap-6 text-sm text-fg-muted lg:flex">
           <Link href="/courses" className="hover:text-fg">Courses</Link>
+          <Link href="/contests" className="hover:text-fg">Contests</Link>
           {user && <Link href="/dashboard" className="hover:text-fg">Dashboard</Link>}
           {user && <Link href="/timetable" className="hover:text-fg">Timetable</Link>}
           {user && <Link href="/practice" className="hover:text-fg">Practice</Link>}
+          {user && <Link href="/ai-practice" className="hover:text-fg">AI Practice</Link>}
           {user && <Link href="/leaderboard" className="hover:text-fg">Leaderboard</Link>}
           {user && <Link href="/chat" className="hover:text-fg">Chat</Link>}
           {user && <Link href="/ai-assistant" className="hover:text-fg">AI Tutor</Link>}
@@ -76,9 +78,11 @@ export function NavBar() {
           </div>
           <div className="flex flex-col gap-3 text-sm text-fg-muted">
             <Link href="/courses" onClick={() => setMobileOpen(false)} className="hover:text-fg">Courses</Link>
+            <Link href="/contests" onClick={() => setMobileOpen(false)} className="hover:text-fg">Contests</Link>
             {user && <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="hover:text-fg">Dashboard</Link>}
             {user && <Link href="/timetable" onClick={() => setMobileOpen(false)} className="hover:text-fg">Timetable</Link>}
             {user && <Link href="/practice" onClick={() => setMobileOpen(false)} className="hover:text-fg">Practice</Link>}
+            {user && <Link href="/ai-practice" onClick={() => setMobileOpen(false)} className="hover:text-fg">AI Practice</Link>}
             {user && <Link href="/leaderboard" onClick={() => setMobileOpen(false)} className="hover:text-fg">Leaderboard</Link>}
             {user && <Link href="/chat" onClick={() => setMobileOpen(false)} className="hover:text-fg">Chat</Link>}
             {user && <Link href="/ai-assistant" onClick={() => setMobileOpen(false)} className="hover:text-fg">AI Tutor</Link>}

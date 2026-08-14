@@ -1,6 +1,12 @@
 """Import every model module so Base.metadata is fully populated for Alembic
 autogenerate and for create_all() in tests."""
 from app.models.ai import AIConversation, AIMessage  # noqa: F401
+from app.models.ai_practice import (  # noqa: F401
+    AIGeneratedQuestion,
+    AIGeneratedQuestionOption,
+    AIMockAnswer,
+    AIMockSession,
+)
 from app.models.assessment import (  # noqa: F401
     Exam,
     ExamAnswer,
@@ -11,7 +17,9 @@ from app.models.assessment import (  # noqa: F401
     QuizAnswer,
     QuizAttempt,
 )
+from app.models.attendance import AttendanceRecord, AttendanceSession  # noqa: F401
 from app.models.certificate import Certificate  # noqa: F401
+from app.models.contest import Contest, ContestAnswer, ContestAttempt, ContestCertificate  # noqa: F401
 from app.models.discussion import DiscussionReply, DiscussionThread, DiscussionVote  # noqa: F401
 from app.models.gamification import (  # noqa: F401
     Achievement,

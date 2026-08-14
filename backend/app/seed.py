@@ -39,6 +39,7 @@ PERMISSIONS = [
     "certificates.manage",
     "files.upload",
     "timetable.manage",
+    "contests.manage",
 ]
 
 ROLE_PERMISSIONS = {
@@ -51,7 +52,8 @@ ROLE_PERMISSIONS = {
     "ADMIN": ["users.read", "users.update", "courses.create", "courses.read", "courses.update",
               "courses.delete", "lessons.manage", "quiz.create", "quiz.manage", "exam.manage",
               "results.view", "analytics.view", "chat.moderate", "notifications.manage",
-              "certificates.manage", "files.upload", "system.manage", "timetable.manage"],
+              "certificates.manage", "files.upload", "system.manage", "timetable.manage",
+              "contests.manage"],
     "SUPER_ADMIN": PERMISSIONS,  # also implicitly bypasses all checks — see dependencies.py
 }
 

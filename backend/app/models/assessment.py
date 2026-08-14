@@ -113,6 +113,14 @@ class Exam(Base, UUIDPk, Timestamped):
     available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     available_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     question_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    # Exam integrity settings — instructor-configurable per exam. Monitoring
+    # only ever *logs* events (tab-blur, fullscreen exit) for the instructor
+    # to review after submission; it deliberately never auto-submits or
+    # auto-fails a student, since a false positive (a real network hiccup,
+    # an OS notification stealing focus) would unfairly penalize someone
+    # for something outside their control.
+    fullscreen_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    integrity_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class ExamAttempt(Base, UUIDPk, Timestamped):

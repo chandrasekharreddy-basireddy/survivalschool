@@ -15,6 +15,90 @@ but the live network call has not been exercised from this sandbox.
 credential) prevents doing more right now. **GAP** = a known limitation,
 documented rather than hidden.
 
+## Fifth pass: 5 new subsystems — TESTED
+
+Five more subsystems, backend + frontend, verified the same way as every
+other pass in this report: a real passing test, not a description of
+intent.
+
+1. **Contests** (`app/models/contest.py`, `app/services/contest_service.py`,
+   `app/api/v1/contests.py`, `/contests`, `/contests/[id]`) — live,
+   platform-wide weekly (Sat/Sun, 9 AM + 6 PM IST, 90 min, 15 questions) and
+   monthly (first Sunday, 9 AM IST, 120 min, 30 questions) contests,
+   scheduled in real IST wall-clock time (`zoneinfo.ZoneInfo("Asia/Kolkata")`)
+   by a worker job that runs every 5 minutes (`run_contest_scheduler` in
+   `app/workers/worker.py`). Questions are randomly sampled from the real,
+   instructor-authored `Question` table (published courses only) and
+   snapshotted onto the contest at creation so they can't change mid-contest
+   — never AI-generated. Scheduling is idempotent via a nullable-unique
+   `occurrence_key` plus a SAVEPOINT/IntegrityError race guard. One attempt
+   per student, server-authoritative grading and timing (same
+   `with_for_update` row-lock pattern as quiz/exam submit). Finalization
+   ranks by score desc, then time taken asc, then submission time asc; all
+   finishers get 15 gamification points, top-3 finishers additionally get 50
+   points, a `ContestCertificate` (a separate table from the course
+   `Certificate` model, since that one requires a non-null `course_id`), and
+   an email notification. `contests.manage` (new permission, ADMIN/
+   SUPER_ADMIN only — not INSTRUCTOR) gates manual/admin contest creation and
+   finalization.
+2. **AI-generated mock practice questions** (`app/models/ai_practice.py`,
+   `app/api/v1/ai_practice.py`, `/ai-practice`, `/ai-practice/[id]`) —
+   students generate practice MCQs (subject + count, 3-15) via the existing
+   `AIProvider` abstraction, extended with `generate_questions()`. Stored in
+   `ai_mock_sessions`/`ai_generated_questions`/`ai_generated_question_options`/
+   `ai_mock_answers` — tables that share no foreign key or code path with the
+   real `questions` bank used by quizzes/exams/contests, so AI content can
+   never be mistaken for or merged with the vetted question bank. Graded
+   server-side, but awards **zero** gamification points and never
+   contributes to a certificate, grade, or contest. Rate-limited to 10
+   sessions/hour/student.
+3. **Bulk question import** (`app/services/question_import_service.py`,
+   `POST /questions/bulk-import`) — CSV/XLSX upload (openpyxl for `.xlsx`),
+   max 500 rows, validated with the same rules as single-question creation.
+   All-or-nothing: a commit only writes if every row validates; `dry_run`
+   (default `true`) previews without writing. Gated on `quiz.create`/
+   `exam.manage` plus course-ownership. New instructor UI panel on
+   `/instructor/courses/[id]/edit` (preview table, commit button disabled
+   until a clean preview exists).
+4. **Exam integrity hardening** (`Exam.fullscreen_required`/
+   `integrity_monitoring_enabled`, `PUT /exams/attempts/{id}/events`, `GET
+   /exams/{id}/attempts/flagged`, `/instructor/exams/[id]/flagged`) —
+   deliberately **log-only, never punitive**: tab-blur/fullscreen-exit/copy/
+   paste/right-click events are recorded to `ExamAttempt.flagged_events` (JSON,
+   capped at 200 events/attempt) for instructor review, but never auto-submit
+   or auto-fail an attempt, because false positives (a network hiccup, an OS
+   notification stealing focus) shouldn't unfairly penalize a real student.
+   The events endpoint always returns `{"logged": true|false}` and never
+   fails the request. The flagged-attempts list is scoped to the exam's own
+   course (`exam.manage`) so one instructor can't see another's data.
+5. **Attendance via timetable** (`app/models/attendance.py`,
+   `app/services/attendance_service.py`, `app/api/v1/attendance.py`,
+   `/timetable`, `/instructor/timetable`) — built on the existing
+   `TimetableEntry` weekly-slot model. An instructor opens an
+   `AttendanceSession` for a concrete calendar date only if that date's
+   weekday actually matches the entry's scheduled weekday and the term is
+   currently active. A 6-hex-character check-in code is valid for 15 minutes
+   (`CODE_VALIDITY_MINUTES`); reopening rotates a fresh code. Check-in is
+   idempotent and race-safe (SAVEPOINT pattern). Instructors can also mark
+   attendance manually. Students see a live per-course attendance percentage.
+
+**Verification, this pass:**
+
+- Backend: `ruff check .`, `bandit -r app -ll`, `pip-audit -r
+  requirements.txt` all clean. `pytest -q` — **70/70 passing** (58
+  pre-existing + 12 new,
+  `tests/test_contests_ai_practice_import_integrity_attendance.py`, real
+  Postgres/Redis, covering contest creation/leaderboard/finalize/top-3
+  certificates, scheduler idempotency, AI mock generation/grading/zero-points
+  and its structural isolation from the real question bank, bulk import
+  preview/commit/all-or-nothing/ownership rejection (CSV and XLSX), exam
+  integrity event logging and instructor review, and attendance's
+  scheduled-day check plus check-in/manual-marking flow).
+- Frontend: `npm run lint`, `tsc --noEmit`, `npm run build` all clean.
+- A new Alembic migration (`31e4fc98f4cf_add_contests_ai_mock_practice_...py`)
+  adds the 10 new tables and the two new `Exam` columns; applied to a real
+  local Postgres instance.
+
 ## Fourth pass: 5 new features + full light/dark UI overhaul — TESTED
 
 You asked for the checks to be re-run until zero bugs, five new major
@@ -482,6 +566,11 @@ git push -u origin main
 
 | Subsystem | Status |
 |---|---|
+| Contests (auto-scheduled weekly/monthly + admin ad hoc) | TESTED (fifth pass) |
+| AI-generated mock practice questions (structurally isolated, zero points) | TESTED (fifth pass) |
+| Bulk question import (CSV/XLSX, all-or-nothing) | TESTED (fifth pass) |
+| Exam integrity monitoring (log-only, never punitive) | TESTED (fifth pass) |
+| Attendance via timetable (15-minute check-in codes) | TESTED (fifth pass) |
 | Timetable + conflict detection + .ics export | TESTED (fourth pass) |
 | Course discussions / Q&A | TESTED (fourth pass) |
 | Practice mode + question bookmarks | TESTED (fourth pass) |

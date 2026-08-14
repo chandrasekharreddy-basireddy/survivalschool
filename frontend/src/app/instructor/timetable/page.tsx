@@ -80,6 +80,30 @@ export default function InstructorTimetablePage() {
     }
   };
 
+  const [attendance, setAttendance] = useState<Record<string, { sessionId: string; code: string; codeExpiresAt: string }>>({});
+  const [roster, setRoster] = useState<Record<string, { student_name: string; status: string }[]>>({});
+
+  const openAttendance = async (entryId: string) => {
+    try {
+      const session = await apiFetch<{ id: string; check_in_code: string; code_expires_at: string }>(
+        "/attendance/sessions/open", { method: "POST", body: JSON.stringify({ timetable_entry_id: entryId }) }
+      );
+      setAttendance((prev) => ({ ...prev, [entryId]: { sessionId: session.id, code: session.check_in_code, codeExpiresAt: session.code_expires_at } }));
+      const roll = await apiFetch<{ student_name: string; status: string }[]>(`/attendance/sessions/${session.id}`);
+      setRoster((prev) => ({ ...prev, [entryId]: roll }));
+      toast.show("Attendance opened — share the code with the class.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't open attendance (only works on the class's scheduled day).", "error");
+    }
+  };
+
+  const refreshRoster = async (entryId: string) => {
+    const session = attendance[entryId];
+    if (!session) return;
+    const roll = await apiFetch<{ student_name: string; status: string }[]>(`/attendance/sessions/${session.sessionId}`).catch(() => []);
+    setRoster((prev) => ({ ...prev, [entryId]: roll }));
+  };
+
   if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user || !user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r))) {
     return <div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted">Instructor access required.</div>;
@@ -153,14 +177,41 @@ export default function InstructorTimetablePage() {
       <div className="mt-3 space-y-2">
         {entries.length === 0 && <p className="text-sm text-fg-subtle">No entries yet.</p>}
         {entries.map((e) => (
-          <div key={e.id} className="card flex items-center justify-between !p-4">
-            <div>
-              <p className="text-sm font-medium text-fg">{e.course_title}</p>
-              <p className="text-xs text-fg-subtle">
-                {DAYS[e.day_of_week]} · {e.start_time.slice(0, 5)}–{e.end_time.slice(0, 5)} · {e.room || "TBD"} · {e.term}
-              </p>
+          <div key={e.id} className="card !p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-fg">{e.course_title}</p>
+                <p className="text-xs text-fg-subtle">
+                  {DAYS[e.day_of_week]} · {e.start_time.slice(0, 5)}–{e.end_time.slice(0, 5)} · {e.room || "TBD"} · {e.term}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => openAttendance(e.id)} className="btn-secondary !px-3 !py-1.5 text-xs">
+                  {attendance[e.id] ? "Reopen attendance" : "Open attendance"}
+                </button>
+                <button onClick={() => remove(e.id)} className="btn-secondary !px-3 !py-1.5 text-xs">Remove</button>
+              </div>
             </div>
-            <button onClick={() => remove(e.id)} className="btn-secondary !px-3 !py-1.5 text-xs">Remove</button>
+            {attendance[e.id] && (
+              <div className="mt-3 rounded-lg border border-brand-500/40 bg-brand-500/5 p-3">
+                <p className="text-xs text-fg-subtle">Check-in code (valid 15 minutes) — share it aloud or on screen:</p>
+                <p className="mt-1 font-mono text-2xl font-bold tracking-widest text-brand-400">{attendance[e.id].code}</p>
+                <div className="mt-2 flex items-center justify-between">
+                  <p className="text-xs text-fg-subtle">{(roster[e.id] || []).length} checked in</p>
+                  <button onClick={() => refreshRoster(e.id)} className="text-xs text-brand-400 hover:underline">Refresh roster</button>
+                </div>
+                {(roster[e.id] || []).length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {(roster[e.id] || []).map((r, i) => (
+                      <li key={i} className="flex items-center justify-between text-xs text-fg-muted">
+                        <span>{r.student_name}</span>
+                        <span className="capitalize text-fg-subtle">{r.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>

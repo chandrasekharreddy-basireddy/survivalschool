@@ -7,9 +7,11 @@ backend; the frontend only ever calls our own `/api/v1/ai/*` endpoints.
 """
 from __future__ import annotations
 
+import json
+import re
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 import structlog
@@ -28,11 +30,32 @@ class AIResponse:
     error: str | None = None
 
 
+@dataclass
+class GeneratedMCQ:
+    """One AI-generated multiple-choice question. Exactly one option must be
+    marked correct — enforced by AIGenerationError below at the point of
+    generation, not left for a caller to discover later."""
+    prompt: str
+    options: list[tuple[str, bool]] = field(default_factory=list)
+
+
+class AIGenerationError(Exception):
+    """Raised when an AI provider fails to produce well-formed questions —
+    e.g. Sarvam returns text that isn't valid JSON, or the shape doesn't
+    match (missing options, more/less than one correct answer). The caller
+    must surface this as a real error to the student rather than silently
+    falling back to fabricated content."""
+
+
 class AIProvider(ABC):
     name: str = "base"
 
     @abstractmethod
     async def chat(self, messages: list[dict], *, system_prompt: str | None = None) -> AIResponse:
+        ...
+
+    @abstractmethod
+    async def generate_questions(self, subject: str, count: int) -> list[GeneratedMCQ]:
         ...
 
 
@@ -53,6 +76,27 @@ class MockAIProvider(AIProvider):
         )
         latency_ms = int((time.perf_counter() - start) * 1000)
         return AIResponse(content=content, provider=self.name, tokens_used=len(content.split()), latency_ms=latency_ms)
+
+    async def generate_questions(self, subject: str, count: int) -> list[GeneratedMCQ]:
+        """Deterministic, zero-cost, template-based question generation —
+        same honesty contract as MockAIProvider.chat(): real, working code
+        that produces genuinely internally-consistent MCQs (one clearly
+        marked correct answer among four options), openly a mock/dev
+        stand-in rather than a real Sarvam call. Connect a real Sarvam key
+        and set AI_PROVIDER=sarvam for live AI-authored questions."""
+        questions: list[GeneratedMCQ] = []
+        for i in range(1, count + 1):
+            options = [
+                (f"The correct concept #{i} in {subject}", True),
+                (f"A related but incorrect idea #{i} in {subject}", False),
+                (f"A common misconception about {subject} (#{i})", False),
+                (f"An unrelated distractor for {subject} (#{i})", False),
+            ]
+            questions.append(GeneratedMCQ(
+                prompt=f"(Mock AI) Practice question {i} on \"{subject}\": which of the following is correct?",
+                options=options,
+            ))
+        return questions
 
 
 class SarvamAIProvider(AIProvider):
@@ -104,6 +148,53 @@ class SarvamAIProvider(AIProvider):
 
         return AIResponse(content=content, provider=self.name, tokens_used=tokens,
                            latency_ms=int((time.perf_counter() - start) * 1000))
+
+    async def generate_questions(self, subject: str, count: int) -> list[GeneratedMCQ]:
+        """Asks Sarvam for strict JSON and parses it defensively. Never
+        fabricates a fallback question set on failure — a malformed or
+        missing response raises AIGenerationError, which the API layer turns
+        into a clear error for the student rather than silently serving
+        something that looks generated but isn't real. Same untested-from-
+        this-sandbox caveat as chat() above."""
+        system_prompt = (
+            "You are a question-generation engine for a university practice tool. "
+            "Output ONLY valid JSON, no prose, no markdown fences. The JSON must be a list of objects, "
+            "each shaped exactly as: "
+            '{"prompt": "...", "options": [{"text": "...", "is_correct": true}, '
+            '{"text": "...", "is_correct": false}, {"text": "...", "is_correct": false}, '
+            '{"text": "...", "is_correct": false}]}. '
+            "Exactly one option per question must have is_correct true. Do not include any other keys or text."
+        )
+        user_prompt = f"Generate exactly {count} multiple-choice practice questions about: {subject}"
+        response = await self.chat([{"role": "user", "content": user_prompt}], system_prompt=system_prompt)
+        if response.error:
+            raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+
+        raw = response.content.strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
+
+        if not isinstance(data, list) or not data:
+            raise AIGenerationError("Sarvam AI returned an empty or malformed question list.")
+
+        questions: list[GeneratedMCQ] = []
+        for item in data:
+            if not isinstance(item, dict) or "prompt" not in item or "options" not in item:
+                raise AIGenerationError("Sarvam AI returned a question missing required fields.")
+            options = item["options"]
+            if not isinstance(options, list) or len(options) < 2:
+                raise AIGenerationError("Sarvam AI returned a question with fewer than 2 options.")
+            correct_count = sum(1 for o in options if isinstance(o, dict) and o.get("is_correct") is True)
+            if correct_count != 1:
+                raise AIGenerationError("Sarvam AI returned a question without exactly one correct option.")
+            questions.append(GeneratedMCQ(
+                prompt=str(item["prompt"]),
+                options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
+            ))
+        return questions
 
 
 def get_ai_provider() -> AIProvider:

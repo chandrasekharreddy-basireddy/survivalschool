@@ -15,6 +15,8 @@ interface CourseDetail {
 }
 interface QuizSummary { id: string; title: string; is_published: boolean }
 interface ExamSummary { id: string; title: string; is_published: boolean }
+interface ImportRow { row_number: number; prompt: string; question_type: string; error: string | null }
+interface ImportPreview { total_rows: number; valid_rows: number; error_rows: number; rows: ImportRow[]; committed: boolean; inserted_count: number }
 
 export default function EditCoursePage() {
   const params = useParams<{ id: string }>();
@@ -122,6 +124,8 @@ export default function EditCoursePage() {
         </div>
       </div>
 
+      <BulkImportPanel courseId={course.id} />
+
       <div className="card mt-6">
         <div className="flex items-center justify-between">
           <h2 className="font-semibold text-fg">Quizzes</h2>
@@ -153,7 +157,10 @@ export default function EditCoursePage() {
             {exams.map((e) => (
               <li key={e.id} className="flex items-center justify-between text-sm">
                 <span className="text-fg-muted">{e.title}</span>
-                <span className={e.is_published ? "text-emerald-400" : "text-amber-400"}>{e.is_published ? "Published" : "Draft"}</span>
+                <div className="flex items-center gap-3">
+                  <Link href={`/instructor/exams/${e.id}/flagged`} className="text-xs text-brand-400 hover:underline">Review flags</Link>
+                  <span className={e.is_published ? "text-emerald-400" : "text-amber-400"}>{e.is_published ? "Published" : "Draft"}</span>
+                </div>
               </li>
             ))}
           </ul>
@@ -161,6 +168,102 @@ export default function EditCoursePage() {
       </div>
 
       <Link href="/instructor/courses" className="mt-6 inline-block text-sm text-fg-muted hover:text-fg">&larr; Back to your courses</Link>
+    </div>
+  );
+}
+
+function BulkImportPanel({ courseId }: { courseId: string }) {
+  const toast = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const runImport = async (dryRun: boolean) => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await apiFetch<ImportPreview>(
+        `/questions/bulk-import?course_id=${courseId}&dry_run=${dryRun}`,
+        { method: "POST", body: form }
+      );
+      setPreview(res);
+      if (dryRun) {
+        toast.show(
+          res.error_rows === 0
+            ? `Looks good — ${res.valid_rows} question(s) ready to import.`
+            : `${res.error_rows} row(s) have errors — fix them and re-upload before importing.`,
+          res.error_rows === 0 ? "success" : "info"
+        );
+      } else if (res.committed) {
+        toast.show(`Imported ${res.inserted_count} question(s) into the question bank.`, "success");
+        setFile(null);
+      }
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't import questions.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card mt-6">
+      <h2 className="font-semibold text-fg">Bulk import questions</h2>
+      <p className="mt-1 text-sm text-fg-muted">
+        Upload a .csv or .xlsx file of questions for this course. Every row is validated first — nothing is written to the
+        question bank until you preview it and every row is error-free, then commit.
+      </p>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <input
+          type="file"
+          accept=".csv,.xlsx"
+          onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); }}
+          className="text-sm text-fg-muted file:mr-3 file:rounded-lg file:border-0 file:bg-ink-800 file:px-3 file:py-1.5 file:text-sm file:text-fg hover:file:bg-ink-700"
+        />
+        <button onClick={() => runImport(true)} disabled={!file || busy} className="btn-secondary !px-3 !py-1.5 text-sm">
+          {busy ? "Working…" : "Preview"}
+        </button>
+        <button
+          onClick={() => runImport(false)}
+          disabled={!file || busy || !preview || preview.error_rows > 0}
+          className="btn-primary !px-3 !py-1.5 text-sm"
+        >
+          Commit import
+        </button>
+      </div>
+
+      {preview && (
+        <div className="mt-4">
+          <p className="text-xs text-fg-subtle">
+            {preview.total_rows} row(s) &middot; {preview.valid_rows} valid &middot; {preview.error_rows} with errors
+            {preview.committed && ` — ${preview.inserted_count} imported`}
+          </p>
+          <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-ink-700">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-ink-900 text-fg-subtle">
+                <tr>
+                  <th className="px-2 py-1.5 text-left">#</th>
+                  <th className="px-2 py-1.5 text-left">Prompt</th>
+                  <th className="px-2 py-1.5 text-left">Type</th>
+                  <th className="px-2 py-1.5 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.rows.map((r) => (
+                  <tr key={r.row_number} className="border-t border-ink-800">
+                    <td className="px-2 py-1.5 text-fg-subtle">{r.row_number}</td>
+                    <td className="max-w-xs truncate px-2 py-1.5 text-fg-muted">{r.prompt || "—"}</td>
+                    <td className="px-2 py-1.5 text-fg-muted">{r.question_type || "—"}</td>
+                    <td className={`px-2 py-1.5 ${r.error ? "text-red-400" : "text-emerald-400"}`}>{r.error || "OK"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

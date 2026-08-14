@@ -1,0 +1,12 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">{{ contest_title }} — results are in</h1>
+<p>Hi {{ full_name }},</p>
+{% if rank %}
+<p style="font-size:32px;font-weight:700;color:#facc15;margin:16px 0;">#{{ rank }} place — {{ score_percent }}%</p>
+<p>Congratulations! Your contest certificate is ready in the app.</p>
+{% else %}
+<p style="font-size:24px;font-weight:700;color:#5b5bff;margin:16px 0;">{{ score_percent }}%</p>
+<p>Thanks for competing — the next contest is right around the corner.</p>
+{% endif %}
+{% endblock %}

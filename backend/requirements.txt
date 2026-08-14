@@ -21,6 +21,7 @@ tenacity==9.0.0
 weasyprint==69.0
 prometheus-fastapi-instrumentator==8.1.0
 python-magic==0.4.27
+openpyxl==3.1.5
 python-dotenv==1.2.2
 gunicorn==26.0.0
 starlette==1.6.0

@@ -166,6 +166,77 @@ should never silently change because an instructor later edits the course.
 | POST | `/admin/users/{user_id}/deactivate` | Deactivate a user — immediately locks them out of authenticated endpoints (`system.manage`) |
 | POST | `/admin/users/{user_id}/activate` | Reactivate a user (`system.manage`) |
 
+## Contests (`/contests`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/contests` | List contests, optionally filtered by `status`. Public |
+| GET | `/contests/upcoming` | Next 5 scheduled/open contests, soonest first — powers the countdown widget. Public |
+| POST | `/contests` | Create an ad hoc contest (`contests.manage`, ADMIN/SUPER_ADMIN only — not INSTRUCTOR) |
+| GET | `/contests/{contest_id}` | Contest metadata |
+| GET | `/contests/{contest_id}/leaderboard` | Live, ranked leaderboard of submitted attempts (score desc, time taken asc, submission time asc). Public |
+| POST | `/contests/{contest_id}/attempts` | Join/start — one attempt per student; `409` if already attempted, resumes an in-progress attempt instead of erroring |
+| GET | `/contests/attempts/{attempt_id}/questions` | Fetch this attempt's fixed, shuffled question order |
+| POST | `/contests/attempts/{attempt_id}/submit` | Server-side grading (same `grade_answer`/`with_for_update` pattern as quiz/exam submit) |
+| GET | `/contests/me/certificates` | Own contest certificates (top-3 finishes) |
+| GET | `/contests/certificates/verify/{certificate_number}` | **Public**, unauthenticated contest-certificate verification |
+| POST | `/contests/{contest_id}/finalize` | Manual finalize trigger (`contests.manage`); `409` if the contest's window hasn't closed yet — the worker also does this automatically every 5 minutes |
+
+Contests are platform-wide, not per-course. `question_ids` are a snapshot of
+real, instructor-authored `Question` rows (published courses only), taken at
+contest-creation time so the set can't change mid-contest — never
+AI-generated. Weekly/monthly occurrences are scheduled idempotently by
+`app/workers/worker.py::run_contest_scheduler` (every 5 minutes, in real IST
+wall-clock time). See `docs/DATABASE.md` and `docs/SECURITY.md`.
+
+## AI mock practice (`/ai-practice`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/ai-practice/sessions` | Generate a fresh set of AI-authored MCQs for a subject (3-15 questions); rate-limited to 10 sessions/hour/student |
+| GET | `/ai-practice/sessions/{session_id}/questions` | Fetch an in-progress session's questions |
+| POST | `/ai-practice/sessions/{session_id}/submit` | Server-side grading against the stored `is_correct` flags; **awards zero gamification points** |
+| GET | `/ai-practice/sessions/{session_id}` | Fetch a completed session's results — `409` if not yet submitted |
+| GET | `/ai-practice/me/sessions` | Own AI mock session history |
+
+Generated questions are stored in `ai_generated_questions`/
+`ai_generated_question_options`, tables structurally separate from the real
+`questions` bank — never eligible for a quiz, exam, or contest. See
+`docs/SECURITY.md` and `docs/AI.md`.
+
+## Bulk question import (`/questions/bulk-import`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/questions/bulk-import?course_id={id}&dry_run={true\|false}` | Multipart upload (field `file`), `.csv` or `.xlsx`, max 500 rows. `dry_run=true` (default) previews without writing; `dry_run=false` commits only if every row validates. Requires `quiz.create` or `exam.manage`, plus ownership of `course_id` (or `system.manage`) |
+
+All-or-nothing: if any row fails validation, nothing is inserted and the
+same per-row errors are returned in the preview so the instructor can fix
+and re-upload. See `docs/SECURITY.md`.
+
+## Exam integrity (`/exams`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| PUT | `/exams/attempts/{attempt_id}/events` | Student-facing, append-only. Logs one `tab_blur`/`fullscreen_exit`/`copy`/`paste`/`right_click` event while the attempt is `in_progress`; capped at 200 events/attempt; always returns `{"logged": true\|false}`, never fails the request |
+| GET | `/exams/{exam_id}/attempts/flagged` | Lists submitted attempts with at least one flagged event, for instructor review (`exam.manage`, scoped to the exam's own course) |
+
+Flagging is deliberately log-only and never auto-submits or auto-fails an
+attempt — see `docs/SECURITY.md` for why.
+
+## Attendance (`/attendance`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/attendance/sessions/open` | Open (or reopen, rotating the code) an attendance session for a scheduled `TimetableEntry` occurrence (`timetable.manage`); rejects opening on a date that doesn't match the entry's actual scheduled weekday or falls outside the term |
+| GET | `/attendance/sessions/{session_id}` | Roster for a session (`timetable.manage`) |
+| POST | `/attendance/check-in` | Student check-in with the session's code; enrollment-checked, idempotent on repeat check-ins |
+| POST | `/attendance/sessions/{session_id}/mark` | Instructor manual override of a student's status (`timetable.manage`) |
+| GET | `/attendance/me` | Own live per-course attendance percentage, computed from real session/record rows |
+
+Check-in codes are 6 hex characters and expire 15 minutes after the session
+is opened or reopened. See `docs/SECURITY.md`.
+
 ## Timetable (`/timetable`)
 
 | Method | Path | Purpose |

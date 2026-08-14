@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch, getAccessToken } from "@/lib/api";
+import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -60,6 +61,9 @@ export default function TimetablePage() {
         </div>
         <DownloadIcsButton />
       </div>
+
+      <CheckInBox />
+      <AttendanceSummary />
 
       {error && <p className="mt-4 text-sm text-red-400">{error}</p>}
 
@@ -124,5 +128,72 @@ function DownloadIcsButton() {
     <button onClick={download} disabled={downloading} className="btn-secondary">
       {downloading ? "Preparing…" : "Add to calendar (.ics)"}
     </button>
+  );
+}
+
+function CheckInBox() {
+  const toast = useToast();
+  const [code, setCode] = useState("");
+  const [checking, setChecking] = useState(false);
+
+  const checkIn = async () => {
+    if (!code.trim()) return;
+    setChecking(true);
+    try {
+      await apiFetch("/attendance/check-in", { method: "POST", body: JSON.stringify({ code: code.trim() }) });
+      toast.show("Checked in — you're marked present.", "success");
+      setCode("");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't check in.", "error");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  return (
+    <div className="card mt-6 !p-4">
+      <p className="text-sm font-medium text-fg">In class right now?</p>
+      <p className="mt-1 text-xs text-fg-muted">Enter the attendance code your instructor is showing.</p>
+      <div className="mt-3 flex gap-2">
+        <input
+          className="input flex-1 font-mono uppercase tracking-widest"
+          placeholder="e.g. A1B2C3"
+          value={code}
+          onChange={(e) => setCode(e.target.value.toUpperCase())}
+          maxLength={10}
+        />
+        <button onClick={checkIn} disabled={checking || !code.trim()} className="btn-primary shrink-0">
+          {checking ? "Checking in…" : "Check in"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface AttendanceSummaryItem { course_id: string; course_title: string; total_sessions: number; present_count: number; attendance_percent: number }
+
+function AttendanceSummary() {
+  const [summary, setSummary] = useState<AttendanceSummaryItem[] | null>(null);
+
+  useEffect(() => {
+    apiFetch<AttendanceSummaryItem[]>("/attendance/me").then(setSummary).catch(() => setSummary([]));
+  }, []);
+
+  if (!summary || summary.length === 0) return null;
+
+  return (
+    <div className="mt-6">
+      <h2 className="text-sm font-semibold text-fg">Your attendance</h2>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+        {summary.map((s) => (
+          <div key={s.course_id} className="card !p-3 flex items-center justify-between text-sm">
+            <span className="text-fg-muted">{s.course_title}</span>
+            <span className={`font-semibold ${s.attendance_percent >= 75 ? "text-emerald-400" : "text-amber-400"}`}>
+              {s.attendance_percent}% ({s.present_count}/{s.total_sessions})
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

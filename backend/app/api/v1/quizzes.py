@@ -4,15 +4,16 @@ import random
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
+from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_verified_user, require_permission
 from app.models.assessment import Question, QuestionOption, Quiz, QuizAnswer, QuizAttempt
+from app.models.lms import Course
 from app.models.user import User
 from app.schemas.assessment import (
     AttemptHistoryOut,
@@ -24,14 +25,25 @@ from app.schemas.assessment import (
     QuizCreate,
     QuizOut,
 )
+from app.schemas.question_import import ImportPreviewOut, ImportRowOut
 from app.services.analytics_service import track_event
 from app.services.audit_service import record_audit_event
 from app.services.gamification_service import POINTS_QUIZ_PASS, award_points, evaluate_and_award_badges
 from app.services.n8n_service import emit_event
+from app.services.question_import_service import commit_rows, parse_csv, parse_xlsx
 from app.services.scoring_service import grade_answer, summarize_attempt
 
 router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 questions_router = APIRouter(prefix="/questions", tags=["question-bank"])
+
+
+async def _require_course_ownership_for_import(db: AsyncSession, user: User, course_id: uuid.UUID) -> Course:
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise NotFoundError("Course not found.")
+    if course.instructor_id != user.id and not user.has_permission("system.manage"):
+        raise AuthorizationError("You can only import questions into your own courses.")
+    return course
 
 
 @questions_router.post("", response_model=QuestionOut, status_code=201)
@@ -56,6 +68,46 @@ async def create_question(
     await record_audit_event(db, actor_id=user.id, action="question.create", resource_type="question", resource_id=str(question.id))
     await db.commit()
     return question
+
+
+@questions_router.post("/bulk-import", response_model=ImportPreviewOut)
+async def bulk_import_questions(
+    course_id: uuid.UUID,
+    dry_run: bool = Query(True, description="Preview only (default). Pass dry_run=false to actually commit, and only once every row is error-free."),
+    file: UploadFile = File(...),
+    user: User = Depends(require_permission("quiz.create", "exam.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """CSV or XLSX bulk question import — see app/services/question_import_service.py
+    for the expected column format. All-or-nothing: a commit (dry_run=false)
+    only writes anything if every row in the file is valid; otherwise nothing
+    is inserted and the same per-row errors are returned so the instructor
+    can fix the file and re-upload."""
+    await _require_course_ownership_for_import(db, user, course_id)
+
+    raw = await file.read()
+    filename = (file.filename or "").lower()
+    if filename.endswith(".xlsx"):
+        rows = parse_xlsx(raw)
+    elif filename.endswith(".csv"):
+        rows = parse_csv(raw)
+    else:
+        raise ValidationAppError("Only .csv or .xlsx files are supported.")
+
+    error_rows = [r for r in rows if r.error]
+    inserted_count = 0
+    committed = False
+    if not dry_run and not error_rows and rows:
+        inserted_count = await commit_rows(db, course_id, rows)
+        committed = True
+        await record_audit_event(db, actor_id=user.id, action="question.bulk_import", resource_type="course",
+                                  resource_id=str(course_id), metadata={"inserted_count": inserted_count})
+
+    return ImportPreviewOut(
+        total_rows=len(rows), valid_rows=len(rows) - len(error_rows), error_rows=len(error_rows),
+        rows=[ImportRowOut(row_number=r.row_number, prompt=r.prompt, question_type=r.question_type, error=r.error) for r in rows],
+        committed=committed, inserted_count=inserted_count,
+    )
 
 
 @router.post("", response_model=QuizOut, status_code=201)

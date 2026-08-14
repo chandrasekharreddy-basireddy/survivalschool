@@ -9,10 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import ConflictError, NotFoundError
+from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_verified_user, require_permission
 from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question
+from app.models.lms import Course
 from app.models.user import User
 from app.schemas.assessment import (
     AnswerSubmit,
@@ -22,6 +23,8 @@ from app.schemas.assessment import (
     AttemptSubmit,
     ExamCreate,
     ExamOut,
+    FlaggedAttemptOut,
+    IntegrityEventIn,
     QuestionPublicOut,
     ReviewAnswerOut,
 )
@@ -41,6 +44,7 @@ async def create_exam(payload: ExamCreate, user: User = Depends(require_permissi
         course_id=payload.course_id, title=payload.title, time_limit_seconds=payload.time_limit_seconds,
         max_attempts=payload.max_attempts, pass_score_percent=payload.pass_score_percent,
         question_ids=[str(q) for q in payload.question_ids],
+        fullscreen_required=payload.fullscreen_required, integrity_monitoring_enabled=payload.integrity_monitoring_enabled,
     )
     db.add(exam)
     await record_audit_event(db, actor_id=user.id, action="exam.create", resource_type="exam")
@@ -302,3 +306,53 @@ async def submit_exam_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, use
         "email": user.email, "assessment_title": exam.title, "score_percent": score_percent, "passed": passed,
     })
     return attempt
+
+
+MAX_FLAGGED_EVENTS_PER_ATTEMPT = 200
+
+
+@router.put("/attempts/{attempt_id}/events", response_model=dict)
+async def report_integrity_event(attempt_id: uuid.UUID, payload: IntegrityEventIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    """The exam-taking frontend calls this on tab-blur/visibility-change/
+    fullscreen-exit/copy/paste/right-click while an attempt is in progress.
+    Deliberately append-only and non-blocking — it never fails the attempt
+    or the request; it just logs for the instructor to review afterward
+    (see the fullscreen_required/integrity_monitoring_enabled comment on the
+    Exam model for why this doesn't auto-submit)."""
+    attempt = await db.get(ExamAttempt, attempt_id)
+    if attempt is None or attempt.student_id != user.id:
+        raise NotFoundError("Attempt not found.")
+    if attempt.status != "in_progress":
+        return {"logged": False}
+    if len(attempt.flagged_events) >= MAX_FLAGGED_EVENTS_PER_ATTEMPT:
+        return {"logged": False}  # bounded — a spammy client can't grow this unboundedly
+
+    attempt.flagged_events = attempt.flagged_events + [{"type": payload.event_type, "at": datetime.now(timezone.utc).isoformat()}]
+    await db.commit()
+    return {"logged": True}
+
+
+@router.get("/{exam_id}/attempts/flagged", response_model=list[FlaggedAttemptOut])
+async def list_flagged_attempts(exam_id: uuid.UUID, user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
+    """Instructor-facing: every submitted attempt on this exam that has at
+    least one flagged integrity event, for manual review. Scoped to the
+    exam's own course instructor (or an admin) — one instructor can never
+    see another instructor's exam integrity data."""
+    exam = await db.get(Exam, exam_id)
+    if exam is None:
+        raise NotFoundError("Exam not found.")
+    course = await db.get(Course, exam.course_id)
+    if course is None or (course.instructor_id != user.id and not user.has_permission("system.manage")):
+        raise AuthorizationError("You can only review integrity flags for your own exams.")
+
+    from sqlalchemy import func
+    rows = (await db.execute(
+        select(ExamAttempt, User.full_name)
+        .join(User, User.id == ExamAttempt.student_id)
+        .where(ExamAttempt.exam_id == exam_id, func.json_array_length(ExamAttempt.flagged_events) > 0)
+    )).all()
+    return [
+        FlaggedAttemptOut(attempt_id=a.id, student_id=a.student_id, student_name=name, status=a.status,
+                           score_percent=a.score_percent, flagged_events=a.flagged_events)
+        for a, name in rows
+    ]

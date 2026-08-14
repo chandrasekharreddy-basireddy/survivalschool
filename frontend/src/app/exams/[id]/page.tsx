@@ -15,7 +15,13 @@ interface ExamMeta {
   time_limit_seconds: number;
   max_attempts: number;
   pass_score_percent: number;
+  fullscreen_required: boolean;
+  integrity_monitoring_enabled: boolean;
 }
+
+/** Event types the backend accepts on PUT /exams/attempts/{id}/events — see
+ * IntegrityEventIn's regex pattern in app/schemas/assessment.py. Keep in sync. */
+type IntegrityEventType = "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click";
 
 interface OptionPublic { id: string; text: string; order_index: number }
 interface QuestionPublic { id: string; prompt: string; question_type: string; points: number; options: OptionPublic[] }
@@ -81,6 +87,49 @@ export default function ExamTakingPage() {
     return () => clearInterval(interval);
   }, [attempt, result, doSubmit]);
 
+  useEffect(() => {
+    if (result && typeof document !== "undefined" && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, [result]);
+
+  const reportIntegrityEvent = useCallback((eventType: IntegrityEventType) => {
+    if (!attempt) return;
+    apiFetch(`/exams/attempts/${attempt.attempt_id}/events`, {
+      method: "PUT",
+      body: JSON.stringify({ event_type: eventType }),
+    }).catch(() => {
+      // Best-effort and non-blocking by design — see report_integrity_event
+      // in app/api/v1/exams.py. A network hiccup here must never surface to
+      // the student or interrupt their attempt.
+    });
+  }, [attempt]);
+
+  useEffect(() => {
+    if (!attempt || result || !meta?.integrity_monitoring_enabled) return;
+
+    const onVisibility = () => { if (document.hidden) reportIntegrityEvent("tab_blur"); };
+    const onFullscreenChange = () => {
+      if (meta.fullscreen_required && !document.fullscreenElement) reportIntegrityEvent("fullscreen_exit");
+    };
+    const onCopy = () => reportIntegrityEvent("copy");
+    const onPaste = () => reportIntegrityEvent("paste");
+    const onContextMenu = () => reportIntegrityEvent("right_click");
+
+    document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    document.addEventListener("copy", onCopy);
+    document.addEventListener("paste", onPaste);
+    document.addEventListener("contextmenu", onContextMenu);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      document.removeEventListener("copy", onCopy);
+      document.removeEventListener("paste", onPaste);
+      document.removeEventListener("contextmenu", onContextMenu);
+    };
+  }, [attempt, result, meta, reportIntegrityEvent]);
+
   const start = async () => {
     setStarting(true);
     setError(null);
@@ -89,6 +138,14 @@ export default function ExamTakingPage() {
       const qs = await apiFetch<QuestionPublic[]>(`/exams/attempts/${startRes.attempt_id}/questions`);
       setAttempt(startRes);
       setQuestions(qs);
+      if (meta?.fullscreen_required && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {
+          // Fullscreen can be blocked by the browser/OS. The attempt still
+          // proceeds either way — declining fullscreen is itself caught by
+          // the fullscreenchange listener above and logged for instructor
+          // review, never used to auto-fail the student.
+        });
+      }
       if (startRes.resumed) {
         toast.show("Resumed your in-progress attempt. Previously saved answers still count even if selections aren't shown below.", "info");
       }
@@ -168,6 +225,13 @@ export default function ExamTakingPage() {
           <p className="text-sm text-fg-muted">
             This is a timed, proctored-lite exam. Once started, the clock runs until you submit or time expires — answers autosave as you go.
           </p>
+          {meta?.integrity_monitoring_enabled && (
+            <p className="mt-2 text-xs text-fg-subtle">
+              {meta.fullscreen_required
+                ? "This exam requires fullscreen. Switching tabs, leaving fullscreen, copying, or pasting is logged for your instructor to review — it won't auto-fail your attempt, but stay focused."
+                : "Switching tabs, copying, or pasting during this exam is logged for your instructor to review — it won't auto-fail your attempt, but stay focused."}
+            </p>
+          )}
           <button onClick={start} disabled={starting} className="btn-primary mt-6">
             {starting ? "Starting…" : "Start exam"}
           </button>

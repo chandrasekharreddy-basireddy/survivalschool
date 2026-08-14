@@ -102,6 +102,8 @@ class ExamCreate(BaseModel):
     max_attempts: int = 1
     pass_score_percent: int = 70
     question_ids: list[uuid.UUID] = []
+    fullscreen_required: bool = False
+    integrity_monitoring_enabled: bool = True
 
 
 class ExamOut(BaseModel):
@@ -112,6 +114,23 @@ class ExamOut(BaseModel):
     max_attempts: int
     pass_score_percent: int
     is_published: bool
+    fullscreen_required: bool
+    integrity_monitoring_enabled: bool
+
+    model_config = {"from_attributes": True}
+
+
+class IntegrityEventIn(BaseModel):
+    event_type: str = Field(pattern=r"^(tab_blur|fullscreen_exit|copy|paste|right_click)$")
+
+
+class FlaggedAttemptOut(BaseModel):
+    attempt_id: uuid.UUID
+    student_id: uuid.UUID
+    student_name: str
+    status: str
+    score_percent: int | None
+    flagged_events: list[dict]
 
     model_config = {"from_attributes": True}
 

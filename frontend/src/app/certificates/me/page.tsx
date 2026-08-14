@@ -43,6 +43,9 @@ export default function MyCertificatesPage() {
     <div className="mx-auto max-w-4xl px-6 py-10">
       <h1 className="text-2xl font-bold text-fg">Your certificates</h1>
       <p className="mt-1 text-sm text-fg-muted">Every course you&apos;ve completed and earned a certificate for.</p>
+      <Link href="/contests/certificates" className="mt-2 inline-block text-sm text-brand-400 hover:underline">
+        Also see your contest certificates →
+      </Link>
 
       {certs === null ? (
         <p className="mt-8 text-sm text-fg-subtle">Loading…</p>

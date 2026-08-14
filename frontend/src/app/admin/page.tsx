@@ -61,6 +61,7 @@ export default function AdminDashboardPage() {
         <div className="flex gap-4 text-sm">
           <Link href="/admin/users" className="text-brand-400 hover:underline">Users</Link>
           <Link href="/admin/audit-logs" className="text-brand-400 hover:underline">Audit logs</Link>
+          <Link href="/admin/certificates" className="text-brand-400 hover:underline">Certificates</Link>
         </div>
       </div>
 

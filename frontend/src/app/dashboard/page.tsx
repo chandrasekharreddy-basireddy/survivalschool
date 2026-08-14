@@ -125,6 +125,9 @@ export default function DashboardPage() {
           <div className="card">
             <h2 className="font-semibold text-fg">Certificates earned</h2>
             <p className="mt-2 text-sm text-fg-subtle">{completedCourses.length} course{completedCourses.length === 1 ? "" : "s"} completed</p>
+            <Link href="/quiz-history" className="mt-3 inline-block text-sm text-brand-400 hover:underline">
+              Quiz history →
+            </Link>
           </div>
         </div>
       </div>

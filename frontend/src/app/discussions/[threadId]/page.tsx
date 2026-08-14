@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
@@ -16,6 +16,7 @@ interface ThreadDetail {
 
 export default function ThreadDetailPage() {
   const params = useParams<{ threadId: string }>();
+  const router = useRouter();
   const { user } = useAuth();
   const toast = useToast();
   const [thread, setThread] = useState<ThreadDetail | null>(null);
@@ -23,6 +24,7 @@ export default function ThreadDetailPage() {
   const [replyBody, setReplyBody] = useState("");
   const [posting, setPosting] = useState(false);
   const [voting, setVoting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const load = () => {
     apiFetch<ThreadDetail>(`/discussions/${params.threadId}`, { auth: !!user })
@@ -68,6 +70,21 @@ export default function ThreadDetailPage() {
     }
   };
 
+  const deleteThread = async () => {
+    if (!thread) return;
+    if (!window.confirm("Delete this discussion thread? This can't be undone.")) return;
+    setDeleting(true);
+    try {
+      await apiFetch(`/discussions/${params.threadId}`, { method: "DELETE" });
+      toast.show("Thread deleted.", "success");
+      router.push("/courses");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't delete this thread.", "error");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="mx-auto max-w-lg px-6 py-24 text-center">
@@ -79,6 +96,7 @@ export default function ThreadDetailPage() {
   if (!thread) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
 
   const canResolve = user && (user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)));
+  const canDelete = user && (user.id === thread.author_id || user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)));
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
@@ -100,9 +118,16 @@ export default function ThreadDetailPage() {
           </button>
         </div>
         <p className="mt-4 whitespace-pre-wrap text-sm text-fg-muted">{thread.body}</p>
-        {canResolve && !thread.is_resolved && (
-          <button onClick={resolve} className="btn-secondary mt-4 !px-3 !py-1.5 text-xs">Mark resolved</button>
-        )}
+        <div className="mt-4 flex gap-2">
+          {canResolve && !thread.is_resolved && (
+            <button onClick={resolve} className="btn-secondary !px-3 !py-1.5 text-xs">Mark resolved</button>
+          )}
+          {canDelete && (
+            <button onClick={deleteThread} disabled={deleting} className="btn-secondary !px-3 !py-1.5 text-xs text-red-400 hover:!border-red-500/50">
+              {deleting ? "Deleting…" : "Delete thread"}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 space-y-3">

@@ -1,16 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
+const MAX_AVATAR_MB = 25;
+const AVATAR_ACCEPT = "image/png,image/jpeg,image/gif,image/webp";
 
 interface Profile {
   bio: string | null;
   avatar_url: string | null;
   timezone: string;
   locale: string;
+}
+
+interface FileOut {
+  id: string;
+  original_filename: string;
+  mime_type: string;
+  size_bytes: number;
+  visibility: string;
+  scan_status: string;
+  url: string;
 }
 
 interface GamificationStats {
@@ -33,6 +47,8 @@ export default function ProfilePage() {
   const [certs, setCerts] = useState<CertificateOut[] | null>(null);
   const [bio, setBio] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -40,6 +56,37 @@ export default function ProfilePage() {
     apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => {});
     apiFetch<CertificateOut[]>("/certificates/me").then(setCerts).catch(() => setCerts([]));
   }, [user]);
+
+  const onAvatarSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const maxBytes = MAX_AVATAR_MB * 1024 * 1024;
+    if (file.size > maxBytes) {
+      toast.show(`That image is too large. The limit is ${MAX_AVATAR_MB}MB.`, "error");
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploaded = await apiFetch<FileOut>("/files?visibility=public", {
+        method: "POST",
+        body: formData,
+      });
+      const avatarUrl = `${API_BASE}${uploaded.url}`;
+      const updated = await apiFetch<Profile>("/users/me/profile", {
+        method: "PATCH",
+        body: JSON.stringify({ avatar_url: avatarUrl }),
+      });
+      setProfile(updated);
+      toast.show("Avatar updated.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't upload your avatar.", "error");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -67,9 +114,36 @@ export default function ProfilePage() {
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <div className="flex items-center gap-4">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-purple-500 text-xl font-bold text-white">
-          {user.full_name.slice(0, 1).toUpperCase()}
-        </div>
+        <button
+          type="button"
+          onClick={() => avatarInputRef.current?.click()}
+          disabled={uploadingAvatar}
+          className="group relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full disabled:cursor-wait"
+          title="Change avatar"
+        >
+          {profile?.avatar_url ? (
+            <img
+              src={profile.avatar_url}
+              alt={`${user.full_name}'s avatar`}
+              className="h-16 w-16 rounded-full object-cover"
+            />
+          ) : (
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-purple-500 text-xl font-bold text-white">
+              {user.full_name.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 text-[10px] font-medium text-white opacity-0 transition group-hover:opacity-100">
+            {uploadingAvatar ? "Uploading…" : "Change"}
+          </div>
+        </button>
+        <input
+          ref={avatarInputRef}
+          type="file"
+          accept={AVATAR_ACCEPT}
+          onChange={onAvatarSelected}
+          disabled={uploadingAvatar}
+          className="hidden"
+        />
         <div>
           <h1 className="text-2xl font-bold text-fg">{user.full_name}</h1>
           <p className="text-sm text-fg-subtle">{user.email}</p>

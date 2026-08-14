@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
@@ -11,6 +11,7 @@ interface LessonOut { id: string; title: string; content_type: string; order_ind
 interface SectionOut { id: string; title: string; order_index: number; lessons: LessonOut[] }
 interface CourseDetail {
   id: string; title: string; slug: string; description: string; is_published: boolean;
+  difficulty: string; estimated_hours: number;
   skills: string[]; specialization: string | null; sections: SectionOut[];
 }
 interface QuizSummary { id: string; title: string; is_published: boolean }
@@ -20,6 +21,7 @@ interface ImportPreview { total_rows: number; valid_rows: number; error_rows: nu
 
 export default function EditCoursePage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const { user, loading } = useAuth();
   const toast = useToast();
 
@@ -28,6 +30,9 @@ export default function EditCoursePage() {
   const [exams, setExams] = useState<ExamSummary[]>([]);
   const [newSectionTitle, setNewSectionTitle] = useState("");
   const [lessonDrafts, setLessonDrafts] = useState<Record<string, string>>({});
+  const [editForm, setEditForm] = useState({ title: "", description: "", difficulty: "beginner", estimated_hours: 1, specialization: "" });
+  const [savingCourse, setSavingCourse] = useState(false);
+  const [deletingCourse, setDeletingCourse] = useState(false);
 
   const load = () => {
     apiFetch<CourseDetail>(`/courses/${params.id}`, { auth: false }).then(setCourse).catch(() => setCourse(null));
@@ -39,6 +44,51 @@ export default function EditCoursePage() {
     if (user) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, params.id]);
+
+  useEffect(() => {
+    if (course) {
+      setEditForm({
+        title: course.title, description: course.description, difficulty: course.difficulty,
+        estimated_hours: course.estimated_hours, specialization: course.specialization || "",
+      });
+    }
+    // Only re-seed the form when the course identity changes (first load) —
+    // not on every background refresh() call from addSection/addLesson,
+    // which would otherwise clobber in-progress edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [course?.id]);
+
+  const saveCourseDetails = async () => {
+    setSavingCourse(true);
+    try {
+      const updated = await apiFetch<CourseDetail>(`/courses/${params.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          title: editForm.title, description: editForm.description, difficulty: editForm.difficulty,
+          estimated_hours: editForm.estimated_hours, specialization: editForm.specialization || null,
+        }),
+      });
+      setCourse((prev) => (prev ? { ...prev, ...updated } : prev));
+      toast.show("Course details saved.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't save course details.", "error");
+    } finally {
+      setSavingCourse(false);
+    }
+  };
+
+  const deleteCourse = async () => {
+    if (!window.confirm("Delete this course? Students will lose access and this can't be undone.")) return;
+    setDeletingCourse(true);
+    try {
+      await apiFetch(`/courses/${params.id}`, { method: "DELETE" });
+      toast.show("Course deleted.", "success");
+      router.push("/instructor/courses");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't delete this course.", "error");
+      setDeletingCourse(false);
+    }
+  };
 
   const addSection = async () => {
     if (!newSectionTitle.trim()) return;
@@ -80,6 +130,8 @@ export default function EditCoursePage() {
   }
   if (!course) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
 
+  const canDeleteCourse = user.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r));
+
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <div className="flex items-center justify-between">
@@ -87,6 +139,51 @@ export default function EditCoursePage() {
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${course.is_published ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
           {course.is_published ? "Published" : "Draft"}
         </span>
+      </div>
+
+      <div className="card mt-6">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-fg">Course details</h2>
+          {canDeleteCourse && (
+            <button onClick={deleteCourse} disabled={deletingCourse} className="text-xs text-red-400 hover:underline">
+              {deletingCourse ? "Deleting…" : "Delete course"}
+            </button>
+          )}
+        </div>
+        <div className="mt-4 space-y-4">
+          <div>
+            <label className="label">Title</label>
+            <input className="input" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Description</label>
+            <textarea className="input min-h-24" value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="label">Difficulty</label>
+              <select className="input" value={editForm.difficulty} onChange={(e) => setEditForm({ ...editForm, difficulty: e.target.value })}>
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Estimated hours</label>
+              <input
+                type="number" min={1} className="input" value={editForm.estimated_hours}
+                onChange={(e) => setEditForm({ ...editForm, estimated_hours: Number(e.target.value) || 1 })}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label">Specialization (optional)</label>
+            <input className="input" value={editForm.specialization} onChange={(e) => setEditForm({ ...editForm, specialization: e.target.value })} />
+          </div>
+          <button onClick={saveCourseDetails} disabled={savingCourse || !editForm.title.trim()} className="btn-primary">
+            {savingCourse ? "Saving…" : "Save course details"}
+          </button>
+        </div>
       </div>
 
       <div className="card mt-6">

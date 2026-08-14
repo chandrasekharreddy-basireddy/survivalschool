@@ -19,7 +19,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
-from app.models.social import ChatMember, ChatMessage
+from app.models.social import ChatMember, ChatMessage, MessageRead
 from app.security.tokens import decode_access_token
 from app.websockets.manager import manager
 
@@ -86,8 +86,26 @@ async def chat_socket(websocket: WebSocket, room_id: uuid.UUID):
 
             elif event_type == "chat.read":
                 message_id = data.get("message_id")
-                if message_id:
-                    await manager.broadcast(room_id, {"event": "chat.read", "user_id": str(user_id), "message_id": message_id}, exclude=websocket)
+                if not message_id:
+                    continue
+                # Previously this only broadcast the event and never persisted
+                # it — MessageRead rows were written by the REST endpoint
+                # (POST /chat/rooms/{id}/messages/{id}/read) but nothing ever
+                # called it, so read receipts silently never survived a page
+                # reload. Persist here too, idempotently, so the two paths
+                # agree and a reload can recover read state.
+                try:
+                    parsed_message_id = uuid.UUID(str(message_id))
+                except (ValueError, TypeError):
+                    continue
+                async with AsyncSessionLocal() as db:
+                    existing = (await db.execute(
+                        select(MessageRead).where(MessageRead.message_id == parsed_message_id, MessageRead.user_id == user_id)
+                    )).scalar_one_or_none()
+                    if existing is None:
+                        db.add(MessageRead(message_id=parsed_message_id, user_id=user_id))
+                        await db.commit()
+                await manager.broadcast(room_id, {"event": "chat.read", "user_id": str(user_id), "message_id": str(parsed_message_id)}, exclude=websocket)
 
     except WebSocketDisconnect:
         pass

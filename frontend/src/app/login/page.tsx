@@ -4,15 +4,18 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { ApiError } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
+  const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +28,23 @@ export default function LoginPage() {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const resendVerification = async () => {
+    if (!email || resending) return;
+    setResending(true);
+    try {
+      const res = await apiFetch<{ message: string }>("/auth/resend-verification", {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify({ email }),
+      });
+      toast.show(res.message, "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't resend the email.", "error");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -45,7 +65,19 @@ export default function LoginPage() {
           </div>
           <input id="password" type="password" required className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
-        {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-red-400">
+            {error}{" "}
+            <button
+              type="button"
+              onClick={resendVerification}
+              disabled={!email || resending}
+              className="text-brand-400 underline hover:no-underline disabled:opacity-50"
+            >
+              {resending ? "Sending…" : "Resend verification email"}
+            </button>
+          </p>
+        )}
         <button type="submit" disabled={submitting} className="btn-primary w-full">
           {submitting ? "Signing in…" : "Sign in"}
         </button>

@@ -4,6 +4,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import { ToastProvider } from "@/lib/toast";
 import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
 import { NavBar } from "@/components/NavBar";
+import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 
 export const metadata: Metadata = {
   title: "Survival School — Learn. Compete. Certify.",
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AuthProvider>
             <ToastProvider>
               <NavBar />
+              <AnalyticsTracker />
               <main className="min-h-screen">{children}</main>
             </ToastProvider>
           </AuthProvider>

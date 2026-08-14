@@ -18,6 +18,9 @@ function VerifyEmailInner() {
   const token = params.get("token");
   const [status, setStatus] = useState<"pending" | "success" | "error">("pending");
   const [message, setMessage] = useState("");
+  const [resendEmail, setResendEmail] = useState("");
+  const [resending, setResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -36,6 +39,25 @@ function VerifyEmailInner() {
       });
   }, [token]);
 
+  const resendVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resendEmail || resending) return;
+    setResending(true);
+    setResendMessage(null);
+    try {
+      const res = await apiFetch<{ message: string }>("/auth/resend-verification", {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify({ email: resendEmail }),
+      });
+      setResendMessage(res.message);
+    } catch (err) {
+      setResendMessage(err instanceof ApiError ? err.message : "Couldn't resend the email.");
+    } finally {
+      setResending(false);
+    }
+  };
+
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-6 text-center">
       <div className="card w-full">
@@ -51,7 +73,25 @@ function VerifyEmailInner() {
           <>
             <h1 className="text-xl font-bold text-fg">Verification failed</h1>
             <p className="mt-2 text-sm text-red-400">{message}</p>
-            <Link href="/login" className="btn-secondary mt-6 w-full">Back to sign in</Link>
+            <form onSubmit={resendVerification} className="mt-6 space-y-3 text-left">
+              <div>
+                <label className="label" htmlFor="resend-email">Resend verification email</label>
+                <input
+                  id="resend-email"
+                  type="email"
+                  required
+                  className="input"
+                  placeholder="you@example.com"
+                  value={resendEmail}
+                  onChange={(e) => setResendEmail(e.target.value)}
+                />
+              </div>
+              {resendMessage && <p className="text-sm text-fg-muted">{resendMessage}</p>}
+              <button type="submit" disabled={resending || !resendEmail} className="btn-secondary w-full">
+                {resending ? "Sending…" : "Resend verification email"}
+              </button>
+            </form>
+            <Link href="/login" className="btn-secondary mt-3 w-full">Back to sign in</Link>
           </>
         )}
       </div>

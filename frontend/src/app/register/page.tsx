@@ -36,9 +36,9 @@ export default function RegisterPage() {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="card w-full">
-          <h1 className="text-xl font-bold text-white">Check your inbox</h1>
-          <p className="mt-2 text-sm text-slate-400">
-            We sent a verification link to <span className="text-white">{email}</span>. Click it to activate your account.
+          <h1 className="text-xl font-bold text-fg">Check your inbox</h1>
+          <p className="mt-2 text-sm text-fg-muted">
+            We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.
           </p>
           <Link href="/login" className="btn-primary mt-6 w-full">Go to sign in</Link>
         </div>
@@ -48,8 +48,8 @@ export default function RegisterPage() {
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-bold text-white">Create your account</h1>
-      <p className="mt-1 text-sm text-slate-400">Start learning in minutes.</p>
+      <h1 className="text-2xl font-bold text-fg">Create your account</h1>
+      <p className="mt-1 text-sm text-fg-muted">Start learning in minutes.</p>
 
       <form onSubmit={onSubmit} className="mt-8 space-y-5">
         <div>
@@ -63,7 +63,7 @@ export default function RegisterPage() {
         <div>
           <label className="label" htmlFor="password">Password</label>
           <input id="password" type="password" required minLength={10} className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <p className="mt-1 text-xs text-slate-500">At least 10 characters, with uppercase, lowercase, a digit, and a symbol.</p>
+          <p className="mt-1 text-xs text-fg-subtle">At least 10 characters, with uppercase, lowercase, a digit, and a symbol.</p>
         </div>
         {error && <p role="alert" className="text-sm text-red-400">{error}</p>}
         <button type="submit" disabled={submitting} className="btn-primary w-full">
@@ -71,7 +71,7 @@ export default function RegisterPage() {
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-400">
+      <p className="mt-6 text-center text-sm text-fg-muted">
         Already have an account? <Link href="/login" className="text-brand-400 hover:underline">Sign in</Link>
       </p>
     </div>

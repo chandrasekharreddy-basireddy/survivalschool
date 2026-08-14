@@ -11,6 +11,7 @@ drift out of sync.
 backend/alembic/versions/5ed05c6881ad_initial_schema.py
 backend/alembic/versions/aedd5b33915f_add_composite_indexes_for_attempt_.py
 backend/alembic/versions/8bc7896b64a9_add_certificate_skills_grade_score_.py
+backend/alembic/versions/6f1ba11d04f8_add_timetable_discussions_practice_.py
 ```
 
 The first migration creates all 44 tables. The second adds two composite
@@ -45,7 +46,7 @@ alembic revision --autogenerate -m "describe the change"
 alembic upgrade head
 ```
 
-## Table inventory (44 tables, by domain)
+## Table inventory (50 tables, by domain)
 
 **Identity & access** (`app/models/user.py`): `users`, `roles`, `permissions`,
 `role_permissions`, `user_roles`, `profiles`, `email_verifications`,
@@ -72,6 +73,30 @@ alembic upgrade head
 
 **System** (`app/models/system.py`): `analytics_events`, `audit_logs`,
 `support_tickets`, `files`, `system_settings`.
+
+**Timetable** (`app/models/timetable.py`): `timetable_entries` — course,
+instructor (nullable, `SET NULL` on instructor deletion so a schedule
+survives an account removal), term/term dates, day-of-week, start/end time,
+room, session type. Composite index on `(term, day_of_week)`.
+
+**Discussions** (`app/models/discussion.py`): `discussion_threads`,
+`discussion_replies`, `discussion_votes` (unique on `(thread_id, user_id)` —
+one vote per user per thread, enforced at the database level, not just the
+API).
+
+**Practice mode** (`app/models/practice.py`): `question_bookmarks` (unique on
+`(student_id, question_id)`), `practice_sessions`, `practice_answers`.
+Practice sessions are intentionally separate tables from `quiz_attempts`/
+`exam_attempts` rather than a reused/overloaded attempt table — they carry no
+gamification points and no pass/fail semantics, and keeping them structurally
+distinct means a bug in quiz/exam scoring logic can't accidentally leak into
+practice mode or vice versa.
+
+Migration `6f1ba11d04f8_add_timetable_discussions_practice_.py` adds these 6
+tables; applied and covered by `backend/tests/test_new_features.py` (14
+tests, real Postgres/Redis). No `server_default` gotcha here — all six
+tables are new, so there are no existing rows for autogenerate to break
+against.
 
 ## Design conventions
 

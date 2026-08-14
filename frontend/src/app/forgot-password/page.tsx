@@ -15,11 +15,11 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-bold text-white">Reset your password</h1>
-      <p className="mt-1 text-sm text-slate-400">We&apos;ll email you a reset link if that account exists.</p>
+      <h1 className="text-2xl font-bold text-fg">Reset your password</h1>
+      <p className="mt-1 text-sm text-fg-muted">We&apos;ll email you a reset link if that account exists.</p>
 
       {sent ? (
-        <p className="mt-8 text-sm text-slate-300">If that account exists, a reset email is on its way.</p>
+        <p className="mt-8 text-sm text-fg-muted">If that account exists, a reset email is on its way.</p>
       ) : (
         <form onSubmit={onSubmit} className="mt-8 space-y-5">
           <div>

@@ -27,11 +27,11 @@ export default function CreateCoursePage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user || !user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">This area is for instructors.</p>
+        <p className="text-fg-muted">This area is for instructors.</p>
         <Link href="/dashboard" className="btn-secondary mt-6 inline-flex">Back to dashboard</Link>
       </div>
     );
@@ -61,7 +61,7 @@ export default function CreateCoursePage() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-white">Create a course</h1>
+      <h1 className="text-2xl font-bold text-fg">Create a course</h1>
       <form onSubmit={submit} className="card mt-8 space-y-5">
         <div>
           <label className="label">Title</label>
@@ -102,7 +102,7 @@ export default function CreateCoursePage() {
         <div>
           <label className="label">Skills taught (comma-separated)</label>
           <input className="input" value={skillsInput} onChange={(e) => setSkillsInput(e.target.value)} placeholder="Python, SQL, System Design" />
-          <p className="mt-1 text-xs text-slate-500">These appear on certificates students earn for this course.</p>
+          <p className="mt-1 text-xs text-fg-subtle">These appear on certificates students earn for this course.</p>
         </div>
 
         {error && <p className="text-sm text-red-400">{error}</p>}

@@ -54,11 +54,11 @@ export default function AdminUsersPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user || !user.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">This area is for admins.</p>
+        <p className="text-fg-muted">This area is for admins.</p>
         <Link href="/dashboard" className="btn-secondary mt-6 inline-flex">Back to dashboard</Link>
       </div>
     );
@@ -67,7 +67,7 @@ export default function AdminUsersPage() {
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">User management</h1>
+        <h1 className="text-2xl font-bold text-fg">User management</h1>
         <Link href="/admin/audit-logs" className="text-sm text-brand-400 hover:underline">Audit logs &rarr;</Link>
       </div>
 
@@ -79,7 +79,7 @@ export default function AdminUsersPage() {
       <div className="card mt-6 overflow-x-auto p-0">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-ink-800 text-left text-xs uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-ink-800 text-left text-xs uppercase tracking-wide text-fg-subtle">
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Roles</th>
@@ -90,12 +90,12 @@ export default function AdminUsersPage() {
           <tbody>
             {(users || []).map((u) => (
               <tr key={u.id} className="border-b border-ink-800 last:border-0">
-                <td className="px-4 py-3 text-slate-200">{u.full_name}</td>
-                <td className="px-4 py-3 text-slate-400">{u.email}</td>
+                <td className="px-4 py-3 text-fg">{u.full_name}</td>
+                <td className="px-4 py-3 text-fg-muted">{u.email}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
                     {u.roles.map((r) => (
-                      <span key={r} className="rounded bg-ink-800 px-1.5 py-0.5 text-[11px] text-slate-400">{r}</span>
+                      <span key={r} className="rounded bg-ink-800 px-1.5 py-0.5 text-[11px] text-fg-muted">{r}</span>
                     ))}
                   </div>
                 </td>
@@ -123,7 +123,7 @@ export default function AdminUsersPage() {
             ))}
           </tbody>
         </table>
-        {users !== null && users.length === 0 && <p className="p-6 text-center text-sm text-slate-500">No users found.</p>}
+        {users !== null && users.length === 0 && <p className="p-6 text-center text-sm text-fg-subtle">No users found.</p>}
       </div>
     </div>
   );

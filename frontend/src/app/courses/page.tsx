@@ -22,23 +22,23 @@ export default function CoursesPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
-      <h1 className="text-2xl font-bold text-white">Courses</h1>
-      <p className="mt-1 text-slate-400">Every course here ends in a real, graded assessment.</p>
+      <h1 className="text-2xl font-bold text-fg">Courses</h1>
+      <p className="mt-1 text-fg-muted">Every course here ends in a real, graded assessment.</p>
 
       {courses === null ? (
-        <p className="mt-8 text-sm text-slate-500">Loading…</p>
+        <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
       ) : courses.length === 0 ? (
-        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-slate-500">
+        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           No published courses yet. Check back soon.
         </div>
       ) : (
         <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map((c) => (
             <Link key={c.id} href={`/courses/${c.slug}`} className="card block transition hover:border-brand-500/50">
-              <span className="inline-block rounded-full bg-ink-800 px-2.5 py-0.5 text-xs capitalize text-slate-400">{c.difficulty}</span>
-              <h3 className="mt-3 font-semibold text-white">{c.title}</h3>
-              <p className="mt-2 line-clamp-2 text-sm text-slate-400">{c.description}</p>
-              <p className="mt-4 text-xs text-slate-500">{c.estimated_hours}h estimated</p>
+              <span className="inline-block rounded-full bg-ink-800 px-2.5 py-0.5 text-xs capitalize text-fg-muted">{c.difficulty}</span>
+              <h3 className="mt-3 font-semibold text-fg">{c.title}</h3>
+              <p className="mt-2 line-clamp-2 text-sm text-fg-muted">{c.description}</p>
+              <p className="mt-4 text-xs text-fg-subtle">{c.estimated_hours}h estimated</p>
             </Link>
           ))}
         </div>

@@ -49,15 +49,15 @@ export default function AdminDashboardPage() {
     apiFetch<SystemHealth>("/admin/system-health").then(setHealth).catch(() => setHealth(null));
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user || !user.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r))) {
-    return <div className="mx-auto max-w-6xl px-6 py-16 text-slate-400">You don&apos;t have access to the admin console.</div>;
+    return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">You don&apos;t have access to the admin console.</div>;
   }
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Admin console</h1>
+        <h1 className="text-2xl font-bold text-fg">Admin console</h1>
         <div className="flex gap-4 text-sm">
           <Link href="/admin/users" className="text-brand-400 hover:underline">Users</Link>
           <Link href="/admin/audit-logs" className="text-brand-400 hover:underline">Audit logs</Link>
@@ -67,7 +67,7 @@ export default function AdminDashboardPage() {
       {health && (
         <div className={`mt-4 flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm ${health.status === "ok" ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-300" : "border-amber-500/30 bg-amber-500/5 text-amber-300"}`}>
           <span className="font-semibold">{health.status === "ok" ? "All systems operational" : "Degraded"}</span>
-          <span className="text-slate-500">DB {health.database ? "ok" : "down"} &middot; Redis {health.redis ? "ok" : "down"} &middot; v{health.app_version} &middot; {health.environment}</span>
+          <span className="text-fg-subtle">DB {health.database ? "ok" : "down"} &middot; Redis {health.redis ? "ok" : "down"} &middot; v{health.app_version} &middot; {health.environment}</span>
         </div>
       )}
 
@@ -76,8 +76,8 @@ export default function AdminDashboardPage() {
         <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {TILES.map((t) => (
             <div key={t.key} className="card">
-              <p className="text-xs uppercase tracking-wide text-slate-500">{t.label}</p>
-              <p className="mt-2 text-3xl font-bold text-white">{stats[t.key]}</p>
+              <p className="text-xs uppercase tracking-wide text-fg-subtle">{t.label}</p>
+              <p className="mt-2 text-3xl font-bold text-fg">{stats[t.key]}</p>
             </div>
           ))}
         </div>

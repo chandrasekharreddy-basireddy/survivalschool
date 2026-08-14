@@ -22,11 +22,11 @@ export default function DashboardPage() {
     apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotifications([]));
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">You need to sign in to see your dashboard.</p>
+        <p className="text-fg-muted">You need to sign in to see your dashboard.</p>
         <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
       </div>
     );
@@ -37,7 +37,7 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-white">Welcome back, {user.full_name.split(" ")[0]}.</h1>
+      <h1 className="text-2xl font-bold text-fg">Welcome back, {user.full_name.split(" ")[0]}.</h1>
       {!user.is_email_verified && (
         <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
           Verify your email to unlock enrollment, quizzes, and exams. Check your inbox for the link.
@@ -48,13 +48,13 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="card">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-white">Continue learning</h2>
+              <h2 className="font-semibold text-fg">Continue learning</h2>
               <Link href="/courses" className="text-sm text-brand-400 hover:underline">Browse courses</Link>
             </div>
             {enrollments === null ? (
-              <p className="mt-4 text-sm text-slate-500">Loading…</p>
+              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
             ) : activeCourses.length === 0 ? (
-              <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-slate-500">
+              <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
                 No active courses yet. <Link href="/courses" className="text-brand-400 hover:underline">Enroll in your first course</Link> to get started.
               </div>
             ) : (
@@ -65,7 +65,7 @@ export default function DashboardPage() {
                       <div className="mb-1 h-2 w-full overflow-hidden rounded-full bg-ink-800">
                         <div className="h-full rounded-full bg-brand-500" style={{ width: `${e.percent_complete}%` }} />
                       </div>
-                      <span className="text-xs text-slate-500">{e.percent_complete}% complete</span>
+                      <span className="text-xs text-fg-subtle">{e.percent_complete}% complete</span>
                     </div>
                   </li>
                 ))}
@@ -74,17 +74,17 @@ export default function DashboardPage() {
           </div>
 
           <div className="card">
-            <h2 className="font-semibold text-white">Recent notifications</h2>
+            <h2 className="font-semibold text-fg">Recent notifications</h2>
             {notifications === null ? (
-              <p className="mt-4 text-sm text-slate-500">Loading…</p>
+              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
             ) : notifications.length === 0 ? (
-              <p className="mt-4 text-sm text-slate-500">You&apos;re all caught up.</p>
+              <p className="mt-4 text-sm text-fg-subtle">You&apos;re all caught up.</p>
             ) : (
               <ul className="mt-4 space-y-3">
                 {notifications.map((n) => (
                   <li key={n.id} className="border-b border-ink-800 pb-3 last:border-0 last:pb-0">
-                    <p className="text-sm font-medium text-slate-200">{n.title}</p>
-                    <p className="text-xs text-slate-500">{n.body}</p>
+                    <p className="text-sm font-medium text-fg">{n.title}</p>
+                    <p className="text-xs text-fg-subtle">{n.body}</p>
                   </li>
                 ))}
               </ul>
@@ -94,19 +94,19 @@ export default function DashboardPage() {
 
         <div className="space-y-6">
           <div className="card">
-            <h2 className="font-semibold text-white">Your progress</h2>
+            <h2 className="font-semibold text-fg">Your progress</h2>
             {stats === null ? (
-              <p className="mt-4 text-sm text-slate-500">Loading…</p>
+              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
             ) : (
               <>
                 <div className="mt-4 grid grid-cols-2 gap-4 text-center">
                   <div>
                     <div className="text-2xl font-bold text-brand-400">{stats.total_points}</div>
-                    <div className="text-xs text-slate-500">points</div>
+                    <div className="text-xs text-fg-subtle">points</div>
                   </div>
                   <div>
                     <div className="text-2xl font-bold text-brand-400">{stats.current_streak_days}</div>
-                    <div className="text-xs text-slate-500">day streak</div>
+                    <div className="text-xs text-fg-subtle">day streak</div>
                   </div>
                 </div>
                 {stats.badges.length > 0 && (
@@ -123,8 +123,8 @@ export default function DashboardPage() {
           </div>
 
           <div className="card">
-            <h2 className="font-semibold text-white">Certificates earned</h2>
-            <p className="mt-2 text-sm text-slate-500">{completedCourses.length} course{completedCourses.length === 1 ? "" : "s"} completed</p>
+            <h2 className="font-semibold text-fg">Certificates earned</h2>
+            <p className="mt-2 text-sm text-fg-subtle">{completedCourses.length} course{completedCourses.length === 1 ? "" : "s"} completed</p>
           </div>
         </div>
       </div>

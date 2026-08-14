@@ -67,21 +67,21 @@ export default function EditCoursePage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user || !user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">This area is for instructors.</p>
+        <p className="text-fg-muted">This area is for instructors.</p>
         <Link href="/dashboard" className="btn-secondary mt-6 inline-flex">Back to dashboard</Link>
       </div>
     );
   }
-  if (!course) return <div className="mx-auto max-w-3xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (!course) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">{course.title}</h1>
+        <h1 className="text-2xl font-bold text-fg">{course.title}</h1>
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${course.is_published ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
           {course.is_published ? "Published" : "Draft"}
         </span>
@@ -89,18 +89,18 @@ export default function EditCoursePage() {
 
       <div className="card mt-6">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-white">Content</h2>
+          <h2 className="font-semibold text-fg">Content</h2>
         </div>
 
-        {course.sections.length === 0 && <p className="mt-4 text-sm text-slate-500">No sections yet.</p>}
+        {course.sections.length === 0 && <p className="mt-4 text-sm text-fg-subtle">No sections yet.</p>}
 
         <div className="mt-4 space-y-4">
           {course.sections.map((s) => (
             <div key={s.id} className="rounded-lg border border-ink-700 p-4">
-              <p className="font-medium text-white">{s.title}</p>
+              <p className="font-medium text-fg">{s.title}</p>
               <ul className="mt-2 space-y-1">
                 {s.lessons.map((l) => (
-                  <li key={l.id} className="text-sm text-slate-400">&bull; {l.title}</li>
+                  <li key={l.id} className="text-sm text-fg-muted">&bull; {l.title}</li>
                 ))}
               </ul>
               <div className="mt-3 flex gap-2">
@@ -124,16 +124,16 @@ export default function EditCoursePage() {
 
       <div className="card mt-6">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-white">Quizzes</h2>
+          <h2 className="font-semibold text-fg">Quizzes</h2>
           <Link href={`/instructor/quizzes/create?course_id=${course.id}`} className="text-sm text-brand-400 hover:underline">+ New quiz</Link>
         </div>
         {quizzes.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No quizzes yet.</p>
+          <p className="mt-3 text-sm text-fg-subtle">No quizzes yet.</p>
         ) : (
           <ul className="mt-3 space-y-2">
             {quizzes.map((q) => (
               <li key={q.id} className="flex items-center justify-between text-sm">
-                <span className="text-slate-300">{q.title}</span>
+                <span className="text-fg-muted">{q.title}</span>
                 <span className={q.is_published ? "text-emerald-400" : "text-amber-400"}>{q.is_published ? "Published" : "Draft"}</span>
               </li>
             ))}
@@ -143,16 +143,16 @@ export default function EditCoursePage() {
 
       <div className="card mt-6">
         <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-white">Exams</h2>
+          <h2 className="font-semibold text-fg">Exams</h2>
           <Link href={`/instructor/exams/create?course_id=${course.id}`} className="text-sm text-brand-400 hover:underline">+ New exam</Link>
         </div>
         {exams.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">No exams yet.</p>
+          <p className="mt-3 text-sm text-fg-subtle">No exams yet.</p>
         ) : (
           <ul className="mt-3 space-y-2">
             {exams.map((e) => (
               <li key={e.id} className="flex items-center justify-between text-sm">
-                <span className="text-slate-300">{e.title}</span>
+                <span className="text-fg-muted">{e.title}</span>
                 <span className={e.is_published ? "text-emerald-400" : "text-amber-400"}>{e.is_published ? "Published" : "Draft"}</span>
               </li>
             ))}
@@ -160,7 +160,7 @@ export default function EditCoursePage() {
         )}
       </div>
 
-      <Link href="/instructor/courses" className="mt-6 inline-block text-sm text-slate-400 hover:text-white">&larr; Back to your courses</Link>
+      <Link href="/instructor/courses" className="mt-6 inline-block text-sm text-fg-muted hover:text-fg">&larr; Back to your courses</Link>
     </div>
   );
 }

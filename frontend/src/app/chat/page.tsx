@@ -38,11 +38,11 @@ export default function ChatRoomsPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">Sign in to use chat.</p>
+        <p className="text-fg-muted">Sign in to use chat.</p>
         <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
       </div>
     );
@@ -50,7 +50,7 @@ export default function ChatRoomsPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-white">Chat</h1>
+      <h1 className="text-2xl font-bold text-fg">Chat</h1>
 
       <div className="mt-6 flex gap-3">
         <input className="input" placeholder="New room name" value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && createRoom()} />
@@ -58,9 +58,9 @@ export default function ChatRoomsPage() {
       </div>
 
       {rooms === null ? (
-        <p className="mt-8 text-sm text-slate-500">Loading…</p>
+        <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
       ) : rooms.length === 0 ? (
-        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-slate-500">
+        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           No chat rooms yet. Create one to get started.
         </div>
       ) : (
@@ -68,8 +68,8 @@ export default function ChatRoomsPage() {
           {rooms.map((r) => (
             <li key={r.id}>
               <Link href={`/chat/${r.id}`} className="card flex items-center justify-between !p-4 transition hover:border-brand-500/40">
-                <span className="font-medium text-white">{r.name}</span>
-                <span className="text-xs uppercase tracking-wide text-slate-500">{r.room_type}</span>
+                <span className="font-medium text-fg">{r.name}</span>
+                <span className="text-xs uppercase tracking-wide text-fg-subtle">{r.room_type}</span>
               </Link>
             </li>
           ))}

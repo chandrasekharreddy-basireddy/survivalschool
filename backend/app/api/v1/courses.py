@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -7,12 +9,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError
+from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_user, get_current_user_optional, get_current_verified_user, require_permission
-from app.models.assessment import Exam, Quiz
+from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question, Quiz, QuizAnswer, QuizAttempt
 from app.models.lms import Course, CourseProgress, CourseSection, Enrollment, Lesson
 from app.models.user import User
+from app.schemas.analytics_extra import CourseAnalyticsOverviewOut, QuestionAnalyticsOut
 from app.schemas.assessment import ExamOut, QuizOut
 from app.schemas.auth import MessageResponse
 from app.schemas.lms import (
@@ -30,6 +33,53 @@ from app.services.email_service import send_email
 from app.services.n8n_service import emit_event
 
 router = APIRouter(prefix="/courses", tags=["courses"])
+
+
+async def _require_analytics_access(db: AsyncSession, user: User, course_id: uuid.UUID) -> Course:
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise NotFoundError("Course not found.")
+    if course.instructor_id != user.id and not user.has_permission("system.manage"):
+        raise AuthorizationError("You can only view analytics for your own courses.")
+    return course
+
+
+async def _question_analytics(db: AsyncSession, course_id: uuid.UUID) -> list[QuestionAnalyticsOut]:
+    quiz_ids = (await db.execute(select(Quiz.id).where(Quiz.course_id == course_id))).scalars().all()
+    exam_ids = (await db.execute(select(Exam.id).where(Exam.course_id == course_id))).scalars().all()
+
+    stats: dict[uuid.UUID, dict[str, int]] = {}
+    if quiz_ids:
+        rows = (await db.execute(
+            select(QuizAnswer.question_id, QuizAnswer.is_correct)
+            .join(QuizAttempt, QuizAttempt.id == QuizAnswer.attempt_id)
+            .where(QuizAttempt.quiz_id.in_(quiz_ids), QuizAttempt.status == "submitted")
+        )).all()
+        for qid, is_correct in rows:
+            s = stats.setdefault(qid, {"answered": 0, "correct": 0})
+            s["answered"] += 1
+            s["correct"] += 1 if is_correct else 0
+    if exam_ids:
+        rows = (await db.execute(
+            select(ExamAnswer.question_id, ExamAnswer.is_correct)
+            .join(ExamAttempt, ExamAttempt.id == ExamAnswer.attempt_id)
+            .where(ExamAttempt.exam_id.in_(exam_ids), ExamAttempt.status == "submitted")
+        )).all()
+        for qid, is_correct in rows:
+            s = stats.setdefault(qid, {"answered": 0, "correct": 0})
+            s["answered"] += 1
+            s["correct"] += 1 if is_correct else 0
+
+    if not stats:
+        return []
+    questions = (await db.execute(select(Question).where(Question.id.in_(stats.keys())))).scalars().all()
+    out = []
+    for q in questions:
+        s = stats[q.id]
+        pct = round((s["correct"] / s["answered"]) * 100, 1) if s["answered"] else 0.0
+        out.append(QuestionAnalyticsOut(question_id=q.id, prompt=q.prompt, question_type=q.question_type,
+                                         times_answered=s["answered"], times_correct=s["correct"], percent_correct=pct))
+    return sorted(out, key=lambda x: x.percent_correct)
 
 
 @router.get("", response_model=list[CourseOut])
@@ -253,3 +303,88 @@ async def my_enrollments(user: User = Depends(get_current_user), db: AsyncSessio
         out.append(EnrollmentOut(id=e.id, course_id=e.course_id, status=e.status,
                                   percent_complete=progress.percent_complete if progress else 0))
     return out
+
+
+@router.get("/{course_id}/analytics/overview", response_model=CourseAnalyticsOverviewOut)
+async def course_analytics_overview(
+    course_id: uuid.UUID,
+    user: User = Depends(require_permission("results.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_analytics_access(db, user, course_id)
+
+    enrolled_count = (await db.execute(
+        select(func.count()).select_from(Enrollment).where(Enrollment.course_id == course_id)
+    )).scalar_one()
+    completed_count = (await db.execute(
+        select(func.count()).select_from(Enrollment).where(Enrollment.course_id == course_id, Enrollment.status == "completed")
+    )).scalar_one()
+
+    quiz_ids = (await db.execute(select(Quiz.id).where(Quiz.course_id == course_id))).scalars().all()
+    exam_ids = (await db.execute(select(Exam.id).where(Exam.course_id == course_id))).scalars().all()
+
+    quiz_scores: list[int] = []
+    if quiz_ids:
+        quiz_scores = list((await db.execute(
+            select(QuizAttempt.score_percent).where(QuizAttempt.quiz_id.in_(quiz_ids), QuizAttempt.status == "submitted", QuizAttempt.score_percent.is_not(None))
+        )).scalars().all())
+    exam_scores: list[int] = []
+    if exam_ids:
+        exam_scores = list((await db.execute(
+            select(ExamAttempt.score_percent).where(ExamAttempt.exam_id.in_(exam_ids), ExamAttempt.status == "submitted", ExamAttempt.score_percent.is_not(None))
+        )).scalars().all())
+
+    all_scores = quiz_scores + exam_scores
+    buckets = {"0-59": 0, "60-69": 0, "70-79": 0, "80-89": 0, "90-100": 0}
+    for s in all_scores:
+        if s < 60:
+            buckets["0-59"] += 1
+        elif s < 70:
+            buckets["60-69"] += 1
+        elif s < 80:
+            buckets["70-79"] += 1
+        elif s < 90:
+            buckets["80-89"] += 1
+        else:
+            buckets["90-100"] += 1
+
+    return CourseAnalyticsOverviewOut(
+        course_id=course_id, enrolled_count=enrolled_count, completed_count=completed_count,
+        completion_rate_percent=round((completed_count / enrolled_count) * 100, 1) if enrolled_count else 0.0,
+        quiz_attempts_count=len(quiz_scores), exam_attempts_count=len(exam_scores),
+        average_quiz_score_percent=round(sum(quiz_scores) / len(quiz_scores), 1) if quiz_scores else None,
+        average_exam_score_percent=round(sum(exam_scores) / len(exam_scores), 1) if exam_scores else None,
+        score_distribution=buckets,
+    )
+
+
+@router.get("/{course_id}/analytics/questions", response_model=list[QuestionAnalyticsOut])
+async def course_analytics_questions(
+    course_id: uuid.UUID,
+    user: User = Depends(require_permission("results.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_analytics_access(db, user, course_id)
+    return await _question_analytics(db, course_id)
+
+
+@router.get("/{course_id}/analytics/export.csv")
+async def course_analytics_export_csv(
+    course_id: uuid.UUID,
+    user: User = Depends(require_permission("results.view")),
+    db: AsyncSession = Depends(get_db),
+):
+    course = await _require_analytics_access(db, user, course_id)
+    rows = await _question_analytics(db, course_id)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["question_id", "prompt", "question_type", "times_answered", "times_correct", "percent_correct"])
+    for r in rows:
+        writer.writerow([str(r.question_id), r.prompt, r.question_type, r.times_answered, r.times_correct, r.percent_correct])
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={course.slug}-question-analytics.csv"},
+    )

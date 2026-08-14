@@ -29,15 +29,15 @@ export default function LeaderboardPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-white">Leaderboard</h1>
-      <p className="mt-1 text-sm text-slate-400">Top learners by total points earned across courses, quizzes, and exams.</p>
+      <h1 className="text-2xl font-bold text-fg">Leaderboard</h1>
+      <p className="mt-1 text-sm text-fg-muted">Top learners by total points earned across courses, quizzes, and exams.</p>
 
       {error && <p className="mt-8 text-sm text-red-400">Couldn&apos;t load the leaderboard right now.</p>}
 
       {entries === null && !error ? (
-        <p className="mt-8 text-sm text-slate-500">Loading…</p>
+        <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
       ) : entries && entries.length === 0 ? (
-        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-slate-500">
+        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           No points earned yet — be the first on the board.
         </div>
       ) : (
@@ -52,8 +52,8 @@ export default function LeaderboardPage() {
                     style={{ paddingTop: entry.rank === 1 ? "2rem" : "1rem" }}
                   >
                     <div className="text-3xl">{MEDALS[entry.rank - 1]}</div>
-                    <p className={`mt-2 truncate font-semibold ${entry.student_id === user?.id ? "text-brand-400" : "text-white"}`}>{entry.full_name}</p>
-                    <p className="text-xs text-slate-500">{entry.total_points} pts</p>
+                    <p className={`mt-2 truncate font-semibold ${entry.student_id === user?.id ? "text-brand-400" : "text-fg"}`}>{entry.full_name}</p>
+                    <p className="text-xs text-fg-subtle">{entry.total_points} pts</p>
                   </div>
                 ) : (
                   <div key={i} />
@@ -65,12 +65,12 @@ export default function LeaderboardPage() {
           {rest.length > 0 && (
             <ul className="card mt-6 divide-y divide-ink-800">
               {rest.map((e) => (
-                <li key={e.student_id} className={`flex items-center justify-between py-3 ${e.student_id === user?.id ? "text-brand-400" : "text-slate-200"}`}>
+                <li key={e.student_id} className={`flex items-center justify-between py-3 ${e.student_id === user?.id ? "text-brand-400" : "text-fg"}`}>
                   <div className="flex items-center gap-4">
-                    <span className="w-6 text-right text-sm text-slate-500">{e.rank}</span>
+                    <span className="w-6 text-right text-sm text-fg-subtle">{e.rank}</span>
                     <span className="text-sm font-medium">{e.full_name}</span>
                   </div>
-                  <span className="text-sm text-slate-400">{e.total_points} pts</span>
+                  <span className="text-sm text-fg-muted">{e.total_points} pts</span>
                 </li>
               ))}
             </ul>

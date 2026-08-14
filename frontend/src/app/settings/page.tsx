@@ -60,11 +60,11 @@ export default function SettingsPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">Sign in to view settings.</p>
+        <p className="text-fg-muted">Sign in to view settings.</p>
         <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
       </div>
     );
@@ -72,25 +72,25 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-white">Settings</h1>
+      <h1 className="text-2xl font-bold text-fg">Settings</h1>
 
       <div className="card mt-8">
-        <h2 className="font-semibold text-white">Account</h2>
+        <h2 className="font-semibold text-fg">Account</h2>
         <dl className="mt-4 space-y-2 text-sm">
-          <div className="flex justify-between"><dt className="text-slate-500">Name</dt><dd className="text-slate-200">{user.full_name}</dd></div>
-          <div className="flex justify-between"><dt className="text-slate-500">Email</dt><dd className="text-slate-200">{user.email}</dd></div>
-          <div className="flex justify-between"><dt className="text-slate-500">Email verified</dt><dd className="text-slate-200">{user.is_email_verified ? "Yes" : "No"}</dd></div>
+          <div className="flex justify-between"><dt className="text-fg-subtle">Name</dt><dd className="text-fg">{user.full_name}</dd></div>
+          <div className="flex justify-between"><dt className="text-fg-subtle">Email</dt><dd className="text-fg">{user.email}</dd></div>
+          <div className="flex justify-between"><dt className="text-fg-subtle">Email verified</dt><dd className="text-fg">{user.is_email_verified ? "Yes" : "No"}</dd></div>
         </dl>
       </div>
 
       <div className="card mt-6">
-        <h2 className="font-semibold text-white">Notification preferences</h2>
+        <h2 className="font-semibold text-fg">Notification preferences</h2>
         <div className="mt-4 space-y-3">
           {prefs === null ? (
-            <p className="text-sm text-slate-500">Loading…</p>
+            <p className="text-sm text-fg-subtle">Loading…</p>
           ) : (
             (Object.keys(LABELS) as (keyof Preferences)[]).map((key) => (
-              <label key={key} className="flex items-center justify-between text-sm text-slate-300">
+              <label key={key} className="flex items-center justify-between text-sm text-fg-muted">
                 {LABELS[key]}
                 <input
                   type="checkbox"
@@ -106,8 +106,8 @@ export default function SettingsPage() {
       </div>
 
       <div className="card mt-6 border-red-500/20">
-        <h2 className="font-semibold text-white">Security</h2>
-        <p className="mt-2 text-sm text-slate-400">Sign out of every device and session, including this one.</p>
+        <h2 className="font-semibold text-fg">Security</h2>
+        <p className="mt-2 text-sm text-fg-muted">Sign out of every device and session, including this one.</p>
         <button onClick={logoutAllSessions} className="btn-secondary mt-4">Sign out everywhere</button>
       </div>
     </div>

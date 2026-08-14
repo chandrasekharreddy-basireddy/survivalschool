@@ -59,8 +59,26 @@ specific file and, where applicable, a specific passing test.
   `ROLE_PERMISSIONS`) — six roles (`STUDENT`, `INSTRUCTOR`, `MODERATOR`,
   `SUPPORT`, `ADMIN`, `SUPER_ADMIN`) map to a shared permission vocabulary, so
   adding a new role never requires touching route code. This build added
-  `certificates.manage` (certificate revocation, ADMIN-only) and
-  `files.upload` (STUDENT/INSTRUCTOR/ADMIN).
+  `certificates.manage` (certificate revocation, ADMIN-only),
+  `files.upload` (STUDENT/INSTRUCTOR/ADMIN), and `timetable.manage`
+  (INSTRUCTOR/ADMIN — create/update/delete timetable entries). The four other
+  new-feature endpoint groups (discussions, practice, instructor analytics,
+  search) deliberately do **not** get new blanket permissions — access is
+  checked directly against real ownership/enrollment relationships instead
+  (is this user enrolled in / the instructor of / the author of the specific
+  resource being touched), which keeps the permission surface from growing
+  for every feature and makes the access rule impossible to get right for one
+  course and wrong for another.
+- **401 vs 403 on discussion reads**: an initial version of the discussions
+  read-access check always raised 401 ("not authenticated") for any denial,
+  even when the caller *was* authenticated but simply not enrolled in — or
+  the instructor of — the course (e.g., a different instructor requesting
+  another instructor's unpublished-course discussions). That collapses two
+  different failure modes into one status code, which matters for clients
+  distinguishing "log in" from "you don't have access." Fixed with a
+  `_require_read_access()` helper (`app/api/v1/discussions.py`) that raises
+  `AuthenticationError` (401) only when `user is None`, and
+  `AuthorizationError` (403) otherwise.
 - **A permission-escalation bug found and fixed while building
   `published_only=false` draft-course visibility** (instructors need to see
   their own unpublished drafts on their dashboard): the first

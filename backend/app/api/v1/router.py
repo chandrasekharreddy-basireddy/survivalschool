@@ -10,13 +10,17 @@ from app.api.v1 import (
     certificates,
     chat,
     courses,
+    discussions,
     exams,
     files,
     gamification,
     health,
     lessons,
     notifications,
+    practice,
     quizzes,
+    search,
+    timetable,
     users,
 )
 
@@ -37,3 +41,7 @@ api_router.include_router(chat.router)
 api_router.include_router(ai.router)
 api_router.include_router(analytics.router)
 api_router.include_router(admin.router)
+api_router.include_router(timetable.router)
+api_router.include_router(discussions.router)
+api_router.include_router(practice.router)
+api_router.include_router(search.router)

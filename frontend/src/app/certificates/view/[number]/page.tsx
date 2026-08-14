@@ -44,16 +44,16 @@ export default function CertificateViewPage() {
   }
 
   if (!cert) {
-    return <div className="mx-auto max-w-4xl px-6 py-24 text-center text-slate-400">Loading certificate…</div>;
+    return <div className="mx-auto max-w-4xl px-6 py-24 text-center text-fg-muted">Loading certificate…</div>;
   }
 
   if (!cert.valid) {
     return (
       <div className="mx-auto max-w-lg px-6 py-24 text-center">
-        <h1 className="text-xl font-bold text-white">
+        <h1 className="text-xl font-bold text-fg">
           {cert.invalid_reason === "revoked" ? "This certificate has been revoked" : cert.invalid_reason === "expired" ? "This certificate has expired" : "Certificate not found"}
         </h1>
-        <p className="mt-2 text-sm text-slate-500">
+        <p className="mt-2 text-sm text-fg-subtle">
           Certificate number <span className="font-mono">{number}</span> could not be verified.
         </p>
         <Link href="/certificates/verify" className="btn-secondary mt-6 inline-flex">Try another number</Link>
@@ -64,7 +64,7 @@ export default function CertificateViewPage() {
   return (
     <div className="mx-auto max-w-4xl px-6 py-10 print:max-w-full print:px-0 print:py-0">
       <div className="mb-6 flex items-center justify-between print:hidden">
-        <Link href="/certificates/verify" className="text-sm text-slate-400 hover:text-white">&larr; Verify another certificate</Link>
+        <Link href="/certificates/verify" className="text-sm text-fg-muted hover:text-fg">&larr; Verify another certificate</Link>
         <div className="flex gap-3">
           <button onClick={() => window.print()} className="btn-secondary">Print / Save as PDF</button>
           <a
@@ -78,7 +78,16 @@ export default function CertificateViewPage() {
         </div>
       </div>
 
-      <div className="relative overflow-hidden rounded-xl2 border-2 border-amber-400/60 bg-gradient-to-br from-ink-950 via-[#1e1b4b] to-ink-950 p-10 shadow-2xl print:rounded-none print:border-2 print:border-amber-500 sm:p-14">
+      {/*
+        This certificate face is a fixed dark-navy/gold design on purpose —
+        it mirrors the server-rendered PDF (see certificate_service.py) and
+        must look identical regardless of the viewer's light/dark site
+        preference, the same way a printed diploma doesn't change color
+        depending on the room lighting. Every color below is a literal
+        value, deliberately NOT one of the theme-aware ink/fg tokens used
+        everywhere else on this page.
+      */}
+      <div className="relative overflow-hidden rounded-xl2 border-2 border-amber-400/60 bg-gradient-to-br from-[#0b0f19] via-[#1e1b4b] to-[#0b0f19] p-10 shadow-2xl print:rounded-none print:border-2 print:border-amber-500 sm:p-14">
         <p className="text-xs font-semibold uppercase tracking-[0.3em] text-amber-400">
           Survival School &mdash; Certificate of Completion
         </p>
@@ -132,7 +141,7 @@ export default function CertificateViewPage() {
         </div>
       </div>
 
-      <p className="mt-4 text-center text-xs text-slate-500 print:hidden">
+      <p className="mt-4 text-center text-xs text-fg-subtle print:hidden">
         Anyone can independently verify this certificate at{" "}
         <Link href="/certificates/verify" className="text-brand-400 hover:underline">/certificates/verify</Link>.
       </p>

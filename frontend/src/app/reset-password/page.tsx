@@ -6,7 +6,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-md px-6 py-24 text-center text-slate-400">Loading…</div>}>
+    <Suspense fallback={<div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted">Loading…</div>}>
       <ResetPasswordInner />
     </Suspense>
   );
@@ -37,7 +37,7 @@ function ResetPasswordInner() {
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-bold text-white">Set a new password</h1>
+      <h1 className="text-2xl font-bold text-fg">Set a new password</h1>
       {done ? (
         <p className="mt-8 text-sm text-emerald-400">Password updated. Redirecting to sign in…</p>
       ) : (

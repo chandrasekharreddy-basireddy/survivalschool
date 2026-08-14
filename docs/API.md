@@ -166,6 +166,68 @@ should never silently change because an instructor later edits the course.
 | POST | `/admin/users/{user_id}/deactivate` | Deactivate a user — immediately locks them out of authenticated endpoints (`system.manage`) |
 | POST | `/admin/users/{user_id}/activate` | Reactivate a user (`system.manage`) |
 
+## Timetable (`/timetable`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/timetable` | Create a timetable entry for a course (`timetable.manage`) — server rejects overlapping entries for the same instructor or the same room (`409` on conflict) |
+| GET | `/timetable` | List entries, filterable by `course_id`/`term` |
+| PATCH | `/timetable/{entry_id}` | Update an entry (`timetable.manage`); re-runs the same conflict check |
+| DELETE | `/timetable/{entry_id}` | Delete an entry (`timetable.manage`) |
+| GET | `/timetable/me` | Own weekly schedule (student: enrolled courses; instructor: courses they teach) |
+| GET | `/timetable/me/export.ics` | Download own schedule as a real RFC 5545 `.ics` file — weekly `RRULE` bounded to the term's end date, importable into Google Calendar/Outlook/Apple Calendar |
+
+Conflict detection (`timetable_service.py::check_conflict`) is a real SQL
+overlap query (`start < other.end AND other.start < end`) scoped to the same
+day-of-week, filtered to the same instructor OR the same room — it runs on
+every create/update, not just at the UI layer, so it can't be bypassed by
+calling the API directly.
+
+## Discussions (`/courses/{course_id}/discussions`, `/discussions`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/courses/{course_id}/discussions` | Start a thread — requires enrollment in the course (or being its instructor/an admin) |
+| GET | `/courses/{course_id}/discussions` | List threads for a course |
+| GET | `/discussions/{thread_id}` | Thread detail with replies |
+| POST | `/discussions/{thread_id}/replies` | Post a reply; `is_instructor_answer` is computed server-side from the poster's real relationship to the course, never client-supplied |
+| POST | `/discussions/{thread_id}/upvote` | Toggle upvote (race-safe: `SAVEPOINT` + `IntegrityError` catch on the unique `(thread_id, user_id)` constraint, same pattern as certificate/badge awards) |
+| POST | `/discussions/{thread_id}/resolve` | Mark resolved — course instructor or admin only |
+| DELETE | `/discussions/{thread_id}` | Delete a thread — author or admin only |
+
+Read access on an unpublished course's discussions correctly distinguishes
+401 (not signed in) from 403 (signed in but not enrolled/not the
+instructor) — see `docs/SECURITY.md` for why that distinction mattered here.
+
+## Practice mode (`/practice`, `/questions/{id}/bookmark`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/questions/{question_id}/bookmark` | Bookmark a question for later practice (race-safe on repeat clicks) |
+| DELETE | `/questions/{question_id}/bookmark` | Remove a bookmark |
+| GET | `/practice/bookmarks` | List own bookmarked questions |
+| POST | `/practice/sessions` | Start a practice session from one of three sources: `bookmarks`, `mistakes` (previously-missed quiz/exam questions, computed live from `QuizAnswer`/`ExamAnswer`), or `course` (all questions in a course) |
+| GET | `/practice/sessions/{session_id}/questions` | Fetch an in-progress session's question set (for resuming after a page refresh) |
+| POST | `/practice/sessions/{session_id}/submit` | Submit answers; graded with the same server-authoritative `grade_answer` service quizzes/exams use — same anti-cheat guarantees, but **awards zero gamification points** (deliberate — prevents bookmark-loop point farming) and reveals the correct answer for every question immediately |
+| GET | `/practice/sessions/{session_id}` | Fetch a completed session's results — `409` if the session hasn't been submitted yet |
+| GET | `/practice/me/sessions` | Own practice session history |
+
+## Instructor analytics (`/courses/{course_id}/analytics`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/courses/{course_id}/analytics/overview` | Enrollment count, completion rate, average quiz/exam score, pass rate — computed live from real attempt data, no denormalized/cached table to go stale |
+| GET | `/courses/{course_id}/analytics/questions` | Per-question difficulty: times answered, % correct, most commonly picked wrong option — helps an instructor find a badly-worded question |
+| GET | `/courses/{course_id}/analytics/export.csv` | The same per-question breakdown as a real CSV (Python's `csv` module, not a hand-joined string) |
+
+Restricted to the course's own instructor or an admin (`_require_analytics_access`) — an instructor cannot pull another instructor's course analytics.
+
+## Search (`/search`)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/search?q=` | **Public**, unauthenticated. Searches published courses (title/description) and discussion threads on published courses only (title/body) — `min_length=2` on `q`. Deliberately scoped to published content on both sides so an anonymous search can never surface an unpublished draft course or a discussion on one |
+
 ## Files (`/files`)
 
 | Method | Path | Purpose |

@@ -64,11 +64,11 @@ export default function ChatRoomPage() {
     setInput("");
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">Sign in to use chat.</p>
+        <p className="text-fg-muted">Sign in to use chat.</p>
         <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
       </div>
     );
@@ -77,16 +77,16 @@ export default function ChatRoomPage() {
   return (
     <div className="mx-auto flex h-[calc(100vh-4.5rem)] max-w-2xl flex-col px-6 py-6">
       <div className="flex items-center justify-between">
-        <Link href="/chat" className="text-sm text-slate-400 hover:text-white">&larr; All rooms</Link>
-        <span className={`text-xs ${connected ? "text-emerald-400" : "text-slate-500"}`}>{connected ? "Live" : "Connecting…"}</span>
+        <Link href="/chat" className="text-sm text-fg-muted hover:text-fg">&larr; All rooms</Link>
+        <span className={`text-xs ${connected ? "text-emerald-400" : "text-fg-subtle"}`}>{connected ? "Live" : "Connecting…"}</span>
       </div>
 
       <div className="card mt-4 flex-1 space-y-3 overflow-y-auto">
         {messages.length === 0 ? (
-          <p className="text-sm text-slate-500">No messages yet — say hello.</p>
+          <p className="text-sm text-fg-subtle">No messages yet — say hello.</p>
         ) : (
           messages.filter((m) => !m.is_deleted).map((m) => (
-            <div key={m.id} className={`max-w-[75%] rounded-lg px-4 py-2 text-sm ${m.sender_id === user.id ? "ml-auto bg-brand-500 text-white" : "bg-ink-800 text-slate-200"}`}>
+            <div key={m.id} className={`max-w-[75%] rounded-lg px-4 py-2 text-sm ${m.sender_id === user.id ? "ml-auto bg-brand-500 text-white" : "bg-ink-800 text-fg"}`}>
               <p>{m.body}</p>
               <p className="mt-1 text-[10px] opacity-60">{formatRelative(m.created_at)}</p>
             </div>
@@ -95,7 +95,7 @@ export default function ChatRoomPage() {
         <div ref={bottomRef} />
       </div>
 
-      {typingUsers.size > 0 && <p className="mt-1 text-xs text-slate-500">Someone is typing…</p>}
+      {typingUsers.size > 0 && <p className="mt-1 text-xs text-fg-subtle">Someone is typing…</p>}
 
       <div className="mt-4 flex gap-3">
         <input

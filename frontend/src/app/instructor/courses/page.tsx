@@ -41,11 +41,11 @@ export default function InstructorCoursesPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user || !user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">This area is for instructors.</p>
+        <p className="text-fg-muted">This area is for instructors.</p>
         <Link href="/dashboard" className="btn-secondary mt-6 inline-flex">Back to dashboard</Link>
       </div>
     );
@@ -53,15 +53,18 @@ export default function InstructorCoursesPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Your courses</h1>
-        <Link href="/instructor/courses/create" className="btn-primary">+ New course</Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-fg">Your courses</h1>
+        <div className="flex gap-3">
+          <Link href="/instructor/timetable" className="btn-secondary">Timetable</Link>
+          <Link href="/instructor/courses/create" className="btn-primary">+ New course</Link>
+        </div>
       </div>
 
       {courses === null ? (
-        <p className="mt-8 text-sm text-slate-500">Loading…</p>
+        <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
       ) : courses.length === 0 ? (
-        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-slate-500">
+        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           You haven&apos;t created any courses yet.
         </div>
       ) : (
@@ -69,14 +72,15 @@ export default function InstructorCoursesPage() {
           {courses.map((c) => (
             <li key={c.id} className="card flex items-center justify-between">
               <div>
-                <p className="font-medium text-white">{c.title}</p>
-                <p className="text-xs text-slate-500">/{c.slug}</p>
+                <p className="font-medium text-fg">{c.title}</p>
+                <p className="text-xs text-fg-subtle">/{c.slug}</p>
               </div>
               <div className="flex items-center gap-3">
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${c.is_published ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}`}>
                   {c.is_published ? "Published" : "Draft"}
                 </span>
                 <Link href={`/instructor/courses/${c.id}/edit`} className="btn-secondary !px-3 !py-1.5 text-sm">Manage</Link>
+                <Link href={`/instructor/courses/${c.id}/analytics`} className="btn-secondary !px-3 !py-1.5 text-sm">Analytics</Link>
                 <button onClick={() => togglePublish(c)} className="btn-secondary !px-3 !py-1.5 text-sm">
                   {c.is_published ? "Unpublish" : "Publish"}
                 </button>

@@ -4,17 +4,47 @@
 
 :root {
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+
+  /* Light theme — warm, clean neutral palette (default). Values are
+   * space-separated RGB triplets so Tailwind's alpha-value opacity
+   * modifiers (bg-ink-900/40) keep working. */
+  --bg-0: 247 247 245;      /* page background */
+  --bg-1: 255 255 255;      /* card / panel background */
+  --bg-2: 240 240 238;      /* hover / elevated surface */
+  --border-c: 229 229 224;  /* standard border */
+  --border-strong: 209 209 201;
+  --fg-0: 26 26 26;         /* primary text */
+  --fg-1: 87 83 78;         /* secondary text */
+  --fg-2: 138 133 128;      /* tertiary / hint text */
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Dark theme — the original indigo-tinted ink palette. */
+  --bg-0: 11 15 25;
+  --bg-1: 18 23 42;
+  --bg-2: 26 32 54;
+  --border-c: 35 42 69;
+  --border-strong: 51 61 97;
+  --fg-0: 241 245 249;
+  --fg-1: 203 213 225;
+  --fg-2: 100 116 139;
 }
 
 @layer base {
-  html {
-    color-scheme: dark;
-  }
   body {
-    @apply bg-ink-950 text-slate-100 antialiased;
+    @apply bg-ink-950 text-fg antialiased;
   }
   ::selection {
     @apply bg-brand-500/40;
+  }
+  /* Theme changes (and only theme changes) transition smoothly; layout/interaction
+   * properties are left alone so this never adds lag to hover/focus states. */
+  * {
+    transition-property: background-color, border-color, color, box-shadow;
+    transition-duration: 150ms;
   }
 }
 
@@ -23,15 +53,21 @@
     @apply inline-flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400 disabled:cursor-not-allowed disabled:opacity-50;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-ink-700 bg-ink-900 px-5 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-ink-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400;
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-ink-700 bg-ink-900 px-5 py-2.5 text-sm font-semibold text-fg transition hover:bg-ink-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-fg-muted transition hover:bg-ink-900 hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400;
   }
   .card {
-    @apply rounded-xl2 border border-ink-700 bg-ink-900/70 p-6 shadow-lg shadow-black/20;
+    @apply rounded-xl2 border border-ink-700 bg-ink-900/70 p-6 shadow-soft dark:shadow-soft-dark;
   }
   .input {
-    @apply w-full rounded-lg border border-ink-700 bg-ink-950 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
+    @apply w-full rounded-lg border border-ink-700 bg-ink-950 px-4 py-2.5 text-sm text-fg placeholder:text-fg-subtle focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
   }
   .label {
-    @apply mb-1.5 block text-sm font-medium text-slate-300;
+    @apply mb-1.5 block text-sm font-medium text-fg-muted;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border border-ink-700 bg-ink-900 px-2.5 py-1 text-xs font-medium text-fg-muted;
   }
 }

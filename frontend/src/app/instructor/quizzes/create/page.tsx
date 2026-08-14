@@ -9,7 +9,7 @@ import { useToast } from "@/lib/toast";
 
 export default function CreateQuizPage() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-2xl px-6 py-16 text-slate-400">Loading…</div>}>
+    <Suspense fallback={<div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>}>
       <CreateQuizForm />
     </Suspense>
   );
@@ -42,11 +42,11 @@ function CreateQuizForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user || !user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">This area is for instructors.</p>
+        <p className="text-fg-muted">This area is for instructors.</p>
         <Link href="/dashboard" className="btn-secondary mt-6 inline-flex">Back to dashboard</Link>
       </div>
     );
@@ -54,7 +54,7 @@ function CreateQuizForm() {
   if (!courseId) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">Open this page from a course&apos;s manage screen so it knows which course to attach the quiz to.</p>
+        <p className="text-fg-muted">Open this page from a course&apos;s manage screen so it knows which course to attach the quiz to.</p>
         <Link href="/instructor/courses" className="btn-secondary mt-6 inline-flex">Your courses</Link>
       </div>
     );
@@ -113,7 +113,7 @@ function CreateQuizForm() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-white">Create a quiz</h1>
+      <h1 className="text-2xl font-bold text-fg">Create a quiz</h1>
 
       <div className="card mt-6 space-y-4">
         <div>
@@ -136,7 +136,7 @@ function CreateQuizForm() {
         </div>
       </div>
 
-      <h2 className="mt-8 font-semibold text-white">Questions</h2>
+      <h2 className="mt-8 font-semibold text-fg">Questions</h2>
       <div className="mt-4 space-y-4">
         {questions.map((q, qIdx) => (
           <div key={qIdx} className="card">
@@ -168,7 +168,7 @@ function CreateQuizForm() {
                     className="accent-brand-500"
                   />
                   {q.question_type === "true_false" ? (
-                    <span className="text-sm text-slate-300">{opt.text}</span>
+                    <span className="text-sm text-fg-muted">{opt.text}</span>
                   ) : (
                     <input
                       className="input !py-1.5 text-sm"

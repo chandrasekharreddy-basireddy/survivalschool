@@ -12,6 +12,7 @@ from app.models.assessment import (  # noqa: F401
     QuizAttempt,
 )
 from app.models.certificate import Certificate  # noqa: F401
+from app.models.discussion import DiscussionReply, DiscussionThread, DiscussionVote  # noqa: F401
 from app.models.gamification import (  # noqa: F401
     Achievement,
     Badge,
@@ -28,6 +29,7 @@ from app.models.lms import (  # noqa: F401
     LessonProgress,
     LessonResource,
 )
+from app.models.practice import PracticeAnswer, PracticeSession, QuestionBookmark  # noqa: F401
 from app.models.social import (  # noqa: F401
     ChatMember,
     ChatMessage,
@@ -43,6 +45,7 @@ from app.models.system import (  # noqa: F401
     SupportTicket,
     SystemSetting,
 )
+from app.models.timetable import TimetableEntry  # noqa: F401
 from app.models.user import (  # noqa: F401
     EmailVerification,
     PasswordReset,

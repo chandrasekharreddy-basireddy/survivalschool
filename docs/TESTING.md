@@ -1,12 +1,12 @@
 # Testing
 
-## Backend: 44 tests, all passing against real infrastructure
+## Backend: 58 tests, all passing against real infrastructure
 
 ```bash
 cd backend
 source .venv/bin/activate
 APP_ENV=test python -m pytest -q
-# 44 passed
+# 58 passed
 ```
 
 These are integration tests running against a **real local PostgreSQL 16 and
@@ -26,6 +26,7 @@ pytest-asyncio's per-test event loops (see `docs/DATABASE.md`).
 | `test_rate_limiting.py` (2 tests) | The Redis-backed limiter actually blocks after its configured threshold; limits are scoped per key (one user hitting a limit doesn't block a different user) |
 | `test_scoring_service.py` (6 tests) | Unit tests of the pure grading functions in isolation: single-choice correct/incorrect, multiple-choice requires an exact set match (partial credit is not awarded), short-answer normalizes whitespace/case before comparing, pass/fail boundary at the configured threshold, zero-possible-points attempts never register as passed |
 | `test_new_endpoints.py` (14 tests) | The second-pass audit response (see `docs/STATUS.md`): course quiz/exam listing + pagination via `X-Total-Count`; quiz/exam attempt history; exam review only unlocks after submit (never mid-exam); certificate grade/score/skills are computed from real attempt data and the certificate can be revoked (and a non-admin is rejected trying); the certificate PDF endpoint returns real, well-formed PDF bytes; admin user management (list/search, deactivate — and a deactivated user is immediately locked out — reactivate); expanded system-health detail; audit-log filtering; file upload rejects a disguised executable via real content-sniffing (not the client-supplied header) and accepts a valid image; a private file is inaccessible to a different user and to anonymous requests; unpublished courses are never visible to anonymous callers or to a *different* instructor, only to their owner (or an admin); leaderboard N+1 fix still returns correctly ranked results |
+| `test_new_features.py` (14 tests) | The fourth-pass 5-feature build (see `docs/STATUS.md`): timetable conflict detection rejects an overlapping instructor/room booking and the `.ics` export parses back into valid `VEVENT`/`RRULE` data; a non-enrolled student cannot post to a course's discussions but an enrolled one can, instructor replies are flagged server-side, upvoting is idempotent under a repeated toggle, only the course instructor/admin can resolve a thread; a practice session sourced from bookmarks or from real past mistakes grades through the same server-authoritative scoring service as quizzes/exams but awards **zero** gamification points; instructor analytics are denied to a different course's instructor and the CSV export contains real per-question rows; global search returns a published course and a discussion on a published course, but never surfaces anything from an unpublished one |
 
 ## What "passing" actually means here
 
@@ -57,7 +58,7 @@ ruff check app tests              # lint — must be zero errors
 pip-audit -r requirements.txt     # dependency vulnerability scan — must be clean
 bandit -r app -ll                 # security static analysis, medium+ severity
 alembic upgrade head              # apply schema to whatever DB DATABASE_URL points at
-APP_ENV=test python -m pytest -q  # the 44 tests above
+APP_ENV=test python -m pytest -q  # the 58 tests above
 ```
 
 ```bash

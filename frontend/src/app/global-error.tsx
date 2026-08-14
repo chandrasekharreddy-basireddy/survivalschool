@@ -6,10 +6,10 @@
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <html lang="en" className="dark">
-      <body className="bg-ink-950 text-slate-100">
+      <body className="bg-ink-950 text-fg">
         <div className="mx-auto flex min-h-screen max-w-lg flex-col items-center justify-center px-6 text-center">
-          <h1 className="text-xl font-bold text-white">Survival School hit a snag.</h1>
-          <p className="mt-2 text-sm text-slate-400">
+          <h1 className="text-xl font-bold text-fg">Survival School hit a snag.</h1>
+          <p className="mt-2 text-sm text-fg-muted">
             Something broke at the application level. Reloading usually fixes it.
           </p>
           <button
@@ -18,7 +18,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
           >
             Reload
           </button>
-          {error.digest && <p className="mt-4 text-xs text-slate-600">Reference: {error.digest}</p>}
+          {error.digest && <p className="mt-4 text-xs text-fg-subtle">Reference: {error.digest}</p>}
         </div>
       </body>
     </html>

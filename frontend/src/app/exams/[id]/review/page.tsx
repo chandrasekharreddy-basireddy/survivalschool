@@ -62,11 +62,11 @@ export default function ExamReviewPage() {
     })();
   }, [user, params.id]);
 
-  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">Sign in to review your exam.</p>
+        <p className="text-fg-muted">Sign in to review your exam.</p>
         <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
       </div>
     );
@@ -74,17 +74,17 @@ export default function ExamReviewPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-lg px-6 py-24 text-center">
-        <p className="text-slate-400">{error}</p>
+        <p className="text-fg-muted">{error}</p>
         <Link href="/dashboard" className="btn-secondary mt-6 inline-flex">Back to dashboard</Link>
       </div>
     );
   }
-  if (!review) return <div className="mx-auto max-w-3xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (!review) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-white">Exam review</h1>
-      <p className="mt-1 text-sm text-slate-400">
+      <h1 className="text-2xl font-bold text-fg">Exam review</h1>
+      <p className="mt-1 text-sm text-fg-muted">
         Score: {review.score_percent ?? 0}% &middot; {review.passed ? "Passed" : "Not passed"}
       </p>
 
@@ -92,17 +92,17 @@ export default function ExamReviewPage() {
         {review.answers.map((a, idx) => (
           <div key={a.question_id} className={`card ${a.is_correct ? "border-emerald-500/30" : "border-red-500/30"}`}>
             <div className="flex items-start justify-between gap-3">
-              <p className="font-medium text-white">{idx + 1}. {a.prompt}</p>
+              <p className="font-medium text-fg">{idx + 1}. {a.prompt}</p>
               <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${a.is_correct ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300"}`}>
                 {a.points_awarded}/{a.points_possible} pts
               </span>
             </div>
             {!a.is_correct && (
-              <p className="mt-2 text-xs text-slate-500">
+              <p className="mt-2 text-xs text-fg-subtle">
                 Correct option{a.correct_option_ids.length > 1 ? "s" : ""} not selected.
               </p>
             )}
-            {a.explanation && <p className="mt-2 text-sm text-slate-400">{a.explanation}</p>}
+            {a.explanation && <p className="mt-2 text-sm text-fg-muted">{a.explanation}</p>}
           </div>
         ))}
       </div>

@@ -69,11 +69,11 @@ export default function AiAssistantPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">Sign in to chat with the AI tutor.</p>
+        <p className="text-fg-muted">Sign in to chat with the AI tutor.</p>
         <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
       </div>
     );
@@ -88,7 +88,7 @@ export default function AiAssistantPage() {
             <li key={c.id}>
               <button
                 onClick={() => setActiveId(c.id)}
-                className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${activeId === c.id ? "bg-ink-800 text-white" : "text-slate-400 hover:bg-ink-900"}`}
+                className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm ${activeId === c.id ? "bg-ink-800 text-fg" : "text-fg-muted hover:bg-ink-900"}`}
               >
                 {c.title || "New conversation"}
               </button>
@@ -98,17 +98,17 @@ export default function AiAssistantPage() {
       </aside>
 
       <div className="flex min-h-[70vh] flex-1 flex-col">
-        <h1 className="text-xl font-bold text-white">AI Tutor</h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <h1 className="text-xl font-bold text-fg">AI Tutor</h1>
+        <p className="mt-1 text-sm text-fg-subtle">
           Ask questions about course material. It won&apos;t hand you exam answers directly — it guides you toward understanding instead.
         </p>
 
         <div className="card mt-4 flex-1 space-y-3 overflow-y-auto">
           {messages.length === 0 ? (
-            <p className="text-sm text-slate-500">Ask anything to get started.</p>
+            <p className="text-sm text-fg-subtle">Ask anything to get started.</p>
           ) : (
             messages.map((m) => (
-              <div key={m.id} className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${m.role === "user" ? "ml-auto bg-brand-500 text-white" : "bg-ink-800 text-slate-200"}`}>
+              <div key={m.id} className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${m.role === "user" ? "ml-auto bg-brand-500 text-white" : "bg-ink-800 text-fg"}`}>
                 {m.content}
               </div>
             ))

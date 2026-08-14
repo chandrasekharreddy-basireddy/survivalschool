@@ -2,15 +2,32 @@
 
 An MCQ-driven learning and gamification platform for universities — courses,
 timed quizzes and exams with server-authoritative scoring, points/badges/
-certificates, real-time chat, an AI tutor, and an admin console.
+certificates, real-time chat, an AI tutor, an admin console, per-course
+timetables with calendar export, course discussions, a self-serve practice
+mode, instructor analytics, and site-wide search — with a full light/dark UI.
 
 ## Stack
 
 - **Backend**: FastAPI (Python 3.11, async), SQLAlchemy 2.0, PostgreSQL 16, Redis 7, Alembic
-- **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS
+- **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS (CSS-variable-driven light/dark theming)
 - **Automation**: n8n (event-driven notifications)
 - **AI**: Sarvam AI (pluggable provider abstraction, mock provider for dev/CI)
 - **Infra**: Docker Compose (local), GitHub Actions (CI/CD), Kubernetes manifests (readiness)
+
+## Features
+
+Courses with sections/lessons and progress tracking; quizzes and timed exams
+with server-authoritative grading (client-submitted correctness is never
+trusted); points, streaks, badges, and a leaderboard; real certificates with
+computed grade/score, a QR-verifiable public page, and a server-rendered PDF;
+real-time chat; an AI tutor; a per-course weekly timetable with automatic
+instructor/room conflict detection and a real `.ics` calendar export; course
+discussion threads with instructor-flagged answers; a practice mode built
+from bookmarked questions or a student's own past mistakes (never awards
+gamification points, by design); instructor-facing analytics with a CSV
+export; and global search across published courses and discussions. Light
+and dark mode throughout, switchable per-user, no flash-of-wrong-theme on
+load.
 
 ## Quick start
 

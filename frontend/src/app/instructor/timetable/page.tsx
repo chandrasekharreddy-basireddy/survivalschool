@@ -1,0 +1,169 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
+import { apiFetch, ApiError } from "@/lib/api";
+import { useToast } from "@/lib/toast";
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+interface Course { id: string; title: string }
+interface TimetableEntry {
+  id: string;
+  course_id: string;
+  course_title: string;
+  term: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  room: string;
+  session_type: string;
+}
+
+export default function InstructorTimetablePage() {
+  const { user, loading } = useAuth();
+  const toast = useToast();
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [entries, setEntries] = useState<TimetableEntry[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    course_id: "", term: "2026-Fall", term_start_date: "", term_end_date: "",
+    day_of_week: 0, start_time: "09:00", end_time: "10:00", room: "", session_type: "lecture",
+  });
+
+  const load = async () => {
+    if (!user) return;
+    // published_only=false, scoped server-side to "my own courses" for a
+    // non-admin instructor — see courses.py's list_courses — so this single
+    // call already returns every course (draft or published) this instructor
+    // can schedule a class for.
+    const mine = await apiFetch<Course[]>("/courses?published_only=false").catch(() => []);
+    setCourses(mine);
+    if (mine.length > 0 && !form.course_id) setForm((f) => ({ ...f, course_id: mine[0].id }));
+
+    const list = await apiFetch<TimetableEntry[]>("/timetable/me").catch(() => []);
+    setEntries(list);
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await apiFetch("/timetable", {
+        method: "POST",
+        body: JSON.stringify({
+          ...form,
+          start_time: `${form.start_time}:00`,
+          end_time: `${form.end_time}:00`,
+        }),
+      });
+      toast.show("Timetable entry created.", "success");
+      await load();
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't create entry.", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await apiFetch(`/timetable/${id}`, { method: "DELETE" });
+      setEntries((prev) => prev.filter((e) => e.id !== id));
+      toast.show("Entry removed.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't remove entry.", "error");
+    }
+  };
+
+  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (!user || !user.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r))) {
+    return <div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted">Instructor access required.</div>;
+  }
+
+  return (
+    <div className="mx-auto max-w-4xl px-6 py-10">
+      <h1 className="text-2xl font-bold text-fg">Manage timetable</h1>
+      <p className="mt-1 text-sm text-fg-muted">
+        Overlapping slots for the same instructor or the same room are rejected automatically — the server checks this on every save.
+      </p>
+
+      <div className="card mt-6 space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="label">Course</label>
+            <select className="input" value={form.course_id} onChange={(e) => setForm({ ...form, course_id: e.target.value })}>
+              {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Term</label>
+            <input className="input" value={form.term} onChange={(e) => setForm({ ...form, term: e.target.value })} placeholder="2026-Fall" />
+          </div>
+          <div>
+            <label className="label">Term start date</label>
+            <input type="date" className="input" value={form.term_start_date} onChange={(e) => setForm({ ...form, term_start_date: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Term end date</label>
+            <input type="date" className="input" value={form.term_end_date} onChange={(e) => setForm({ ...form, term_end_date: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">Day of week</label>
+            <select className="input" value={form.day_of_week} onChange={(e) => setForm({ ...form, day_of_week: Number(e.target.value) })}>
+              {DAYS.map((d, i) => <option key={d} value={i}>{d}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Session type</label>
+            <select className="input" value={form.session_type} onChange={(e) => setForm({ ...form, session_type: e.target.value })}>
+              <option value="lecture">Lecture</option>
+              <option value="lab">Lab</option>
+              <option value="seminar">Seminar</option>
+              <option value="exam">Exam</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Start time</label>
+            <input type="time" className="input" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} />
+          </div>
+          <div>
+            <label className="label">End time</label>
+            <input type="time" className="input" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="label">Room</label>
+            <input className="input" value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} placeholder="Room 204" />
+          </div>
+        </div>
+        <button
+          onClick={submit}
+          disabled={saving || !form.course_id || !form.term_start_date || !form.term_end_date}
+          className="btn-primary"
+        >
+          {saving ? "Saving…" : "Add timetable entry"}
+        </button>
+      </div>
+
+      <h2 className="mt-8 font-semibold text-fg">Your scheduled classes</h2>
+      <div className="mt-3 space-y-2">
+        {entries.length === 0 && <p className="text-sm text-fg-subtle">No entries yet.</p>}
+        {entries.map((e) => (
+          <div key={e.id} className="card flex items-center justify-between !p-4">
+            <div>
+              <p className="text-sm font-medium text-fg">{e.course_title}</p>
+              <p className="text-xs text-fg-subtle">
+                {DAYS[e.day_of_week]} · {e.start_time.slice(0, 5)}–{e.end_time.slice(0, 5)} · {e.room || "TBD"} · {e.term}
+              </p>
+            </div>
+            <button onClick={() => remove(e.id)} className="btn-secondary !px-3 !py-1.5 text-xs">Remove</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

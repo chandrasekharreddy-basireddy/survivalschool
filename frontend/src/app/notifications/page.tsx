@@ -41,11 +41,11 @@ export default function NotificationsPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-slate-400">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
-        <p className="text-slate-300">Sign in to see your notifications.</p>
+        <p className="text-fg-muted">Sign in to see your notifications.</p>
         <Link href="/login" className="btn-primary mt-6 inline-flex">Sign in</Link>
       </div>
     );
@@ -54,7 +54,7 @@ export default function NotificationsPage() {
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-white">Notifications</h1>
+        <h1 className="text-2xl font-bold text-fg">Notifications</h1>
         <Link href="/settings" className="text-sm text-brand-400 hover:underline">Preferences</Link>
       </div>
 
@@ -63,7 +63,7 @@ export default function NotificationsPage() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`rounded-full px-3 py-1 text-xs font-medium ${filter === f ? "bg-brand-500 text-white" : "bg-ink-800 text-slate-400"}`}
+            className={`rounded-full px-3 py-1 text-xs font-medium ${filter === f ? "bg-brand-500 text-white" : "bg-ink-800 text-fg-muted"}`}
           >
             {f === "all" ? "All" : "Unread"}
           </button>
@@ -71,9 +71,9 @@ export default function NotificationsPage() {
       </div>
 
       {items === null ? (
-        <p className="mt-8 text-sm text-slate-500">Loading…</p>
+        <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
       ) : items.length === 0 ? (
-        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-slate-500">
+        <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           You&apos;re all caught up.
         </div>
       ) : (
@@ -85,11 +85,11 @@ export default function NotificationsPage() {
                 onClick={() => !n.read_at && markRead(n.id)}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm font-medium text-slate-200">{n.title}</p>
+                  <p className="text-sm font-medium text-fg">{n.title}</p>
                   {!n.read_at && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-500" />}
                 </div>
-                <p className="mt-1 text-xs text-slate-500">{n.body}</p>
-                <p className="mt-2 text-[11px] text-slate-600">{formatRelative(n.created_at)}</p>
+                <p className="mt-1 text-xs text-fg-subtle">{n.body}</p>
+                <p className="mt-2 text-[11px] text-fg-subtle">{formatRelative(n.created_at)}</p>
               </div>
             );
             return (

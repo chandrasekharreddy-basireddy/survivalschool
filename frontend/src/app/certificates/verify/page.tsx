@@ -32,8 +32,8 @@ export default function VerifyCertificatePage() {
 
   return (
     <div className="mx-auto max-w-lg px-6 py-16">
-      <h1 className="text-2xl font-bold text-white">Verify a certificate</h1>
-      <p className="mt-1 text-sm text-slate-400">Enter a Survival School certificate number to confirm it&apos;s genuine.</p>
+      <h1 className="text-2xl font-bold text-fg">Verify a certificate</h1>
+      <p className="mt-1 text-sm text-fg-muted">Enter a Survival School certificate number to confirm it&apos;s genuine.</p>
 
       <form onSubmit={check} className="mt-8 flex gap-3">
         <input
@@ -54,11 +54,11 @@ export default function VerifyCertificatePage() {
             <>
               <p className="text-sm font-semibold text-emerald-400">✓ Valid certificate</p>
               <dl className="mt-4 space-y-2 text-sm">
-                <div className="flex justify-between"><dt className="text-slate-500">Certificate ID</dt><dd className="text-slate-200">{result.certificate_number}</dd></div>
-                <div className="flex justify-between"><dt className="text-slate-500">Course</dt><dd className="text-slate-200">{result.course_title}</dd></div>
-                <div className="flex justify-between"><dt className="text-slate-500">Awarded to</dt><dd className="text-slate-200">{result.student_full_name}</dd></div>
-                {result.grade && <div className="flex justify-between"><dt className="text-slate-500">Grade</dt><dd className="text-slate-200">{result.grade}</dd></div>}
-                <div className="flex justify-between"><dt className="text-slate-500">Issued</dt><dd className="text-slate-200">{result.issued_at?.slice(0, 10)}</dd></div>
+                <div className="flex justify-between"><dt className="text-fg-subtle">Certificate ID</dt><dd className="text-fg">{result.certificate_number}</dd></div>
+                <div className="flex justify-between"><dt className="text-fg-subtle">Course</dt><dd className="text-fg">{result.course_title}</dd></div>
+                <div className="flex justify-between"><dt className="text-fg-subtle">Awarded to</dt><dd className="text-fg">{result.student_full_name}</dd></div>
+                {result.grade && <div className="flex justify-between"><dt className="text-fg-subtle">Grade</dt><dd className="text-fg">{result.grade}</dd></div>}
+                <div className="flex justify-between"><dt className="text-fg-subtle">Issued</dt><dd className="text-fg">{result.issued_at?.slice(0, 10)}</dd></div>
               </dl>
               <Link href={`/certificates/view/${result.certificate_number}`} className="btn-primary mt-6 w-full">
                 View full certificate

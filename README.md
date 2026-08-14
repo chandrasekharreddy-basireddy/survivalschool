@@ -74,7 +74,4 @@ host (what this build was actually developed and tested against).
 This is a working core MVP, not a mockup or demo shell — every claim of
 "tested" in the docs above is backed by a real passing test against real
 PostgreSQL/Redis, not a mock. See [`docs/STATUS.md`](docs/STATUS.md) for the
-full, itemized production-readiness report: what's implemented and tested,
-what's implemented and configured-but-unverified (and exactly why, given
-this development sandbox's network restrictions), and what's an explicitly
-documented gap rather than a hidden one.
+full status.

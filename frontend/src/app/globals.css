@@ -78,4 +78,41 @@
   .badge {
     @apply inline-flex items-center gap-1 rounded-full border border-ink-700 bg-ink-900 px-2.5 py-1 text-xs font-medium text-fg-muted;
   }
+
+  /* Renders the AI tutor's markdown replies as readable rich text instead of
+     a raw wall of "###", "**", and fenced ```code```. Scoped to
+     .markdown-body so it never affects the rest of the app. Spacing is the
+     important part: without it, react-markdown's block elements collapse
+     together and read as one merged paragraph. */
+  .markdown-body {
+    @apply leading-relaxed;
+  }
+  .markdown-body > :first-child { @apply mt-0; }
+  .markdown-body > :last-child { @apply mb-0; }
+  .markdown-body p { @apply my-3; }
+  .markdown-body h1 { @apply mb-2 mt-5 text-lg font-bold text-fg; }
+  .markdown-body h2 { @apply mb-2 mt-5 text-base font-bold text-fg; }
+  .markdown-body h3 { @apply mb-1.5 mt-4 text-sm font-bold uppercase tracking-wide text-fg-muted; }
+  .markdown-body h4 { @apply mb-1.5 mt-4 text-sm font-semibold text-fg; }
+  .markdown-body ul { @apply my-3 list-disc space-y-1 pl-5; }
+  .markdown-body ol { @apply my-3 list-decimal space-y-1 pl-5; }
+  .markdown-body li { @apply pl-1; }
+  .markdown-body strong { @apply font-semibold text-fg; }
+  .markdown-body a { @apply text-brand-500 underline underline-offset-2 dark:text-brand-400; }
+  .markdown-body blockquote { @apply my-3 border-l-2 border-ink-700 pl-3 text-fg-muted; }
+  /* inline code */
+  .markdown-body :not(pre) > code {
+    @apply rounded bg-ink-950 px-1.5 py-0.5 font-mono text-[0.85em] text-brand-400;
+  }
+  /* fenced code blocks */
+  .markdown-body pre {
+    @apply my-3 overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-3;
+  }
+  .markdown-body pre code {
+    @apply block font-mono text-[0.85em] leading-relaxed text-fg;
+  }
+  .markdown-body table { @apply my-3 w-full border-collapse text-left text-xs; }
+  .markdown-body th, .markdown-body td { @apply border border-ink-700 px-2 py-1; }
+  .markdown-body th { @apply bg-ink-900 font-semibold; }
+  .markdown-body hr { @apply my-4 border-ink-700; }
 }

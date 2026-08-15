@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 
@@ -107,11 +109,17 @@ export default function AiAssistantPage() {
           {messages.length === 0 ? (
             <p className="text-sm text-fg-subtle">Ask anything to get started.</p>
           ) : (
-            messages.map((m) => (
-              <div key={m.id} className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${m.role === "user" ? "ml-auto bg-brand-500 text-white" : "bg-ink-800 text-fg"}`}>
-                {m.content}
-              </div>
-            ))
+            messages.map((m) =>
+              m.role === "user" ? (
+                <div key={m.id} className="ml-auto max-w-[80%] whitespace-pre-wrap rounded-lg bg-brand-500 px-4 py-2.5 text-sm text-white">
+                  {m.content}
+                </div>
+              ) : (
+                <div key={m.id} className="markdown-body max-w-[92%] rounded-lg bg-ink-800 px-4 py-3 text-sm text-fg">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                </div>
+              )
+            )
           )}
           <div ref={bottomRef} />
         </div>

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export default function VerifyEmailPage() {
   return (
@@ -16,6 +17,7 @@ export default function VerifyEmailPage() {
 function VerifyEmailInner() {
   const params = useSearchParams();
   const token = params.get("token");
+  const { user, refreshUser } = useAuth();
   const [status, setStatus] = useState<"pending" | "success" | "error">("pending");
   const [message, setMessage] = useState("");
   const [resendEmail, setResendEmail] = useState("");
@@ -29,14 +31,26 @@ function VerifyEmailInner() {
       return;
     }
     apiFetch<{ message: string }>("/auth/verify-email", { method: "POST", auth: false, body: JSON.stringify({ token }) })
-      .then((res) => {
+      .then(async (res) => {
         setStatus("success");
         setMessage(res.message);
+        // If the user is already signed in in this browser (common: they were
+        // sent here from a "verify your email" banner), their cached auth
+        // context still says is_email_verified=false. Re-fetch /auth/me so the
+        // dashboard banner and the daily-challenge/contests "verify to unlock"
+        // gates clear immediately instead of lingering until a full re-login.
+        try {
+          await refreshUser();
+        } catch {
+          /* not signed in here -- they'll get fresh state on next login */
+        }
       })
       .catch((err) => {
         setStatus("error");
         setMessage(err instanceof ApiError ? err.message : "Verification failed.");
       });
+    // refreshUser is stable from context; token is the real trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   const resendVerification = async (e: React.FormEvent) => {
@@ -66,7 +80,11 @@ function VerifyEmailInner() {
           <>
             <h1 className="text-xl font-bold text-fg">Email verified 🎉</h1>
             <p className="mt-2 text-sm text-fg-muted">{message}</p>
-            <Link href="/login" className="btn-primary mt-6 w-full">Sign in</Link>
+            {user ? (
+              <Link href="/dashboard" className="btn-primary mt-6 w-full">Go to your dashboard</Link>
+            ) : (
+              <Link href="/login" className="btn-primary mt-6 w-full">Sign in</Link>
+            )}
           </>
         )}
         {status === "error" && (

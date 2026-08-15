@@ -14,11 +14,30 @@ export function NavBar() {
     <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur">
       <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2 text-lg font-bold tracking-tight text-fg">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-brand-700 bg-ink-950">
-            <svg viewBox="0 0 32 32" fill="none" className="h-5 w-5" aria-hidden="true">
-              <circle cx="16" cy="9.5" r="3.1" stroke="#ff3b3f" strokeWidth="2.2" />
-              <path d="M9.6 22.8 L14 15 L18.4 22.8 Z" stroke="#ff3b3f" strokeWidth="2.2" strokeLinejoin="round" />
-              <rect x="18.6" y="17.3" width="6.4" height="6.4" stroke="#ff3b3f" strokeWidth="2.2" />
+          <span className="inline-flex h-8 w-8 items-center justify-center">
+            <svg viewBox="0 0 200 200" fill="none" className="h-8 w-8" aria-hidden="true">
+              <defs>
+                <linearGradient id="navCap" x1="40" y1="60" x2="160" y2="120" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#59f0d0" /><stop offset=".5" stopColor="#4d7dff" /><stop offset="1" stopColor="#a838ff" />
+                </linearGradient>
+                <linearGradient id="navBase" x1="70" y1="110" x2="130" y2="150" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#4d7dff" /><stop offset="1" stopColor="#8a2be0" />
+                </linearGradient>
+                <linearGradient id="navSpark" x1="140" y1="120" x2="170" y2="160" gradientUnits="userSpaceOnUse">
+                  <stop stopColor="#ffd23f" /><stop offset="1" stopColor="#ff7a2d" />
+                </linearGradient>
+                <radialGradient id="navBg" cx="50%" cy="42%" r="72%">
+                  <stop offset="0%" stopColor="#141018" /><stop offset="100%" stopColor="#060409" />
+                </radialGradient>
+              </defs>
+              <rect x="18" y="18" width="164" height="164" rx="42" fill="url(#navBg)" stroke="url(#navCap)" strokeWidth="3" />
+              <g stroke="#0a070c" strokeWidth="1" strokeLinejoin="round">
+                <path d="M100 52 L168 84 L100 116 L32 84 Z" fill="url(#navCap)" />
+                <path d="M64 100 V128 C64 140 84 150 100 150 C116 150 136 140 136 128 V100 L100 116 Z" fill="url(#navBase)" />
+                <path d="M168 84 V120" stroke="#ffd23f" strokeWidth="3" fill="none" />
+                <circle cx="168" cy="126" r="7" fill="url(#navSpark)" />
+              </g>
+              <path d="M52 128 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 l8 -3 Z" fill="#ffd23f" />
             </svg>
           </span>
           <span className="hidden sm:inline">Survival School</span>

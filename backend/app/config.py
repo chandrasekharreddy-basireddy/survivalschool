@@ -126,6 +126,17 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str | None = None
     MAX_UPLOAD_MB: int = 25
 
+    # --- Destructive maintenance operations ---
+    # Optional, unset by default (endpoint is 404-equivalent/inert unless
+    # explicitly configured). When set, POST /api/v1/admin/maintenance/reset-accounts
+    # is enabled and requires this exact value in the X-Maintenance-Secret
+    # header. This exists because some real hosts (Render's free tier here)
+    # don't always offer easy interactive shell access, so a one-time,
+    # explicitly-gated HTTP escape hatch is the practical way to run a
+    # real destructive maintenance script against production. Meant to be
+    # unset again immediately after use.
+    MAINTENANCE_SECRET: str | None = None
+
     # --- Observability ---
     LOG_LEVEL: str = "INFO"
     SERVICE_VERSION: str = "1.0.0"

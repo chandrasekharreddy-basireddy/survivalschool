@@ -4,7 +4,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query
+from sqlalchemy import text
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -215,3 +216,44 @@ async def trigger_powerbi_sync(
     )
     await db.commit()
     return PowerBISyncOut(status=result["status"], reason=result.get("reason"), date=result.get("date"))
+
+
+class MaintenanceResetOut(BaseModel):
+    status: str
+    detail: str
+
+
+@router.post("/maintenance/reset-accounts", response_model=MaintenanceResetOut)
+async def maintenance_reset_accounts(
+    db: AsyncSession = Depends(get_db),
+    x_maintenance_secret: str | None = Header(default=None),
+):
+    """Destructive, explicitly-gated maintenance escape hatch: deletes every
+    user account (and everything that references one via a real foreign
+    key -- sessions, tokens, enrollments, submissions, etc.) via the same
+    TRUNCATE ... CASCADE as scripts/reset_all_accounts.py.
+
+    Deliberately NOT behind require_permission()/a user JWT -- the whole
+    point is to be usable even when there are zero working accounts left,
+    or when the only credential available is this one-time secret. Instead
+    it's gated by MAINTENANCE_SECRET, which is unset by default (None), so
+    this endpoint 404s unless an operator has deliberately opted in by
+    setting that env var -- and it's meant to be unset again immediately
+    after use. Exists because Render's free tier doesn't always offer easy
+    interactive shell access; this is the practical alternative for running
+    a real destructive maintenance operation against production.
+    """
+    if not settings.MAINTENANCE_SECRET:
+        raise NotFoundError("Not found.")
+    if not x_maintenance_secret or x_maintenance_secret != settings.MAINTENANCE_SECRET:
+        # Same 404 as "unconfigured" -- don't reveal that this endpoint
+        # exists to a caller who doesn't already have the secret.
+        raise NotFoundError("Not found.")
+
+    await db.execute(text("TRUNCATE TABLE users RESTART IDENTITY CASCADE"))
+    await db.commit()
+
+    return MaintenanceResetOut(
+        status="ok",
+        detail="All user accounts (and everything referencing them) were deleted. Roles/permissions/badges were left intact.",
+    )

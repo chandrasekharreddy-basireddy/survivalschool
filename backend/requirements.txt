@@ -16,7 +16,7 @@ jinja2==3.1.6
 qrcode[pil]==8.0
 slowapi==0.1.9
 websockets==13.1
-structlog==24.4.0
+structlog==26.1.0
 tenacity==9.0.0
 weasyprint==69.0
 prometheus-fastapi-instrumentator==8.1.0

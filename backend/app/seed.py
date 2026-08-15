@@ -13,7 +13,7 @@ import asyncio
 import secrets
 import sys
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
@@ -66,8 +66,26 @@ BADGES = [
 ]
 
 
+
+# Arbitrary fixed key for a Postgres advisory lock used to serialize
+# seed_rbac() across concurrently-starting processes (e.g. multiple gunicorn
+# workers booting at once against a fresh/empty database). Any int64 works;
+# this one has no special meaning. pg_advisory_xact_lock blocks the calling
+# transaction until it can acquire the lock, and releases it automatically
+# on commit/rollback -- no separate unlock call needed, and it can't leak.
+_SEED_RBAC_LOCK_KEY = 918273645
+
+
 async def seed_rbac():
     async with AsyncSessionLocal() as db:
+        # Serialize concurrent seeders. Without this, two workers can both
+        # SELECT a permission row, both see it missing, and both INSERT --
+        # racing on the ix_permissions_code unique constraint
+        # (UniqueViolationError). With the lock, the second worker blocks
+        # here until the first one commits, then its own check-then-insert
+        # reads find everything already present and it's a safe no-op.
+        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SEED_RBAC_LOCK_KEY})
+
         perm_by_code = {}
         for code in PERMISSIONS:
             existing = (await db.execute(select(Permission).where(Permission.code == code))).scalar_one_or_none()
@@ -91,8 +109,6 @@ async def seed_rbac():
                 if perm not in role.permissions:
                     role.permissions.append(perm)
 
-        for code, name, desc, icon in [(c, n, d, i) for c, n, d, i in BADGES]:
-            pass
         for code, name, desc, icon in BADGES:
             existing = (await db.execute(select(Badge).where(Badge.code == code))).scalar_one_or_none()
             if existing is None:

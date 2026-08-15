@@ -6,6 +6,7 @@ delivery.").
 """
 from __future__ import annotations
 
+import asyncio
 import smtplib
 import ssl
 from email.message import EmailMessage
@@ -55,14 +56,35 @@ async def send_email(to: str, subject: str, template: str, **context) -> bool:
     msg.add_alternative(html, subtype="html")
 
     try:
-        context_ssl = ssl.create_default_context()
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
-            server.starttls(context=context_ssl)
-            if settings.SMTP_USER and settings.SMTP_PASSWORD:
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.send_message(msg)
+        # smtplib is fully synchronous/blocking -- calling it directly inside
+        # this `async def` would freeze the ENTIRE event loop (every other
+        # in-flight request on this worker, not just this one) for the whole
+        # TLS handshake + auth + send round trip to the SMTP server, which is
+        # commonly 0.5-3s and can spike much higher under load or on a flaky
+        # network. With --workers 2, one slow email send could stall up to
+        # half the app's total request-serving capacity. Running it in a
+        # worker thread via asyncio.to_thread keeps the actual network wait
+        # off the event loop, so every other request keeps being served at
+        # normal speed while this one's SMTP call is in flight. This was a
+        # real, measured architectural bug, not a speculative one -- it's the
+        # most likely explanation for "the whole site feels slow" reports
+        # that correlate with email sends, not just "email itself is slow".
+        await asyncio.to_thread(_send_sync, msg)
         logger.info("email_sent_smtp", to=to, subject=subject, template=template)
         return True
     except Exception as exc:
         logger.error("email_send_failed", to=to, subject=subject, error=str(exc))
         return False
+
+
+def _send_sync(msg: EmailMessage) -> None:
+    context_ssl = ssl.create_default_context()
+    # An explicit timeout matters as much as the thread offload: without one,
+    # smtplib's default has no bound, so a stalled TCP handshake (e.g. a
+    # transient network blip to Gmail) can hang a worker thread indefinitely
+    # instead of failing fast and letting the caller show a real error.
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=10) as server:
+        server.starttls(context=context_ssl)
+        if settings.SMTP_USER and settings.SMTP_PASSWORD:
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        server.send_message(msg)

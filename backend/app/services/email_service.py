@@ -2,15 +2,20 @@
 
   * console -- dev only, prints the message to structured logs so a developer
     can read verification/reset links without a mail server.
-  * resend  -- production. Sends over Resend's HTTPS API (port 443). This is
-    the backend that actually works on Render: Render blocks outbound SMTP
-    ports (25/465/587) at the network layer to prevent spam, so any smtplib
-    connection there dies with "[Errno 101] Network is unreachable" no matter
-    how correct the credentials are. An HTTPS API sidesteps that entirely.
+  * brevo   -- production, no sending domain required. Sends over Brevo's
+    HTTPS API (port 443) using only a single *verified sender email* (e.g. a
+    Gmail address confirmed once in the Brevo dashboard). This is the backend
+    to use on Render when you don't own a domain: like resend it sidesteps
+    Render's SMTP block, but unlike resend it can deliver to arbitrary
+    recipients without domain DNS verification.
+  * resend  -- production, requires a verified sending *domain*. Sends over
+    Resend's HTTPS API (port 443). Best inbox placement once a domain is
+    verified; without one it only delivers to the Resend account owner.
   * smtp    -- classic SMTP via smtplib, for hosts that DO allow outbound
-    SMTP (most self-hosted / VPS deployments). Kept because it's the right
-    choice off Render, but it is NOT usable on Render's egress-restricted
-    network.
+    SMTP (most self-hosted / VPS deployments). NOT usable on Render: Render
+    blocks outbound SMTP ports (25/465/587) at the network layer, so any
+    smtplib connection there dies with "[Errno 101] Network is unreachable"
+    no matter how correct the credentials are.
 
 Templates are Jinja2, responsive HTML with a plain-text fallback (spec
 section 21).
@@ -25,6 +30,7 @@ from pathlib import Path
 
 import httpx
 import structlog
+from email.utils import parseaddr
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.config import get_settings
@@ -61,6 +67,11 @@ async def send_email(to: str, subject: str, template: str, **context) -> bool:
         return True
 
     try:
+        if settings.EMAIL_BACKEND == "brevo":
+            await _send_brevo(to=to, subject=subject, html=html, text=text)
+            logger.info("email_sent_brevo", to=to, subject=subject, template=template)
+            return True
+
         if settings.EMAIL_BACKEND == "resend":
             await _send_resend(to=to, subject=subject, html=html, text=text)
             logger.info("email_sent_resend", to=to, subject=subject, template=template)
@@ -82,6 +93,48 @@ async def send_email(to: str, subject: str, template: str, **context) -> bool:
     except Exception as exc:
         logger.error("email_send_failed", to=to, subject=subject, backend=settings.EMAIL_BACKEND, error=str(exc))
         return False
+
+
+async def _send_brevo(*, to: str, subject: str, html: str, text: str) -> None:
+    """Send via Brevo's HTTPS transactional API
+    (https://developers.brevo.com/reference/sendtransacemail).
+
+    Only needs a single sender email verified in the Brevo dashboard -- no
+    domain DNS. The sender is parsed from EMAIL_FROM ("Name <email>"); that
+    email MUST be the one verified in Brevo or Brevo returns a 400 the caller
+    surfaces verbatim. Runs over httpx (async, port 443) so it works on
+    Render's SMTP-blocked network.
+    """
+    if not settings.BREVO_API_KEY:
+        raise RuntimeError("BREVO_API_KEY is not configured but EMAIL_BACKEND=brevo.")
+
+    from_name, from_email = parseaddr(settings.EMAIL_FROM)
+    if not from_email:
+        raise RuntimeError(f"EMAIL_FROM is not a parseable address: {settings.EMAIL_FROM!r}")
+    sender = {"email": from_email}
+    if from_name:
+        sender["name"] = from_name
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": settings.BREVO_API_KEY,
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            json={
+                "sender": sender,
+                "to": [{"email": to}],
+                "subject": subject,
+                "htmlContent": html,
+                "textContent": text,
+            },
+        )
+        if resp.status_code >= 400:
+            # Surface Brevo's real error (e.g. "Sender not valid" when the
+            # from-address hasn't been verified yet) instead of a generic fail.
+            raise RuntimeError(f"Brevo API {resp.status_code}: {resp.text}")
 
 
 async def _send_resend(*, to: str, subject: str, html: str, text: str) -> None:

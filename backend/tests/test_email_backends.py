@@ -74,3 +74,42 @@ async def test_send_resend_raises_without_api_key(monkeypatch):
     monkeypatch.setattr(es.settings, "RESEND_API_KEY", None)
     with pytest.raises(RuntimeError, match="RESEND_API_KEY"):
         await es._send_resend(to="s@example.com", subject="V", html="<b>hi</b>", text="hi")
+
+
+async def test_send_brevo_posts_correct_payload_and_parses_sender(monkeypatch):
+    monkeypatch.setattr(es.settings, "BREVO_API_KEY", "xkeysib-test")
+    monkeypatch.setattr(es.settings, "EMAIL_FROM", "Survival School <sender@gmail.com>")
+    _FakeClient.captured = []
+    _FakeClient.next_status = 201
+    _FakeClient.next_text = '{"messageId":"<abc@brevo>"}'
+    monkeypatch.setattr(es.httpx, "AsyncClient", _FakeClient)
+
+    await es._send_brevo(to="student@example.com", subject="Verify your account",
+                         html="<b>hi</b>", text="hi")
+
+    sent = _FakeClient.captured[0]
+    assert sent["url"] == "https://api.brevo.com/v3/smtp/email"
+    assert sent["headers"]["api-key"] == "xkeysib-test"
+    # "Name <email>" from EMAIL_FROM must be split into Brevo's sender object.
+    assert sent["json"]["sender"] == {"email": "sender@gmail.com", "name": "Survival School"}
+    assert sent["json"]["to"] == [{"email": "student@example.com"}]
+    assert sent["json"]["htmlContent"] == "<b>hi</b>"
+    assert sent["json"]["textContent"] == "hi"
+
+
+async def test_send_brevo_raises_on_error_with_provider_body(monkeypatch):
+    monkeypatch.setattr(es.settings, "BREVO_API_KEY", "xkeysib-test")
+    monkeypatch.setattr(es.settings, "EMAIL_FROM", "Survival School <sender@gmail.com>")
+    _FakeClient.captured = []
+    _FakeClient.next_status = 400
+    _FakeClient.next_text = '{"code":"invalid_parameter","message":"Sender not valid"}'
+    monkeypatch.setattr(es.httpx, "AsyncClient", _FakeClient)
+
+    with pytest.raises(RuntimeError, match="400.*Sender not valid"):
+        await es._send_brevo(to="s@example.com", subject="V", html="<b>hi</b>", text="hi")
+
+
+async def test_send_brevo_raises_without_api_key(monkeypatch):
+    monkeypatch.setattr(es.settings, "BREVO_API_KEY", None)
+    with pytest.raises(RuntimeError, match="BREVO_API_KEY"):
+        await es._send_brevo(to="s@example.com", subject="V", html="<b>hi</b>", text="hi")

@@ -1,10 +1,10 @@
 # Multi-stage build for a minimal Next.js production runtime.
-FROM node:20-slim AS deps
+FROM node:26-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --no-audit --no-fund
 
-FROM node:20-slim AS builder
+FROM node:26-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -15,7 +15,7 @@ ENV NEXT_PUBLIC_WS_BASE_URL=$NEXT_PUBLIC_WS_BASE_URL
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 WORKDIR /app
 RUN groupadd --gid 1000 appuser && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1

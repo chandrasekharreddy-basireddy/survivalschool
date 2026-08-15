@@ -129,7 +129,7 @@ export default function ProfilePage() {
               className="h-16 w-16 rounded-full object-cover"
             />
           ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-400 to-purple-500 text-xl font-bold text-white">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-brand-500 to-brand-700 text-xl font-bold text-white">
               {user.full_name.slice(0, 1).toUpperCase()}
             </div>
           )}

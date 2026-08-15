@@ -14,8 +14,12 @@ export function NavBar() {
     <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur">
       <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2 text-lg font-bold tracking-tight text-fg">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-400 to-purple-500 text-sm text-white">
-            SS
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-brand-700 bg-ink-950">
+            <svg viewBox="0 0 32 32" fill="none" className="h-5 w-5" aria-hidden="true">
+              <circle cx="16" cy="9.5" r="3.1" stroke="#ff3b3f" strokeWidth="2.2" />
+              <path d="M9.6 22.8 L14 15 L18.4 22.8 Z" stroke="#ff3b3f" strokeWidth="2.2" strokeLinejoin="round" />
+              <rect x="18.6" y="17.3" width="6.4" height="6.4" stroke="#ff3b3f" strokeWidth="2.2" />
+            </svg>
           </span>
           <span className="hidden sm:inline">Survival School</span>
         </Link>

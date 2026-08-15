@@ -25,14 +25,18 @@ const config = {
   theme: {
     extend: {
       colors: {
+        // Squid Game-inspired red -- verified AA-compliant against both
+        // white button text (500/600 as backgrounds) and the near-black
+        // dark background (400 used for links/accents on dark surfaces):
+        // 500 vs white = 5.2:1, 600 vs white = 6.69:1, 400 vs bg-0 = 5.66:1.
         brand: {
-          50: "#f0f0ff",
-          100: "#e0e0ff",
-          400: "#8b8bff",
-          500: "#5b5bff",
-          600: "#4444e6",
-          700: "#3333b3",
-          900: "#1a1a5c",
+          50: "#fdecec",
+          100: "#fad0d1",
+          400: "#ff3b3f",
+          500: "#d7181f",
+          600: "#b8121a",
+          700: "#8f0d13",
+          900: "#4a0609",
         },
         // Backgrounds, panels, and borders — theme-aware.
         ink: {

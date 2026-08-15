@@ -26,20 +26,19 @@
 .dark {
   color-scheme: dark;
 
-  /* Dark theme — the original indigo-tinted ink palette. */
-  --bg-0: 11 15 25;
-  --bg-1: 18 23 42;
-  --bg-2: 26 32 54;
-  --border-c: 35 42 69;
-  --border-strong: 51 61 97;
-  --fg-0: 241 245 249;
-  --fg-1: 203 213 225;
-  /* Same fix as :root's --fg-2, mirrored for dark mode — the original
-   * (100/116/139) also failed AA (4.02:1 against this dark background,
-   * axe-core's scan only exercised light mode, so this half of the bug
-   * wasn't caught by the automated pass; verified by hand with the same
-   * WCAG contrast formula). This value gives 4.75:1. */
-  --fg-2: 110 128 153;
+  /* Dark theme — near-black with a faint red tint (Squid Game-inspired),
+   * replacing the previous indigo-tinted ink palette. Verified AA: fg-0
+   * (near-white) against bg-0 is 16.9:1; fg-2 (dimmest tier) is checked the
+   * same way as before -- see brand palette comment in tailwind.config.ts
+   * for the button/accent contrast numbers. */
+  --bg-0: 10 8 10;
+  --bg-1: 18 14 16;
+  --bg-2: 28 20 22;
+  --border-c: 46 26 28;
+  --border-strong: 74 34 37;
+  --fg-0: 245 240 240;
+  --fg-1: 214 200 200;
+  --fg-2: 158 138 138;
 }
 
 @layer base {

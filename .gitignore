@@ -26,6 +26,9 @@ frontend/public/sw.js.map
 frontend/public/swe-worker-*.js
 frontend/public/swe-worker-*.js.map
 
+# Local file uploads (default STORAGE_LOCAL_PATH; not for prod persistence)
+backend/var/uploads/
+
 # Env / secrets
 .env
 .env.*

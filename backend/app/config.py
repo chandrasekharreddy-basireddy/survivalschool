@@ -105,7 +105,13 @@ class Settings(BaseSettings):
 
     # --- File storage ---
     STORAGE_BACKEND: Literal["local", "s3"] = "local"
-    STORAGE_LOCAL_PATH: str = "/data/uploads"
+    # Default to a path under the app's own working directory rather than an
+    # absolute root path like "/data/uploads" -- the app process (in CI, in
+    # Docker, and on Render's non-root web service containers) usually can't
+    # create top-level directories and hits PermissionError: [Errno 13] on
+    # the first upload. Deployments that mount a real persistent disk (e.g. a
+    # Render Disk at /data) should set STORAGE_LOCAL_PATH explicitly via env.
+    STORAGE_LOCAL_PATH: str = "var/uploads"
     S3_BUCKET: str | None = None
     S3_REGION: str | None = None
     MAX_UPLOAD_MB: int = 25

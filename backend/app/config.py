@@ -77,11 +77,20 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000"
 
     # --- Email ---
-    EMAIL_BACKEND: Literal["console", "smtp"] = "console"
+    # "resend" is the correct production backend on Render: Render blocks
+    # outbound SMTP ports (25/465/587) at the network layer, so the "smtp"
+    # backend fails there with "[Errno 101] Network is unreachable" regardless
+    # of credentials. "smtp" is still valid on hosts that permit SMTP egress.
+    EMAIL_BACKEND: Literal["console", "smtp", "resend"] = "console"
     SMTP_HOST: str | None = None
     SMTP_PORT: int = 587
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
+    # Resend HTTPS API key (starts with "re_"). Required when EMAIL_BACKEND=
+    # resend. The "from" address (EMAIL_FROM) must be on a domain verified in
+    # Resend, otherwise Resend only permits sending to the account owner's own
+    # address and returns a 403 the email_service surfaces verbatim.
+    RESEND_API_KEY: str | None = None
     EMAIL_FROM: str = "Survival School <no-reply@survivalschool.dev>"
     FRONTEND_URL: str = "http://localhost:3000"
 
@@ -180,6 +189,10 @@ class Settings(BaseSettings):
             missing.append("DATABASE_URL (points at localhost in production)")
         if self.EMAIL_BACKEND == "console":
             missing.append("EMAIL_BACKEND (console backend not allowed in production)")
+        if self.EMAIL_BACKEND == "resend" and not self.RESEND_API_KEY:
+            missing.append("RESEND_API_KEY (required when EMAIL_BACKEND=resend)")
+        if self.EMAIL_BACKEND == "smtp" and not self.SMTP_HOST:
+            missing.append("SMTP_HOST (required when EMAIL_BACKEND=smtp)")
         if self.AI_PROVIDER == "sarvam" and not self.SARVAM_API_KEY:
             missing.append("SARVAM_API_KEY")
         if self.STORAGE_BACKEND == "supabase" and not (self.SUPABASE_STORAGE_URL and self.SUPABASE_SERVICE_ROLE_KEY):

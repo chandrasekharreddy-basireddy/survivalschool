@@ -1,5 +1,5 @@
 # Multi-stage build: compile deps in a full image, ship a slim runtime.
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev \
@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 # libpq5: Postgres client. curl: healthcheck. The rest (pango/cairo/gdk-pixbuf/
 # fonts): required at runtime by weasyprint for GET /certificates/{number}/pdf

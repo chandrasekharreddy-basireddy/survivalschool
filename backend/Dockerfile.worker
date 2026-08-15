@@ -1,5 +1,5 @@
 # Background worker image — same dependency set as the API, different entrypoint.
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev \
@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM python:3.11-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends libpq5 \
     && rm -rf /var/lib/apt/lists/* \

@@ -104,16 +104,26 @@ class Settings(BaseSettings):
     POWERBI_WORKSPACE_ID: str | None = None
 
     # --- File storage ---
-    STORAGE_BACKEND: Literal["local", "s3"] = "local"
+    STORAGE_BACKEND: Literal["local", "supabase"] = "local"
     # Default to a path under the app's own working directory rather than an
     # absolute root path like "/data/uploads" -- the app process (in CI, in
     # Docker, and on Render's non-root web service containers) usually can't
     # create top-level directories and hits PermissionError: [Errno 13] on
     # the first upload. Deployments that mount a real persistent disk (e.g. a
     # Render Disk at /data) should set STORAGE_LOCAL_PATH explicitly via env.
+    # Only used when STORAGE_BACKEND=local -- Render's own container disk is
+    # ephemeral (wiped on every redeploy), so "local" is fine for dev/CI but
+    # not for real user-uploaded files in production; use STORAGE_BACKEND=
+    # supabase there instead for durable storage.
     STORAGE_LOCAL_PATH: str = "var/uploads"
-    S3_BUCKET: str | None = None
-    S3_REGION: str | None = None
+    # --- Supabase Storage (real backend for durable file uploads) ---
+    SUPABASE_STORAGE_URL: str | None = None  # e.g. https://<ref>.supabase.co
+    SUPABASE_STORAGE_BUCKET: str = "survivalschool-uploads"
+    # Service role key (secret, bypasses RLS) -- the backend already enforces
+    # its own auth/visibility checks in app/api/v1/files.py before touching
+    # storage, so a service-role-authenticated bucket is the correct model
+    # here rather than trying to map our own JWT users onto Supabase Auth.
+    SUPABASE_SERVICE_ROLE_KEY: str | None = None
     MAX_UPLOAD_MB: int = 25
 
     # --- Observability ---
@@ -161,6 +171,8 @@ class Settings(BaseSettings):
             missing.append("EMAIL_BACKEND (console backend not allowed in production)")
         if self.AI_PROVIDER == "sarvam" and not self.SARVAM_API_KEY:
             missing.append("SARVAM_API_KEY")
+        if self.STORAGE_BACKEND == "supabase" and not (self.SUPABASE_STORAGE_URL and self.SUPABASE_SERVICE_ROLE_KEY):
+            missing.append("SUPABASE_STORAGE_URL/SUPABASE_SERVICE_ROLE_KEY (required when STORAGE_BACKEND=supabase)")
         if len(self.JWT_SECRET) < 32:
             missing.append("JWT_SECRET (too short)")
         if missing:

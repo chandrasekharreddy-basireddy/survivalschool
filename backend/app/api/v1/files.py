@@ -5,7 +5,7 @@ import uuid
 
 import magic
 from fastapi import APIRouter, Depends, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from app.database import get_db
 from app.dependencies import get_current_user_optional, require_permission
 from app.models.system import FileObject
 from app.models.user import User
+from app.services import storage_service
 
 router = APIRouter(prefix="/files", tags=["files"])
 settings = get_settings()
@@ -58,12 +59,6 @@ async def upload_file(
     user: User = Depends(require_permission("files.upload")),
     db: AsyncSession = Depends(get_db),
 ):
-    if settings.STORAGE_BACKEND != "local":
-        # S3 backend is a documented, planned setting — not implemented in
-        # this build (see docs/DEPLOYMENT.md). Fail loudly rather than
-        # silently writing to local disk while claiming S3 is active.
-        raise ServiceUnavailableError("File storage backend is not available in this deployment.")
-
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
     chunks: list[bytes] = []
     total = 0
@@ -88,14 +83,23 @@ async def upload_file(
 
     ext = _ALLOWED_MIME_TO_EXT[sniffed_mime]
     storage_key = f"{uuid.uuid4().hex}{ext}"
-    dest_path = os.path.join(settings.STORAGE_LOCAL_PATH, storage_key)
-    os.makedirs(settings.STORAGE_LOCAL_PATH, exist_ok=True)
-    with open(dest_path, "wb") as f:
-        f.write(content)
+
+    if settings.STORAGE_BACKEND == "supabase":
+        try:
+            await storage_service.upload_object(storage_key, content, sniffed_mime)
+        except storage_service.StorageNotConfiguredError as exc:
+            raise ServiceUnavailableError(str(exc)) from exc
+        except Exception as exc:  # real upstream failure (network, Supabase 5xx, etc.)
+            raise ServiceUnavailableError("File storage is temporarily unavailable. Please try again.") from exc
+    else:
+        dest_path = os.path.join(settings.STORAGE_LOCAL_PATH, storage_key)
+        os.makedirs(settings.STORAGE_LOCAL_PATH, exist_ok=True)
+        with open(dest_path, "wb") as f:
+            f.write(content)
 
     original_filename = os.path.basename(file.filename or "upload")[:255]
     record = FileObject(
-        owner_id=user.id, storage_backend="local", storage_key=storage_key,
+        owner_id=user.id, storage_backend=settings.STORAGE_BACKEND, storage_key=storage_key,
         original_filename=original_filename, mime_type=sniffed_mime, size_bytes=total,
         visibility=visibility,
         # No virus scanner is wired up in this build — scan_status stays
@@ -126,9 +130,22 @@ async def download_file(file_id: uuid.UUID, user: User | None = Depends(get_curr
         )
         if not is_owner_or_admin:
             raise AuthorizationError("You don't have access to this file.")
-    if record.storage_backend != "local":
+    if record.storage_backend == "supabase":
+        try:
+            content = await storage_service.download_object(record.storage_key)
+        except storage_service.StorageNotConfiguredError as exc:
+            raise ServiceUnavailableError(str(exc)) from exc
+        except Exception as exc:
+            raise ServiceUnavailableError("File storage is temporarily unavailable. Please try again.") from exc
+        return Response(
+            content=content,
+            media_type=record.mime_type,
+            headers={"Content-Disposition": f'inline; filename="{record.original_filename}"'},
+        )
+    elif record.storage_backend == "local":
+        path = os.path.join(settings.STORAGE_LOCAL_PATH, record.storage_key)
+        if not os.path.isfile(path):
+            raise NotFoundError("File not found.")
+        return FileResponse(path, media_type=record.mime_type, filename=record.original_filename)
+    else:
         raise ServiceUnavailableError("File storage backend is not available in this deployment.")
-    path = os.path.join(settings.STORAGE_LOCAL_PATH, record.storage_key)
-    if not os.path.isfile(path):
-        raise NotFoundError("File not found.")
-    return FileResponse(path, media_type=record.mime_type, filename=record.original_filename)

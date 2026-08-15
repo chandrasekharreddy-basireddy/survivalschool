@@ -13,17 +13,23 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [emailDeliveryOk, setEmailDeliveryOk] = useState(true);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await apiFetch("/auth/register", {
+      const res = await apiFetch<{ email_delivery_ok: boolean }>("/auth/register", {
         method: "POST",
         auth: false,
         body: JSON.stringify({ full_name: fullName, email, password }),
       });
+      // The account is real and created either way -- email_delivery_ok only
+      // tells us whether the verification link actually got sent, so we
+      // don't tell the user to "check your inbox" when we know it's not
+      // there.
+      setEmailDeliveryOk(res.email_delivery_ok);
       setDone(true);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
@@ -36,10 +42,23 @@ export default function RegisterPage() {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="card w-full">
-          <h1 className="text-xl font-bold text-fg">Check your inbox</h1>
-          <p className="mt-2 text-sm text-fg-muted">
-            We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.
-          </p>
+          {emailDeliveryOk ? (
+            <>
+              <h1 className="text-xl font-bold text-fg">Check your inbox</h1>
+              <p className="mt-2 text-sm text-fg-muted">
+                We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-xl font-bold text-fg">Account created</h1>
+              <p className="mt-2 text-sm text-red-700 dark:text-red-400">
+                Your account was created, but we couldn&apos;t send the verification email to{" "}
+                <span className="text-fg">{email}</span> right now. Use &quot;Resend verification email&quot; on the
+                verify-email page in a few minutes, or contact support if it keeps failing.
+              </p>
+            </>
+          )}
           <Link href="/login" className="btn-primary mt-6 w-full">Go to sign in</Link>
         </div>
       </div>

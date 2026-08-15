@@ -104,6 +104,11 @@ class UserOut(BaseModel):
     is_active: bool = True
     totp_enabled: bool = False
     roles: list[str]
+    # True unless registration's verification email genuinely failed to send
+    # (real SMTP failure, not a UX placeholder) -- lets the frontend tell a
+    # brand-new user "we couldn't email you a link yet, use resend" instead
+    # of silently leaving them stuck with no way to know delivery failed.
+    email_delivery_ok: bool = True
 
     model_config = {"from_attributes": True}
 

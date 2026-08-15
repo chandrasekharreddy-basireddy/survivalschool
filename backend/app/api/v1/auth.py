@@ -133,14 +133,20 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
     await db.commit()
 
     verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-    await send_email(
+    # The account is already committed at this point -- a real email delivery
+    # failure (bad SMTP creds, provider outage, unverified sender domain,
+    # etc.) must not roll back a successful registration. But send_email()
+    # returning False is a real signal the caller shouldn't just discard: the
+    # user has no other way to learn their verification link never arrived.
+    email_delivery_ok = await send_email(
         user.email, f"Verify your {settings.APP_NAME} account", "verify_email",
         full_name=user.full_name, verify_url=verify_url, ttl_hours=settings.EMAIL_VERIFICATION_TTL_HOURS,
     )
     await emit_event("student.registered", {"email": user.email, "full_name": user.full_name})
 
     return UserOut(id=user.id, email=user.email, full_name=user.full_name,
-                    is_email_verified=user.is_email_verified, roles=["STUDENT"])
+                    is_email_verified=user.is_email_verified, roles=["STUDENT"],
+                    email_delivery_ok=email_delivery_ok)
 
 
 @router.post("/verify-email", response_model=MessageResponse)

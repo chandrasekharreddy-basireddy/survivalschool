@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import uuid
 from datetime import date, datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 import httpx
+import pytest
 
 from app.database import AsyncSessionLocal
 from app.models.gamification import PointsLedger

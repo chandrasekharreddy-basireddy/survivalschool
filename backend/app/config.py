@@ -102,7 +102,10 @@ class Settings(BaseSettings):
     AI_PROVIDER: Literal["mock", "sarvam"] = "mock"
     SARVAM_API_KEY: str | None = None
     SARVAM_BASE_URL: str = "https://api.sarvam.ai"
-    SARVAM_CHAT_MODEL: str = "sarvam-m"
+    # sarvam-m (24B) was deprecated and removed from Sarvam's Chat Completions
+    # API -- sending it returns 400 Bad Request. sarvam-105b is the current
+    # flagship chat model. See https://docs.sarvam.ai/api/api-guides-tutorials/chat-completion/overview
+    SARVAM_CHAT_MODEL: str = "sarvam-105b"
     AI_DAILY_MESSAGE_LIMIT: int = 100
     AI_REQUEST_TIMEOUT_SECONDS: int = 30
 

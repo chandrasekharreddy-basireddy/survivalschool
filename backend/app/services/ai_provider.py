@@ -135,14 +135,24 @@ class SarvamAIProvider(AIProvider):
                 resp = await client.post(
                     f"{self.base_url}/v1/chat/completions",
                     headers={"api-subscription-key": self.api_key, "Content-Type": "application/json"},
-                    json={"model": self.model, "messages": payload_messages},
+                    json={"model": self.model, "messages": payload_messages, "max_tokens": 2048},
                 )
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    # Capture Sarvam's actual error body, not just the generic
+                    # httpx "Client error '400 Bad Request'" string. Without this
+                    # a 400 was unactionable in the logs; it hid that the real
+                    # cause was a deprecated model name ("sarvam-m" -> use
+                    # "sarvam-105b"). The body says exactly what Sarvam rejected.
+                    body = resp.text[:500]
+                    logger.error("sarvam_call_failed", status=resp.status_code, model=self.model, body=body)
+                    return AIResponse(content="", provider=self.name, tokens_used=None,
+                                       latency_ms=int((time.perf_counter() - start) * 1000),
+                                       error=f"Sarvam {resp.status_code}: {body}")
                 data = resp.json()
                 content = data["choices"][0]["message"]["content"]
                 tokens = data.get("usage", {}).get("total_tokens")
         except Exception as exc:
-            logger.error("sarvam_call_failed", error=str(exc))
+            logger.error("sarvam_call_failed", model=self.model, error=str(exc))
             return AIResponse(content="", provider=self.name, tokens_used=None,
                                latency_ms=int((time.perf_counter() - start) * 1000), error=str(exc))
 

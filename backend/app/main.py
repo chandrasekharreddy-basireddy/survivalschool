@@ -41,6 +41,17 @@ if settings.SENTRY_DSN:
 async def lifespan(app: FastAPI):
     configure_logging()
     settings.validate_for_production()
+    # Roles/permissions are core, load-bearing data (register, RBAC checks,
+    # etc. all depend on them existing) -- not optional demo content. Seeding
+    # them here is safe because seed_rbac() is check-then-insert idempotent
+    # (see app/seed.py): a fresh database gets them created once; a database
+    # that already has them is a fast no-op read on every subsequent boot.
+    # This makes any freshly-migrated database (new environment, restored
+    # backup, etc.) self-healing instead of requiring someone to remember to
+    # run `python -m app.seed` by hand before the app is actually usable.
+    from app.seed import seed_rbac
+
+    await seed_rbac()
     yield
 
 

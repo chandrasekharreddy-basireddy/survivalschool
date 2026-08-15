@@ -6,7 +6,7 @@ asyncpg==0.30.0
 psycopg2-binary==2.9.10
 pydantic==2.9.2
 pydantic-settings==2.6.1
-argon2-cffi==23.1.0
+argon2-cffi==25.1.0
 pyjwt==2.13.0
 redis==5.2.0
 httpx==0.27.2

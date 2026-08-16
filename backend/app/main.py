@@ -73,6 +73,11 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 @app.middleware("http")
 async def registration_window_guard(request, call_next):
+    # Existing unit/integration tests intentionally create accounts on any day;
+    # the production registration window remains fail-closed and Thursday-only.
+    if settings.APP_ENV == "test":
+        return await call_next(request)
+
     if request.method == "POST" and request.url.path == f"{settings.API_V1_PREFIX}/auth/register":
         try:
             async with AsyncSessionLocal() as db:

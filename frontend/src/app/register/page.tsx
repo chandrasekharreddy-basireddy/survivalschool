@@ -65,7 +65,7 @@ export default function RegisterPage() {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="card w-full">
-          {emailDeliveryOk ? <><h1 className="text-xl font-bold text-fg">Check your inbox</h1><p className="mt-2 text-sm text-fg-muted">We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.</p></> : <><h1 className="text-xl font-bold text-fg">Account created</h1><p className="mt-2 text-sm text-red-700 dark:text-red-400">Your account was created, but we couldn&apos;t send the verification email to <span className="text-fg">{email}</span> right now.</p></>}
+          {emailDeliveryOk ? <><h1 className="text-xl font-bold text-fg">Check your inbox</h1><p className="mt-2 text-sm text-fg-muted">We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.</p></> : <><h1 className="text-xl font-bold text-fg">Account created</h1><p className="mt-2 text-sm text-red-700 dark:text-red-400">Your account was created, but we could not send the verification email to <span className="text-fg">{email}</span> right now.</p></>}
           <Link href="/login" className="btn-primary mt-6 w-full">Go to sign in</Link>
         </div>
       </div>

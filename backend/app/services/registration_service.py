@@ -22,7 +22,9 @@ def next_thursday_ist(now: datetime | None = None) -> datetime:
 
 def registration_is_open(now: datetime | None = None, override_until: datetime | None = None) -> bool:
     current = (now or datetime.now(timezone.utc)).astimezone(IST)
-    return (override_until is not None and current < override_until.astimezone(IST)) or current.weekday() == 3
+    if override_until is not None and current < override_until.astimezone(IST):
+        return True
+    return current.weekday() == 3
 
 
 async def get_or_create_window(db: AsyncSession) -> RegistrationWindow:

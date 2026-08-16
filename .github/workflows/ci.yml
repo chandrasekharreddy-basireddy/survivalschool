@@ -20,7 +20,7 @@ jobs:
           pip install -r backend/requirements.txt
           pip install ruff mypy
       - name: Lint
-        run: ruff check backend/
+        run: ruff check backend/app backend/tests
       - name: Type check
         run: mypy backend/app/ --ignore-missing-imports
       - name: Test

@@ -34,9 +34,6 @@ class TokenResponse(BaseModel):
 
 
 class MFAChallengeOut(BaseModel):
-    """Returned by POST /auth/login instead of TokenResponse when the
-    account has TOTP enabled — password was correct, but real tokens are
-    withheld until POST /auth/2fa/verify-login also confirms the code."""
     mfa_required: bool = True
     mfa_token: str
 
@@ -61,15 +58,13 @@ class TwoFactorDisableIn(BaseModel):
 
 class TwoFactorLoginVerify(BaseModel):
     mfa_token: str
-    # Accepts either a 6-digit TOTP code or a 16-char backup code (see
-    # totp_service.generate_backup_codes) — max_length gives a little slack
-    # above 16 for incidental whitespace a user might paste in, which gets
-    # stripped before comparison in the /2fa/verify-login handler.
     code: str = Field(min_length=6, max_length=24)
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Browser cookie sessions do not expose the refresh token to JavaScript.
+    # Legacy API clients may still send it in JSON.
+    refresh_token: str | None = None
 
 
 class VerifyEmailRequest(BaseModel):
@@ -104,10 +99,6 @@ class UserOut(BaseModel):
     is_active: bool = True
     totp_enabled: bool = False
     roles: list[str]
-    # True unless registration's verification email genuinely failed to send
-    # (real SMTP failure, not a UX placeholder) -- lets the frontend tell a
-    # brand-new user "we couldn't email you a link yet, use resend" instead
-    # of silently leaving them stuck with no way to know delivery failed.
     email_delivery_ok: bool = True
 
     model_config = {"from_attributes": True}

@@ -12,7 +12,7 @@ export function NavBar() {
 
   return (
     <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur">
-      <nav className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 sm:px-5">
         <Link href="/" className="flex shrink-0 items-center gap-2 text-lg font-bold tracking-tight text-fg">
           <span className="inline-flex h-8 w-8 items-center justify-center">
             <svg viewBox="0 0 200 200" fill="none" className="h-8 w-8" aria-hidden="true">
@@ -47,7 +47,7 @@ export function NavBar() {
           <SearchBar />
         </div>
 
-        <div className="hidden items-center gap-6 text-sm text-fg-muted lg:flex">
+        <div className="hidden items-center gap-4 text-sm text-fg-muted lg:flex">
           <Link href="/courses" className="hover:text-fg">Courses</Link>
           <Link href="/contests" className="hover:text-fg">Contests</Link>
           {user && <Link href="/dashboard" className="hover:text-fg">Dashboard</Link>}
@@ -96,11 +96,11 @@ export function NavBar() {
       </nav>
 
       {mobileOpen && (
-        <div className="border-t border-ink-800 px-4 py-4 lg:hidden">
-          <div className="mb-4 md:hidden">
+        <div className="border-t border-ink-800 px-3 py-3 sm:px-5 lg:hidden">
+          <div className="mb-3 md:hidden">
             <SearchBar />
           </div>
-          <div className="flex flex-col gap-3 text-sm text-fg-muted">
+          <div className="flex flex-col gap-2.5 text-sm text-fg-muted">
             <Link href="/courses" onClick={() => setMobileOpen(false)} className="hover:text-fg">Courses</Link>
             <Link href="/contests" onClick={() => setMobileOpen(false)} className="hover:text-fg">Contests</Link>
             {user && <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="hover:text-fg">Dashboard</Link>}
@@ -120,10 +120,10 @@ export function NavBar() {
             {user ? (
               <>
                 <Link href="/profile" onClick={() => setMobileOpen(false)} className="hover:text-fg">{user.full_name}</Link>
-                <button onClick={() => logout()} className="btn-secondary mt-2 justify-center">Sign out</button>
+                <button onClick={() => logout()} className="btn-secondary mt-1 justify-center">Sign out</button>
               </>
             ) : (
-              <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-secondary mt-2 justify-center">Sign in</Link>
+              <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-secondary mt-1 justify-center">Sign in</Link>
             )}
           </div>
         </div>

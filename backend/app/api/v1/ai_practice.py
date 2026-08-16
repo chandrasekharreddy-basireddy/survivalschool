@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -25,6 +26,12 @@ from app.services.ai_provider import AIGenerationError, get_ai_provider
 from app.services.rate_limit_service import enforce_rate_limit
 
 router = APIRouter(prefix="/ai-practice", tags=["ai-practice"])
+
+
+class AIExplanationOut(BaseModel):
+    question_id: uuid.UUID
+    explanation: str
+    provider: str
 
 
 @router.post("/sessions", response_model=AIMockSessionOut, status_code=201)
@@ -122,6 +129,67 @@ async def submit_ai_mock_session(session_id: uuid.UUID, payload: AIMockSubmit, u
     await db.commit()
 
     return AIMockResultOut(id=session.id, subject=session.subject, score_percent=score_percent, answers=answer_results)
+
+
+@router.post("/sessions/{session_id}/questions/{question_id}/explanation", response_model=AIExplanationOut)
+async def explain_ai_mock_question(
+    session_id: uuid.UUID,
+    question_id: uuid.UUID,
+    user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generates an AI explanation only after submission, using the server's
+    stored question, selected answer, and correct answer. The client cannot
+    provide or alter the answer key."""
+    await enforce_rate_limit(f"ai-explain:{user.id}", limit=30, window_seconds=3600)
+
+    result = await db.execute(
+        select(AIMockSession).where(AIMockSession.id == session_id)
+        .options(selectinload(AIMockSession.questions).selectinload(AIGeneratedQuestion.options))
+    )
+    session = result.scalar_one_or_none()
+    if session is None or session.student_id != user.id:
+        raise NotFoundError("Practice session not found.")
+    if session.submitted_at is None:
+        raise ConflictError("Submit the practice session before requesting an AI explanation.")
+
+    question = next((q for q in session.questions if q.id == question_id), None)
+    if question is None:
+        raise NotFoundError("Practice question not found.")
+
+    answer_result = await db.execute(
+        select(AIMockAnswer).where(
+            AIMockAnswer.session_id == session.id,
+            AIMockAnswer.question_id == question.id,
+        )
+    )
+    answer = answer_result.scalar_one_or_none()
+    selected_ids = set(answer.selected_option_ids if answer else [])
+    selected_text = [o.text for o in question.options if str(o.id) in selected_ids]
+    correct_text = [o.text for o in question.options if o.is_correct]
+
+    provider = get_ai_provider()
+    response = await provider.chat(
+        [{
+            "role": "user",
+            "content": (
+                f"Question: {question.prompt}\n"
+                f"Student answer: {', '.join(selected_text) or 'No answer selected'}\n"
+                f"Correct answer: {', '.join(correct_text)}\n"
+                "Explain why the correct answer is right, why the student's answer is right or wrong, "
+                "and give one practical coding takeaway."
+            ),
+        }],
+        system_prompt=(
+            "You are a coding practice tutor. Explain the supplied multiple-choice programming question "
+            "clearly and briefly. Focus on the underlying coding concept. Do not invent facts or change the "
+            "provided answer key."
+        ),
+    )
+    if response.error or not response.content:
+        raise ConflictError("The AI explanation is unavailable right now. Please try again.")
+
+    return AIExplanationOut(question_id=question.id, explanation=response.content, provider=response.provider)
 
 
 @router.get("/sessions/{session_id}", response_model=AIMockResultOut)

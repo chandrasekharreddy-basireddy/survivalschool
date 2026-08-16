@@ -1,12 +1,12 @@
 """Harden V2 scheduling tables with the same server-only RLS posture.
 
 Revision ID: e7c4f1a2b9d0
-Revises: f2a7c9e1b4d6
+Revises: c9d4e7a1f6b8
 """
 from alembic import op
 
 revision = "e7c4f1a2b9d0"
-down_revision = "f2a7c9e1b4d6"
+down_revision = "c9d4e7a1f6b8"
 branch_labels = None
 depends_on = None
 

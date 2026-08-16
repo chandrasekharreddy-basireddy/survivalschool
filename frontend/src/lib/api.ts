@@ -12,44 +12,33 @@ export class ApiError extends Error {
   }
 }
 
-function getStoredTokens(): { access?: string; refresh?: string } {
-  if (typeof window === "undefined") return {};
-  return {
-    access: window.localStorage.getItem("ss_access_token") || undefined,
-    refresh: window.localStorage.getItem("ss_refresh_token") || undefined,
-  };
-}
-
-export function storeTokens(access: string, refresh: string) {
-  window.localStorage.setItem("ss_access_token", access);
-  window.localStorage.setItem("ss_refresh_token", refresh);
+// Browser authentication is cookie-based. Tokens are intentionally never
+// persisted to localStorage/sessionStorage or exposed as JS-readable state.
+export function storeTokens(_access: string, _refresh: string) {
+  // Legacy no-op retained for callers during the cookie-auth migration.
 }
 
 export function clearTokens() {
-  window.localStorage.removeItem("ss_access_token");
-  window.localStorage.removeItem("ss_refresh_token");
+  // Server-side /auth/logout clears HttpOnly cookies. No browser storage is used.
 }
 
-/** Current access token, for callers that need to hand it to something other
- * than apiFetch — e.g. the WebSocket chat handshake, which must pass the
- * token as a query param since browsers can't set custom headers on a WS
- * upgrade request. */
 export function getAccessToken(): string | undefined {
-  return getStoredTokens().access;
+  // WebSockets authenticate from the HttpOnly cookie; JavaScript does not
+  // receive the access token anymore.
+  return undefined;
 }
 
-async function tryRefresh(): Promise<string | null> {
-  const { refresh } = getStoredTokens();
-  if (!refresh) return null;
+async function tryRefresh(): Promise<boolean> {
   const resp = await fetch(`${API_BASE}/auth/refresh`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refresh }),
+    headers: {
+      "Content-Type": "application/json",
+      "X-Auth-Mode": "cookie",
+    },
+    credentials: "include",
+    body: JSON.stringify({}),
   });
-  if (!resp.ok) return null;
-  const data = await resp.json();
-  storeTokens(data.access_token, data.refresh_token);
-  return data.access_token as string;
+  return resp.ok;
 }
 
 export async function apiFetch<T = unknown>(
@@ -58,28 +47,22 @@ export async function apiFetch<T = unknown>(
 ): Promise<T> {
   const { auth = true, headers, ...rest } = options;
   const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
-  const doFetch = async (accessOverride?: string) => {
-    const { access } = getStoredTokens();
-    const token = accessOverride || access;
-    const finalHeaders: Record<string, string> = {
-      // FormData bodies (multipart file uploads) must NOT have an explicit
-      // Content-Type — the browser sets one itself, including the boundary
-      // string, and a hardcoded "application/json" here would corrupt the
-      // upload.
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(headers as Record<string, string>),
-    };
-    if (auth && token) finalHeaders["Authorization"] = `Bearer ${token}`;
-    return fetch(`${API_BASE}${path}`, { ...rest, headers: finalHeaders });
+  const finalHeaders: Record<string, string> = {
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    "X-Auth-Mode": "cookie",
+    ...(headers as Record<string, string>),
   };
+  const doFetch = () => fetch(`${API_BASE}${path}`, {
+    ...rest,
+    credentials: "include",
+    headers: finalHeaders,
+  });
 
   let resp = await doFetch();
 
   if (resp.status === 401 && auth) {
-    const newAccess = await tryRefresh();
-    if (newAccess) {
-      resp = await doFetch(newAccess);
-    }
+    const refreshed = await tryRefresh();
+    if (refreshed) resp = await doFetch();
   }
 
   if (!resp.ok) {

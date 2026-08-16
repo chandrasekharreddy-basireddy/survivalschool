@@ -137,15 +137,17 @@ async def delete_entry(
 
 
 async def _my_course_ids(db: AsyncSession, user: User) -> list[uuid.UUID]:
-    """Derive a user's timetable from current teaching/enrollment records."""
-    if user.has_role("INSTRUCTOR") or user.has_permission("system.manage"):
-        taught = (await db.execute(select(Course.id).where(Course.instructor_id == user.id))).scalars().all()
-        if taught:
-            return list(taught)
+    """Return all courses relevant to a user's personal timetable.
+
+    Teaching and enrollment are independent relationships, so don't let a
+    role/permission branch suppress the other relationship. This also makes
+    the endpoint resilient when a user temporarily has multiple roles.
+    """
+    taught = (await db.execute(select(Course.id).where(Course.instructor_id == user.id))).scalars().all()
     enrolled = (await db.execute(
         select(Enrollment.course_id).where(Enrollment.student_id == user.id, Enrollment.status != "dropped")
     )).scalars().all()
-    return list(enrolled)
+    return list(dict.fromkeys([*taught, *enrolled]))
 
 
 @router.get("/me", response_model=list[TimetableEntryOut])

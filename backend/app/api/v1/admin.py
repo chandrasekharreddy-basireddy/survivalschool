@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Header, Query
-from sqlalchemy import text
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -64,7 +63,7 @@ class SystemHealthOut(BaseModel):
 
 @router.get("/dashboard", response_model=AdminDashboardOut)
 async def admin_dashboard(user: User = Depends(require_permission("analytics.view")), db: AsyncSession = Depends(get_db)):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
 
@@ -225,35 +224,4 @@ class MaintenanceResetOut(BaseModel):
 
 @router.post("/maintenance/reset-accounts", response_model=MaintenanceResetOut)
 async def maintenance_reset_accounts(
-    db: AsyncSession = Depends(get_db),
-    x_maintenance_secret: str | None = Header(default=None),
-):
-    """Destructive, explicitly-gated maintenance escape hatch: deletes every
-    user account (and everything that references one via a real foreign
-    key -- sessions, tokens, enrollments, submissions, etc.) via the same
-    TRUNCATE ... CASCADE as scripts/reset_all_accounts.py.
-
-    Deliberately NOT behind require_permission()/a user JWT -- the whole
-    point is to be usable even when there are zero working accounts left,
-    or when the only credential available is this one-time secret. Instead
-    it's gated by MAINTENANCE_SECRET, which is unset by default (None), so
-    this endpoint 404s unless an operator has deliberately opted in by
-    setting that env var -- and it's meant to be unset again immediately
-    after use. Exists because Render's free tier doesn't always offer easy
-    interactive shell access; this is the practical alternative for running
-    a real destructive maintenance operation against production.
-    """
-    if not settings.MAINTENANCE_SECRET:
-        raise NotFoundError("Not found.")
-    if not x_maintenance_secret or x_maintenance_secret != settings.MAINTENANCE_SECRET:
-        # Same 404 as "unconfigured" -- don't reveal that this endpoint
-        # exists to a caller who doesn't already have the secret.
-        raise NotFoundError("Not found.")
-
-    await db.execute(text("TRUNCATE TABLE users RESTART IDENTITY CASCADE"))
-    await db.commit()
-
-    return MaintenanceResetOut(
-        status="ok",
-        detail="All user accounts (and everything referencing them) were deleted. Roles/permissions/badges were left intact.",
-    )
+    db: AsyncSession = Depends(Ãâ€¢Ã‘}â€˜Ë†Â¤Â°(â‚¬â‚¬â‚¬ÂÃ¡}Âµâ€¦Â¥Â¹Ã‘â€¢Â¹â€¦Â¹Ââ€¢}Ãâ€¢ÂÃ‰â€¢ÃÃ¨ÂÃÃ‘ÃˆÂÃ°Â9Â½Â¹â€â‚¬Ã´Â!â€¢â€¦â€˜â€¢ÃˆÂ¡â€˜â€¢â„¢â€¦Ã•Â±ÃÃµ9Â½Â¹â€Â¤Â°(Â¤Ã¨(â‚¬â‚¬â‚¬â‚¬Ë†Ë†â€°â€¢ÃÃ‘Ã‰Ã•ÂÃ‘Â¥Ã™â€Â°Ââ€¢Ã¡ÃÂ±Â¥ÂÂ¥Ã‘Â±Ã¤ÂµÂâ€¦Ã‘â€¢ÂÂÂµâ€¦Â¥Â¹Ã‘â€¢Â¹â€¦Â¹Ââ€Ââ€¢ÃÃâ€¦Ãâ€ÂÂ¡â€¦Ã‘ÂÂ Ã¨Ââ€˜â€¢Â±â€¢Ã‘â€¢ÃŒÂâ€¢Ã™â€¢Ã‰Ã¤(â‚¬â‚¬â‚¬ÂÃ•Ãâ€¢ÃˆÂâ€¦ÂÂÂ½Ã•Â¹Ãâ‚¬Â¡â€¦Â¹ÂÂâ€¢Ã™â€¢Ã‰Ã¥Ã‘Â¡Â¥Â¹Å“ÂÃ‘Â¡â€¦ÃÂÃ‰â€¢â„¢â€¢Ã‰â€¢Â¹Ââ€¢ÃŒÂÂ½Â¹â€ÂÃ™Â¥â€Ââ€ÂÃ‰â€¢â€¦Â°Ââ„¢Â½Ã‰â€¢Â¥ÂÂ¸(â‚¬â‚¬â‚¬ÂÂ­â€¢Ã¤â‚¬Â´Â´ÂÃâ€¢ÃÃÂ¥Â½Â¹ÃŒÂ°ÂÃ‘Â½Â­â€¢Â¹ÃŒÂ°Ââ€¢Â¹Ã‰Â½Â±Â±Âµâ€¢Â¹Ã‘ÃŒÂ°ÂÃÃ•â€°ÂµÂ¥ÃÃÂ¥Â½Â¹ÃŒÂ°Ââ€¢Ã‘Å’Â¸Â¤ÂÃ™Â¥â€ÂÃ‘Â¡â€ÂÃâ€¦Âµâ€(â‚¬â‚¬â‚¬ÂQIU9Q€¸¸¸M…ÌÍÉ¥ÁÑÌ½É•Í•Ñ}…±±}…½Õ¹ÑÌ¹Áä¸((€€€•±¥‰•É…Ñ•±ä9=P‰•¡¥¹É•ÅÕ¥É•}Á•Éµ¥ÍÍ¥½¸ ¤½„ÕÍ•È)]P€´´Ñ¡”İ¡½±”(€€€Á½¥¹Ğ¥ÌÑ¼‰”ÕÍ…‰±”•Ù•¸İ¡•¸Ñ¡•É”…É”é•É¼İ½É­¥¹œ…½Õ¹ÑÌ±•™Ğ°(€€€½Èİ¡•¸Ñ¡”½¹±äÉ•‘•¹Ñ¥…°…Ù…¥±…‰±”¥ÌÑ¡¥Ì½¹”µÑ¥µ”Í•É•Ğ¸%¹ÍÑ•…(€€€¥ĞÌ…Ñ•‰ä5%9Q99}MIP°İ¡¥ ¥ÌÕ¹Í•Ğ‰ä‘•™…Õ±Ğ€¡9½¹”¤°Í¼(€€€Ñ¡¥Ì•¹‘Á½¥¹Ğ€ĞÀÑÌÕ¹±•ÍÌ…¸½Á•É…Ñ½È¡…Ì‘•±¥‰•É…Ñ•±ä½ÁÑ•¥¸‰ä(€€€Í•ÑÑ¥¹œÑ¡…Ğ•¹ØÙ…È€´´…¹¥ĞÌµ•…¹ĞÑ¼‰”Õ¹Í•Ğ……¥¸¥µµ•‘¥…Ñ•±ä(€€€…™Ñ•ÈÕÍ”¸á¥ÍÑÌ‰•…ÕÍ”I•¹‘•ÈÌ™É•”Ñ¥•È‘½•Í¸Ğ…±İ…åÌ½™™•È•…Íä(€€€¥¹Ñ•É…Ñ¥Ù”Í¡•±°…•ÍÌìÑ¡¥Ì¥ÌÑ¡”ÁÉ…Ñ¥…°…±Ñ•É¹…Ñ¥Ù”™½ÈÉÕ¹¹¥¹œ(€€€„É•…°‘•ÍÑÉÕÑ¥Ù”µ…¥¹Ñ•¹…¹”½Á•É…Ñ¥½¸……¥¹ÍĞÁÉ½‘ÕÑ¥½¸¸(€€€€ˆˆˆ(€€€¥˜¹½ĞÍ•ÑÑ¥¹Ì¹5%9Q99}MIPè(€€€€€€€É…¥Í”9½Ñ½Õ¹‘ÉÉ½È ‰9½Ğ™½Õ¹¸ˆ¤(€€€¥˜¹½Ğá}µ…¥¹Ñ•¹…¹•}Í•É•Ğ½Èá}µ…¥¹Ñ•¹…¹•}Í•É•Ğ€„ôÍ•ÑÑ¥¹Ì¹5%9Q99}MIPè(€€€€€€€€ŒM…µ”€ĞÀĞ…Ì€‰Õ¹½¹™¥ÕÉ•ˆ€´´‘½¸ĞÉ•Ù•…°Ñ¡…ĞÑ¡¥Ì•¹‘Á½¥¹Ğ(€€€€€€€€Œ•á¥ÍÑÌÑ¼„…±±•Èİ¡¼‘½•Í¸Ğ…±É•…‘ä¡…Ù”Ñ¡”Í•É•Ğ¸(€€€€€€€É…¥Í”9½Ñ½Õ¹‘ÉÉ½È ‰9½Ğ™½Õ¹¸ˆ¤((€€€…İ…¥Ğ‘ˆ¹•á•ÕÑ”¡Ñ•áĞ ‰QIU9QQ	1ÕÍ•ÉÌIMQIP%9Q%QdMˆ¤¤(€€€…İ…¥Ğ‘ˆ¹½µµ¥Ğ ¤((€€€É•ÑÕÉ¸5…¥¹Ñ•¹…¹•I•Í•Ñ=ÕĞ (€€€€€€€ÍÑ…ÑÕÌô‰½¬ˆ°(€€€€€€€‘•Ñ…¥°ô‰±°ÕÍ•È…½Õ¹ÑÌ€¡…¹•Ù•ÉåÑ¡¥¹œÉ•™•É•¹¥¹œÑ¡•´¤İ•É”‘•±•Ñ•¸I½±•Ì½Á•Éµ¥ÍÍ¥½¹Ì½‰…‘•Ìİ•É”±•™Ğ¥¹Ñ…Ğ¸ˆ°(€€€€¤(

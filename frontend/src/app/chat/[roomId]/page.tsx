@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { ChatSocket, ChatEvent } from "@/lib/ws";
 import { formatRelative } from "@/lib/format";
@@ -40,9 +40,7 @@ export default function ChatRoomPage() {
     if (!user) return;
     apiFetch<MessageOut[]>(`/chat/rooms/${params.roomId}/messages?limit=100`).then(setMessages).catch(() => setMessages([]));
 
-    const token = getAccessToken();
-    if (!token) return;
-    const socket = new ChatSocket(params.roomId, token);
+    const socket = new ChatSocket(params.roomId);
     socketRef.current = socket;
     socket.connect();
     setConnected(true);
@@ -50,11 +48,7 @@ export default function ChatRoomPage() {
     const unsubscribe = socket.on((evt: ChatEvent) => {
       if (evt.event === "chat.message") {
         setMessages((prev) => [...prev, { id: evt.id, room_id: evt.room_id, sender_id: evt.sender_id, body: evt.body, created_at: evt.created_at, is_deleted: false }]);
-        // A message from someone else just arrived while we're looking at
-        // the room — mark it read immediately (best-effort, non-blocking).
-        if (evt.sender_id && evt.sender_id !== user.id) {
-          socketRef.current?.sendRead(evt.id);
-        }
+        if (evt.sender_id && evt.sender_id !== user.id) socketRef.current?.sendRead(evt.id);
       } else if (evt.event === "chat.typing") {
         setTypingUsers((prev) => new Set(prev).add(evt.user_id));
         setTimeout(() => setTypingUsers((prev) => { const next = new Set(prev); next.delete(evt.user_id); return next; }), 3000);
@@ -78,10 +72,6 @@ export default function ChatRoomPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Mark every message from someone else as read once it's loaded/rendered —
-  // this is what actually closes the read-receipt loop for messages that
-  // were already on the page before this client connected (history fetch),
-  // not just ones that arrive live.
   useEffect(() => {
     if (!user || !connected) return;
     for (const m of messages) {
@@ -94,7 +84,7 @@ export default function ChatRoomPage() {
 
   const send = () => {
     if (!input.trim() || !socketRef.current) return;
-    socketRef.current.sendMessage(input);
+    socketRef.current.sendMessage(input.trim());
     setInput("");
   };
 

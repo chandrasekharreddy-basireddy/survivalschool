@@ -26,11 +26,11 @@ import asyncio
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import parseaddr
 from pathlib import Path
 
 import httpx
 import structlog
-from email.utils import parseaddr
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.config import get_settings

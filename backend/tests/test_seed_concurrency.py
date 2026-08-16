@@ -3,7 +3,7 @@ Real reproduction + regression test for the production race condition found
 in seed_rbac() on 2026-08-15: multiple gunicorn workers booting concurrently
 against a freshly-migrated (empty permissions/roles/badges) database both ran
 the old check-then-insert seeding logic at once and collided on
-`ix_permissions_code`, crashing one worker's startup with
+iix_permissions_code`, crashing one worker's startup with
 asyncpg.exceptions.UniqueViolationError.
 
 This test reproduces that exact scenario for real: it empties the relevant
@@ -16,14 +16,13 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
 from sqlalchemy import delete, select
 
 from app.database import AsyncSessionLocal
 from app.models.gamification import Badge
 from app.models.user import Permission, Role
 from app.seed import BADGES, PERMISSIONS, ROLE_PERMISSIONS, seed_rbac
-
-import pytest
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 

@@ -6,36 +6,44 @@ import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBar } from "@/components/SearchBar";
 
-const navLinkClass = "rounded-md px-2 py-1.5 transition-colors hover:bg-ink-900/70 hover:text-fg";
+const navLinkClass = "rounded-md px-2 py-1.5 text-[0.82rem] font-medium text-fg-muted transition-colors hover:bg-ink-900/80 hover:text-fg";
+
+function LogoMark() {
+  return (
+    <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-ink-900 shadow-[0_0_0_1px_rgba(255,255,255,.02)]">
+      <svg viewBox="0 0 40 40" fill="none" className="h-7 w-7" aria-hidden="true">
+        <circle cx="20" cy="20" r="15" stroke="#e83385" strokeWidth="2.2" />
+        <path d="M20 8 31 27H9L20 8Z" stroke="#48d5c4" strokeWidth="2.2" strokeLinejoin="round" />
+        <rect x="15.3" y="15.3" width="9.4" height="9.4" stroke="#fff" strokeWidth="2" />
+      </svg>
+    </span>
+  );
+}
 
 export function NavBar() {
   const { user, loading, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  const closeMobile = () => setMobileOpen(false);
+
   return (
-    <header className="sticky top-0 z-40 border-b border-ink-800/90 bg-ink-950/95 backdrop-blur">
-      <nav className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-2.5 sm:px-5">
-        <Link href="/" className="flex shrink-0 items-center gap-2 text-base font-semibold tracking-tight text-fg">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-ink-700 bg-ink-900">
-            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
-              <path d="M4 10.5 12 6l8 4.5-8 4.5-8-4.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-              <path d="M7 13.5V16c0 1.4 2.2 2.8 5 2.8s5-1.4 5-2.8v-2.5M20 10.5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
-          <span className="hidden sm:inline">Survival School</span>
+    <header className="sticky top-0 z-40 border-b border-ink-800/90 bg-ink-950/96 backdrop-blur-xl">
+      <nav className="mx-auto flex min-h-14 max-w-7xl items-center gap-2 px-3 sm:px-5 lg:px-6">
+        <Link href="/" className="flex shrink-0 items-center gap-2.5 text-sm font-bold tracking-tight text-fg">
+          <LogoMark />
+          <span className="hidden sm:inline">SURVIVAL SCHOOL</span>
         </Link>
 
-        <div className="hidden max-w-xs flex-1 md:block">
+        <div className="mx-auto hidden w-full max-w-sm md:block">
           <SearchBar />
         </div>
 
-        <div className="hidden items-center gap-1 text-sm text-fg-muted lg:flex">
+        <div className="ml-auto hidden items-center gap-0.5 lg:flex">
           <Link href="/courses" className={navLinkClass}>Courses</Link>
           <Link href="/contests" className={navLinkClass}>Contests</Link>
           {user && <Link href="/dashboard" className={navLinkClass}>Dashboard</Link>}
-          {user && <Link href="/timetable" className={navLinkClass}>Timetable</Link>}
           {user && <Link href="/practice" className={navLinkClass}>Practice</Link>}
-          {user && <Link href="/leaderboard" className={navLinkClass}>Leaderboard</Link>}
+          {user && <Link href="/leaderboard" className={navLinkClass}>Ranks</Link>}
           {user && <Link href="/chat" className={navLinkClass}>Chat</Link>}
           {user && <Link href="/ai-practice" className={navLinkClass}>AI Practice</Link>}
           {user && <Link href="/ai-assistant" className={navLinkClass}>AI Tutor</Link>}
@@ -43,47 +51,48 @@ export function NavBar() {
           {user?.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/admin" className={navLinkClass}>Admin</Link>}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5 lg:ml-2">
           <ThemeToggle />
           {loading ? null : user ? (
             <>
-              <Link href="/notifications" className="hidden rounded-md p-2 text-fg-muted hover:bg-ink-900/70 hover:text-fg sm:inline-flex" aria-label="Notifications"><BellIcon /></Link>
-              <Link href="/profile" className="hidden max-w-32 truncate rounded-md px-2 py-1.5 text-sm text-fg-muted hover:bg-ink-900/70 hover:text-fg lg:inline" title={user.full_name}>{user.full_name}</Link>
-              <button onClick={() => logout()} className="btn-secondary hidden !min-h-9 !px-3 !py-1.5 sm:inline-flex">Sign out</button>
+              <Link href="/notifications" className="hidden rounded-lg p-2 text-fg-muted hover:bg-ink-900 hover:text-fg sm:inline-flex" aria-label="Notifications"><BellIcon /></Link>
+              <Link href="/profile" className="hidden max-w-28 truncate rounded-md px-2 py-1.5 text-xs font-medium text-fg-muted hover:bg-ink-900/80 hover:text-fg lg:inline" title={user.full_name}>{user.full_name}</Link>
+              <button onClick={logout} className="btn-secondary hidden !min-h-9 !px-3 !py-1.5 sm:inline-flex">Sign out</button>
             </>
           ) : (
             <>
               <Link href="/login" className="btn-secondary hidden !min-h-9 !px-3 !py-1.5 sm:inline-flex">Sign in</Link>
-              <Link href="/register" className="btn-primary !min-h-9 !px-3 !py-1.5">Get started</Link>
+              <Link href="/register" className="btn-primary !min-h-9 !px-3 !py-1.5">Join</Link>
             </>
           )}
-          <button onClick={() => setMobileOpen((v) => !v)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted hover:bg-ink-900 hover:text-fg lg:hidden" aria-label="Toggle menu" aria-expanded={mobileOpen}>
+          <button
+            onClick={() => setMobileOpen((value) => !value)}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-ink-800 bg-ink-900 text-fg-muted hover:text-fg lg:hidden"
+            aria-label="Toggle menu"
+            aria-expanded={mobileOpen}
+          >
             <MenuIcon open={mobileOpen} />
           </button>
         </div>
       </nav>
 
       {mobileOpen && (
-        <div className="border-t border-ink-800 px-3 py-3 sm:px-5 lg:hidden">
-          <div className="mb-3 md:hidden"><SearchBar /></div>
-          <div className="flex flex-col gap-1 text-sm text-fg-muted">
-            <Link href="/courses" onClick={() => setMobileOpen(false)} className={navLinkClass}>Courses</Link>
-            <Link href="/contests" onClick={() => setMobileOpen(false)} className={navLinkClass}>Contests</Link>
-            {user && <Link href="/dashboard" onClick={() => setMobileOpen(false)} className={navLinkClass}>Dashboard</Link>}
-            {user && <Link href="/timetable" onClick={() => setMobileOpen(false)} className={navLinkClass}>Timetable</Link>}
-            {user && <Link href="/practice" onClick={() => setMobileOpen(false)} className={navLinkClass}>Practice</Link>}
-            {user && <Link href="/leaderboard" onClick={() => setMobileOpen(false)} className={navLinkClass}>Leaderboard</Link>}
-            {user && <Link href="/chat" onClick={() => setMobileOpen(false)} className={navLinkClass}>Chat</Link>}
-            {user && <Link href="/ai-practice" onClick={() => setMobileOpen(false)} className={navLinkClass}>AI Practice</Link>}
-            {user && <Link href="/ai-assistant" onClick={() => setMobileOpen(false)} className={navLinkClass}>AI Tutor</Link>}
-            {user?.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/instructor/courses" onClick={() => setMobileOpen(false)} className={navLinkClass}>Instructor</Link>}
-            {user?.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/admin" onClick={() => setMobileOpen(false)} className={navLinkClass}>Admin</Link>}
-            {user ? (
-              <>
-                <Link href="/profile" onClick={() => setMobileOpen(false)} className={navLinkClass}>{user.full_name}</Link>
-                <button onClick={() => logout()} className="btn-secondary mt-1 justify-center">Sign out</button>
-              </>
-            ) : <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-secondary mt-1 justify-center">Sign in</Link>}
+        <div className="border-t border-ink-800 bg-ink-950 px-3 py-3 sm:px-5 lg:hidden">
+          <div className="mb-3"><SearchBar /></div>
+          <div className="grid grid-cols-2 gap-1 text-sm text-fg-muted">
+            <Link href="/courses" onClick={closeMobile} className={navLinkClass}>Courses</Link>
+            <Link href="/contests" onClick={closeMobile} className={navLinkClass}>Contests</Link>
+            {user && <Link href="/dashboard" onClick={closeMobile} className={navLinkClass}>Dashboard</Link>}
+            {user && <Link href="/practice" onClick={closeMobile} className={navLinkClass}>Practice</Link>}
+            {user && <Link href="/timetable" onClick={closeMobile} className={navLinkClass}>Timetable</Link>}
+            {user && <Link href="/leaderboard" onClick={closeMobile} className={navLinkClass}>Ranks</Link>}
+            {user && <Link href="/chat" onClick={closeMobile} className={navLinkClass}>Chat</Link>}
+            {user && <Link href="/ai-practice" onClick={closeMobile} className={navLinkClass}>AI Practice</Link>}
+            {user && <Link href="/ai-assistant" onClick={closeMobile} className={navLinkClass}>AI Tutor</Link>}
+            {user?.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/instructor/courses" onClick={closeMobile} className={navLinkClass}>Instructor</Link>}
+            {user?.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/admin" onClick={closeMobile} className={navLinkClass}>Admin</Link>}
+            {user && <Link href="/profile" onClick={closeMobile} className={navLinkClass}>{user.full_name}</Link>}
+            {user ? <button onClick={() => { logout(); closeMobile(); }} className="btn-secondary col-span-2 mt-1">Sign out</button> : <Link href="/login" onClick={closeMobile} className="btn-secondary col-span-2 mt-1">Sign in</Link>}
           </div>
         </div>
       )}

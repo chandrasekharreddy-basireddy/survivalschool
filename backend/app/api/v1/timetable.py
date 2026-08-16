@@ -49,11 +49,6 @@ async def create_entry(
     db: AsyncSession = Depends(get_db),
 ):
     course = await _require_course_ownership(db, user, payload.course_id)
-    # The entry's instructor is whoever actually teaches the course, not
-    # necessarily the caller — an ADMIN with system.manage can create/edit
-    # timetable entries on an instructor's behalf, in which case the entry
-    # should still be attributed to the real instructor for conflict
-    # detection and for that instructor's own /timetable/me view to work.
     instructor_id = course.instructor_id
     await check_conflict(
         db, instructor_id=instructor_id, room=payload.room, term=payload.term,
@@ -142,15 +137,13 @@ async def delete_entry(
 
 
 async def _my_course_ids(db: AsyncSession, user: User) -> list[uuid.UUID]:
-    """A student's timetable is derived from their active enrollments; an
-    instructor's is derived from the courses they teach — there is no
-    separate per-student schedule table (see TimetableEntry's docstring)."""
+    """Derive a user's timetable from current teaching/enrollment records."""
     if user.has_role("INSTRUCTOR") or user.has_permission("system.manage"):
         taught = (await db.execute(select(Course.id).where(Course.instructor_id == user.id))).scalars().all()
         if taught:
             return list(taught)
     enrolled = (await db.execute(
-        select(Enrollment.course_id).where(Enrollment.student_id == user.id, Enrollment.status == "active")
+        select(Enrollment.course_id).where(Enrollment.student_id == user.id, Enrollment.status != "dropped")
     )).scalars().all()
     return list(enrolled)
 
@@ -168,8 +161,7 @@ async def my_timetable(
     if term:
         stmt = stmt.where(TimetableEntry.term == term)
     else:
-        today = date.today()
-        stmt = stmt.where(TimetableEntry.term_end_date >= today)
+        stmt = stmt.where(TimetableEntry.term_end_date >= date.today())
     entries = (await db.execute(stmt.order_by(TimetableEntry.day_of_week, TimetableEntry.start_time))).scalars().all()
     return [await _to_out(db, e) for e in entries]
 

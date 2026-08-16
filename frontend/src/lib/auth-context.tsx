@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { apiFetch, clearTokens, storeTokens } from "./api";
+import { apiFetch } from "./api";
 
 export interface CurrentUser {
   id: string;
@@ -45,37 +45,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string): Promise<LoginResult> => {
     const res = await apiFetch<{
       access_token?: string; refresh_token?: string; mfa_required?: boolean; mfa_token?: string;
-    }>("/auth/login", { method: "POST", auth: false, body: JSON.stringify({ email, password }) });
+    }>("/auth/login", {
+      method: "POST",
+      auth: false,
+      body: JSON.stringify({ email, password }),
+    });
 
     if (res.mfa_required && res.mfa_token) {
       return { mfaRequired: true, mfaToken: res.mfa_token };
     }
-    storeTokens(res.access_token!, res.refresh_token!);
+
+    // The backend now sets HttpOnly cookies for browser requests. Never store
+    // the bearer tokens in JS-accessible storage.
     const me = await apiFetch<CurrentUser>("/auth/me");
     setUser(me);
     return { mfaRequired: false, user: me };
   };
 
   const verifyMfa = async (mfaToken: string, code: string): Promise<CurrentUser> => {
-    const tokens = await apiFetch<{ access_token: string; refresh_token: string }>("/auth/2fa/verify-login", {
+    await apiFetch<{ access_token?: string; refresh_token?: string }>("/auth/2fa/verify-login", {
       method: "POST",
       auth: false,
       body: JSON.stringify({ mfa_token: mfaToken, code }),
     });
-    storeTokens(tokens.access_token, tokens.refresh_token);
     const me = await apiFetch<CurrentUser>("/auth/me");
     setUser(me);
     return me;
   };
 
   const logout = async () => {
-    const refresh = window.localStorage.getItem("ss_refresh_token");
     try {
-      if (refresh) await apiFetch("/auth/logout", { method: "POST", body: JSON.stringify({ refresh_token: refresh }) });
+      await apiFetch("/auth/logout", { method: "POST", body: JSON.stringify({}) });
     } catch {
       /* best-effort */
     }
-    clearTokens();
     setUser(null);
   };
 

@@ -1,27 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
-  <defs>
-    <linearGradient id="oCap" x1="40" y1="60" x2="160" y2="120" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#59f0d0"/><stop offset=".5" stop-color="#4d7dff"/><stop offset="1" stop-color="#a838ff"/>
-    </linearGradient>
-    <linearGradient id="oBase" x1="70" y1="110" x2="130" y2="150" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#4d7dff"/><stop offset="1" stop-color="#8a2be0"/>
-    </linearGradient>
-    <linearGradient id="oSpark" x1="140" y1="120" x2="170" y2="160" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ffd23f"/><stop offset="1" stop-color="#ff7a2d"/>
-    </linearGradient>
-    <radialGradient id="oBg" cx="50%" cy="42%" r="72%">
-      <stop offset="0%" stop-color="#141018"/><stop offset="100%" stop-color="#060409"/>
-    </radialGradient>
-    <filter id="oSh" x="-30%" y="-30%" width="160%" height="160%">
-      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity=".55"/>
-    </filter>
-  </defs>
-  <rect x="18" y="18" width="164" height="164" rx="42" fill="url(#oBg)" stroke="url(#oCap)" stroke-width="3"/>
-  <g filter="url(#oSh)" stroke="#0a070c" stroke-width="1" stroke-linejoin="round">
-    <path d="M100 52 L168 84 L100 116 L32 84 Z" fill="url(#oCap)"/>
-    <path d="M64 100 V128 C64 140 84 150 100 150 C116 150 136 140 136 128 V100 L100 116 Z" fill="url(#oBase)"/>
-    <path d="M168 84 V120" stroke="#ffd23f" stroke-width="3" fill="none"/>
-    <circle cx="168" cy="126" r="7" fill="url(#oSpark)"/>
-  </g>
-  <path d="M52 128 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 l8 -3 Z" fill="#ffd23f"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <rect width="100" height="100" rx="22" fill="#0d0b10"/>
+  <circle cx="50" cy="50" r="31" stroke="#e83385" stroke-width="5"/>
+  <path d="M50 25 73 66H27L50 25Z" stroke="#48d5c4" stroke-width="5" stroke-linejoin="round"/>
+  <rect x="39" y="39" width="22" height="22" stroke="#ffffff" stroke-width="5"/>
 </svg>

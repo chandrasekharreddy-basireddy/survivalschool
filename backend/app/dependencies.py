@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 
 import jwt
-from fastapi import Depends, Header, Request
+from fastapi import Cookie, Depends, Header, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
+from app.core.auth_cookie import ACCESS_COOKIE
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.database import get_db
 from app.models.user import Role, User
@@ -21,11 +22,17 @@ settings = get_settings()
 async def get_current_user(
     request: Request,
     authorization: str | None = Header(default=None),
+    access_cookie: str | None = Cookie(default=None, alias=ACCESS_COOKIE),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    if not authorization or not authorization.lower().startswith("bearer "):
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+    elif access_cookie:
+        token = access_cookie.strip()
+    if not token:
         raise AuthenticationError("Missing or malformed Authorization header.")
-    token = authorization.split(" ", 1)[1].strip()
+
     try:
         payload = decode_access_token(token)
     except jwt.ExpiredSignatureError:
@@ -41,8 +48,6 @@ async def get_current_user(
     if not user_id or not session_id:
         raise AuthenticationError("Malformed token payload.")
 
-    # Session must still be active — logout-all-sessions revokes here, invalidating
-    # every access token tied to that session even before its JWT exp elapses.
     session_row = await db.get(SessionModel, uuid.UUID(session_id))
     if session_row is None or session_row.revoked_at is not None:
         raise AuthenticationError("Session has been revoked. Please log in again.")
@@ -67,26 +72,20 @@ async def get_current_verified_user(user: User = Depends(get_current_user)) -> U
 async def get_current_user_optional(
     request: Request,
     authorization: str | None = Header(default=None),
+    access_cookie: str | None = Cookie(default=None, alias=ACCESS_COOKIE),
     db: AsyncSession = Depends(get_db),
 ) -> User | None:
     """Same checks as get_current_user, but returns None instead of raising
-    when there's no (or an invalid) token — for endpoints that serve public
-    content to anonymous callers but still need to know who's asking when
-    someone IS logged in (e.g. GET /files/{id}, where a public file is
-    visible to anyone but a private one still needs an owner check)."""
-    if not authorization or not authorization.lower().startswith("bearer "):
+    when there's no (or an invalid) token."""
+    if not authorization and not access_cookie:
         return None
     try:
-        return await get_current_user(request, authorization, db)
+        return await get_current_user(request, authorization, access_cookie, db)
     except AuthenticationError:
         return None
 
 
 def require_permission(*permission_codes: str):
-    """Backend-enforced authorization. Every protected endpoint declares the
-    permission(s) it needs; the frontend hiding a button is never sufficient
-    (spec section 9)."""
-
     async def _dependency(user: User = Depends(get_current_user)) -> User:
         if user.has_role("SUPER_ADMIN"):
             return user
@@ -113,23 +112,11 @@ def require_role(*role_names: str):
 def get_client_ip(request: Request) -> str | None:
     """Resolve the caller's IP for rate limiting and audit logs.
 
-    X-Forwarded-For is attacker-controlled input on any request that reaches
-    this app directly (not through a trusted proxy) — trusting it
-    unconditionally would let a client mint a fresh rate-limit bucket per
-    request just by changing the header, and would let them write whatever
-    they want into the audit trail's ip_address field. Only read it when
-    TRUST_PROXY_HEADERS is explicitly enabled for this deployment (i.e. you
-    know a reverse proxy sits in front of the app and sets/overwrites this
-    header itself); otherwise always use the raw TCP peer address, which the
-    client cannot spoof.
+    X-Forwarded-For is only trusted when TRUST_PROXY_HEADERS is explicitly
+    enabled for a deployment with a trusted reverse proxy.
     """
     if settings.TRUST_PROXY_HEADERS:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            # The proxy appends the real client IP as the first hop; anything
-            # after it may have been set by the client before reaching the
-            # proxy and should not be trusted either, but the leftmost value
-            # is what a standard single reverse-proxy setup (nginx-ingress,
-            # an ALB, etc.) is expected to have set correctly.
             return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None

@@ -9,12 +9,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError, ValidationAppError
+from app.core.exceptions import AuthorizationError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_user, require_permission
 from app.models.user import Profile, Role, User
 from app.schemas.auth import MessageResponse, UserOut
-from app.security.passwords import verify_password
 from app.services.gdpr_service import delete_account, export_user_data
 
 router = APIRouter(prefix="/users", tags=["users"])

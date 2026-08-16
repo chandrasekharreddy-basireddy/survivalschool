@@ -17,7 +17,9 @@ RUN npm run build
 
 FROM node:26-slim AS runtime
 WORKDIR /app
-RUN groupadd --gid 1000 appuser && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
+# node:26-slim already reserves low system IDs, including GID/UID 1000.
+# Use a dedicated unprivileged application identity that is stable across CI.
+RUN groupadd --gid 10001 appuser && useradd --uid 10001 --gid appuser --shell /bin/bash --create-home appuser
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 
 COPY --from=builder --chown=appuser:appuser /app/.next ./.next

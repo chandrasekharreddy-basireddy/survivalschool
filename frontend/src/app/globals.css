@@ -2,57 +2,46 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+    --background: 300 12% 7%; --foreground: 0 0% 97%;
+    --card: 300 10% 10%; --card-foreground: 0 0% 97%;
+    --popover: 300 10% 11%; --popover-foreground: 0 0% 97%;
+    --primary: 332 92% 58%; --primary-foreground: 0 0% 100%;
+    --secondary: 174 56% 48%; --secondary-foreground: 300 20% 8%;
+    --muted: 300 7% 15%; --muted-foreground: 0 0% 68%;
+    --accent: 300 8% 17%; --accent-foreground: 0 0% 97%;
+    --destructive: 0 74% 60%; --destructive-foreground: 0 0% 100%;
+    --border: 300 8% 24%; --input: 300 8% 20%; --ring: 332 92% 64%; --radius: 0.7rem;
   }
-
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-  }
-}
-
-@layer base {
-  * {
-    border-color: hsl(var(--border));
-  }
+  .dark { color-scheme: dark; }
+  * { border-color: hsl(var(--border)); }
+  html { background: hsl(var(--background)); scroll-behavior: smooth; }
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    margin: 0; min-width: 320px; overflow-x: hidden;
+    background: linear-gradient(180deg, hsl(300 12% 9%), hsl(var(--background)) 18rem), hsl(var(--background));
+    color: hsl(var(--foreground)); font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   }
+  ::selection { background: hsl(332 92% 58% / 0.28); }
+  :focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+  button, input, textarea, select { font: inherit; }
+  button { cursor: pointer; } button:disabled { cursor: not-allowed; }
 }
+
+@layer components {
+  .card { border: 1px solid hsl(var(--border)); border-radius: .75rem; background: hsl(var(--card) / .96); box-shadow: 0 10px 30px hsl(300 18% 2% / .24); }
+  .btn-primary, .btn-secondary { display:inline-flex; align-items:center; justify-content:center; min-height:2.65rem; border-radius:.62rem; padding:.65rem 1rem; font-size:.875rem; font-weight:700; transition:transform 150ms ease, filter 150ms ease, box-shadow 150ms ease; }
+  .btn-primary { background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); }
+  .btn-primary:hover:not(:disabled){ transform:translateY(-1px); filter:brightness(1.04); box-shadow:0 9px 22px hsl(332 92% 40% / .28); }
+  .btn-secondary { border:1px solid hsl(var(--border)); background:hsl(var(--secondary)); color:hsl(var(--secondary-foreground)); }
+  .btn-secondary:hover:not(:disabled){ transform:translateY(-1px); filter:brightness(1.05); border-color:hsl(174 56% 62%); }
+  .input { width:100%; min-height:2.75rem; border:1px solid hsl(var(--input)); border-radius:.62rem; background:hsl(300 10% 12% / .95); padding:.7rem .82rem; color:hsl(var(--foreground)); outline:none; transition:border-color 150ms ease, box-shadow 150ms ease; }
+  .input::placeholder { color:hsl(var(--muted-foreground)); }
+  .input:focus { border-color:hsl(var(--ring)); box-shadow:0 0 0 3px hsl(332 92% 58% / .12); }
+  .game-strip { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+  .game-badge { display:inline-flex; align-items:center; gap:.35rem; min-height:1.8rem; border:1px solid hsl(var(--border)); border-radius:999px; padding:.35rem .65rem; background:hsl(var(--accent)); color:hsl(var(--foreground)); font-size:.72rem; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  .status-dot { width:.45rem; height:.45rem; border-radius:999px; background:hsl(var(--secondary)); flex:0 0 auto; }
+}
+
+@layer utilities { .text-balance { text-wrap:balance; } .safe-area-x { padding-left:max(1rem, env(safe-area-inset-left)); padding-right:max(1rem, env(safe-area-inset-right)); } }
+
+@media (max-width:640px){ .btn-primary,.btn-secondary{width:100%;} }

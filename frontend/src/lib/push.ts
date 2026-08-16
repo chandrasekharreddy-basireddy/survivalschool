@@ -3,14 +3,14 @@
 import { apiFetch } from "@/lib/api";
 
 /** VAPID public keys arrive base64url-encoded (RFC 4648 §5); the browser's
- * PushManager.subscribe() wants a raw Uint8Array for applicationServerKey.
- * This is the standard conversion every Web Push tutorial uses — no library
- * needed for something this small. */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+ * PushManager.subscribe() wants a raw byte buffer for applicationServerKey.
+ * Keep a concrete ArrayBuffer copy so TypeScript 6's stricter DOM typings
+ * don't widen the underlying buffer to ArrayBufferLike. */
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
+  const outputArray = new Uint8Array(new ArrayBuffer(rawData.length));
   for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
   return outputArray;
 }
@@ -66,9 +66,10 @@ export async function subscribeToPush(): Promise<void> {
   const registration = await serviceWorkerReadyOrTimeout();
   let subscription = await registration.pushManager.getSubscription();
   if (!subscription) {
+    const applicationServerKey = urlBase64ToUint8Array(public_key);
     subscription = await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(public_key),
+      applicationServerKey,
     });
   }
 
@@ -81,31 +82,4 @@ export async function subscribeToPush(): Promise<void> {
       user_agent: navigator.userAgent,
     }),
   });
-}
-
-export async function unsubscribeFromPush(): Promise<void> {
-  if (!("serviceWorker" in navigator)) return;
-  const registration = await serviceWorkerReadyOrTimeout();
-  const subscription = await registration.pushManager.getSubscription();
-  if (!subscription) return;
-  const endpoint = subscription.endpoint;
-  await subscription.unsubscribe();
-  await apiFetch("/notifications/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint }) });
-}
-
-export async function isSubscribedToPush(): Promise<boolean> {
-  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return false;
-  try {
-    const registration = await navigator.serviceWorker.getRegistration();
-    if (!registration) return false;
-    const subscription = await registration.pushManager.getSubscription();
-    return !!subscription;
-  } catch {
-    return false;
-  }
-}
-
-export async function sendTestPush(): Promise<number> {
-  const res = await apiFetch<{ sent: number }>("/notifications/push/test", { method: "POST" });
-  return res.sent;
 }

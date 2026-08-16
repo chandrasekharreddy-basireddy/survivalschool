@@ -11,7 +11,7 @@ export default function ErrorBoundary({ error, reset }: { error: Error & { diges
     <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center px-6 text-center">
       <h1 className="text-xl font-bold text-fg">Something went wrong.</h1>
       <p className="mt-2 text-sm text-fg-muted">
-        This page hit an unexpected error. It's been logged — try again, or head back to the dashboard.
+        This page hit an unexpected error. It has been logged — try again, or head back to the dashboard.
       </p>
       <div className="mt-6 flex gap-3">
         <button onClick={() => reset()} className="btn-primary">Try again</button>

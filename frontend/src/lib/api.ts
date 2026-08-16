@@ -30,10 +30,6 @@ export function clearTokens() {
   window.localStorage.removeItem("ss_refresh_token");
 }
 
-/** Current access token, for callers that need to hand it to something other
- * than apiFetch — e.g. the WebSocket chat handshake, which must pass the
- * token as a query param since browsers can't set custom headers on a WS
- * upgrade request. */
 export function getAccessToken(): string | undefined {
   return getStoredTokens().access;
 }
@@ -62,10 +58,6 @@ export async function apiFetch<T = unknown>(
     const { access } = getStoredTokens();
     const token = accessOverride || access;
     const finalHeaders: Record<string, string> = {
-      // FormData bodies (multipart file uploads) must NOT have an explicit
-      // Content-Type — the browser sets one itself, including the boundary
-      // string, and a hardcoded "application/json" here would corrupt the
-      // upload.
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(headers as Record<string, string>),
     };
@@ -83,7 +75,7 @@ export async function apiFetch<T = unknown>(
   }
 
   if (!resp.ok) {
-    let body: any = {};
+    let body: { error?: { message?: string; code?: string } } = {};
     try {
       body = await resp.json();
     } catch {

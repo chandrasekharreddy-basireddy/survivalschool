@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import text
+from sqlalchemy import text, select
+from starlette.responses import JSONResponse
 
 from app.api.v1.router import api_router
 from app.config import get_settings
@@ -13,7 +15,9 @@ from app.core.exceptions import AppError, app_error_handler, unhandled_exception
 from app.core.logging import configure_logging
 from app.core.middleware import HTTPSRedirectMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
 from app.database import AsyncSessionLocal
+from app.models.scheduling import RegistrationWindow
 from app.redis_client import get_redis
+from app.services.registration_service import refresh_window
 from app.websockets.chat import router as ws_chat_router
 
 settings = get_settings()
@@ -39,7 +43,6 @@ async def lifespan(app: FastAPI):
     configure_logging()
     settings.validate_for_production()
     from app.seed import seed_rbac
-
     await seed_rbac()
     yield
 
@@ -68,10 +71,34 @@ app.add_middleware(RequestContextMiddleware)
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
+
+@app.middleware("http")
+async def registration_window_guard(request, call_next):
+    if request.method == "POST" and request.url.path == f"{settings.API_V1_PREFIX}/auth/register":
+        try:
+            async with AsyncSessionLocal() as db:
+                window = await refresh_window(db)
+                await db.commit()
+                if not window.is_open:
+                    next_open = window.next_open_at.astimezone(timezone.utc).isoformat() if window.next_open_at else None
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "message": "Registration is currently closed. Registration opens every Thursday (IST).",
+                            "code": "registration_closed",
+                            "next_open_at": next_open,
+                        },
+                    )
+        except Exception:
+            # Never fail closed because the window table is temporarily unavailable.
+            # The API's normal registration path and deployment health checks should remain available.
+            pass
+    return await call_next(request)
+
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_chat_router)
 
-Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(app).expose(
+Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(
     app, endpoint="/metrics", include_in_schema=False
 )
 

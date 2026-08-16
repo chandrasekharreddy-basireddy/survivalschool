@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 
 from app.api.v1.router import api_router
 from app.config import get_settings
+from app.core.auth_cookie import AuthCookieMiddleware
 from app.core.exceptions import AppError, app_error_handler, unhandled_exception_handler
 from app.core.logging import configure_logging
 from app.core.middleware import HTTPSRedirectMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
@@ -64,6 +65,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(AuthCookieMiddleware)
 app.add_middleware(HTTPSRedirectMiddleware)
 app.add_middleware(RequestContextMiddleware)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -244,7 +245,9 @@ async def maintenance_reset_accounts(
     """
     if not settings.MAINTENANCE_SECRET:
         raise NotFoundError("Not found.")
-    if not x_maintenance_secret or x_maintenance_secret != settings.MAINTENANCE_SECRET:
+    # V-04: Use constant-time comparison to prevent timing attacks on the
+    # maintenance secret.
+    if not x_maintenance_secret or not hmac.compare_digest(x_maintenance_secret, settings.MAINTENANCE_SECRET):
         raise NotFoundError("Not found.")
 
     await db.execute(text("TRUNCATE TABLE users RESTART IDENTITY CASCADE"))

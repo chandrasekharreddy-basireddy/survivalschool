@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.database import check_db_health
@@ -34,5 +35,5 @@ async def ready():
     """Kubernetes readiness probe — can this instance serve traffic right now."""
     db_ok = await check_db_health()
     if not db_ok:
-        return {"status": "not_ready", "database": False}, 503
+        return JSONResponse(status_code=503, content={"status": "not_ready", "database": False})
     return {"status": "ready", "database": True}

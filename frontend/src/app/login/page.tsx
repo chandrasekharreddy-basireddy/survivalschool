@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import { getPostLoginPath, type AppRole } from "@/lib/roles";
+import { getPostLoginPath } from "@/lib/roles";
+import type { CurrentUser } from "@/lib/auth-context";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -21,10 +22,9 @@ export default function LoginPage() {
   const [mfaCode, setMfaCode] = useState("");
 
   const redirectAfterAuth = async () => {
-    const current = await apiFetch<{ roles: string[] }>("/auth/me");
-    const path = getPostLoginPath({ ...current, id: "", email: "", full_name: "", is_email_verified: true, totp_enabled: false, roles: current.roles } as any);
+    const current = await apiFetch<CurrentUser>("/auth/me");
     const next = new URLSearchParams(window.location.search).get("next");
-    router.replace(next && next.startsWith("/") ? next : path);
+    router.replace(next && next.startsWith("/") ? next : getPostLoginPath(current));
   };
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -76,10 +76,7 @@ export default function LoginPage() {
         <h1 className="text-2xl font-bold text-fg">Two-factor verification</h1>
         <p className="mt-1 text-sm text-fg-muted">Enter the 6-digit code from your authenticator app, or one of your backup codes.</p>
         <form onSubmit={onVerifyMfa} className="mt-8 space-y-5">
-          <div>
-            <label className="label" htmlFor="mfa-code">Authentication code</label>
-            <input id="mfa-code" autoFocus inputMode="numeric" className="input font-mono tracking-widest" placeholder="123456" maxLength={10} value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} />
-          </div>
+          <div><label className="label" htmlFor="mfa-code">Authentication code</label><input id="mfa-code" autoFocus inputMode="numeric" className="input font-mono tracking-widest" placeholder="123456" maxLength={10} value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} /></div>
           {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
           <button type="submit" disabled={submitting || !mfaCode.trim()} className="btn-primary w-full">{submitting ? "Verifying…" : "Verify and sign in"}</button>
           <button type="button" onClick={() => { setMfaToken(null); setMfaCode(""); setError(null); }} className="w-full text-center text-sm text-fg-muted hover:text-fg">&larr; Back to sign in</button>

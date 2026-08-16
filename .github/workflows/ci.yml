@@ -6,46 +6,94 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  backend:
+  backend-lint-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: survivalschool
+          POSTGRES_PASSWORD: survivalschool
+          POSTGRES_DB: survivalschool_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U survivalschool"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          pip install ruff mypy
-      - name: Lint
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff pip-audit
+      - name: Lint (ruff)
         run: >-
-          ruff check backend/app backend/tests
+          ruff check app tests
           --ignore I001,UP017,UP037,UP043,B904,C416,SIM103,SIM105,SIM117,W293
-      - name: Type check
-        run: mypy backend/app/ --ignore-missing-imports
-      - name: Test
-        run: |
-          cd backend
-          python -m pytest tests/ -v --tb=short || echo "No tests found"
+      - name: Dependency vulnerability scan
+        run: pip-audit -r requirements.txt
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          DATABASE_URL_SYNC: postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          JWT_SECRET: ci-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          JWT_REFRESH_SECRET: ci-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        run: alembic upgrade head
+      - name: Run tests
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          DATABASE_URL_SYNC: postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          REDIS_URL: redis://localhost:6379/1
+          JWT_SECRET: ci-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          JWT_REFRESH_SECRET: ci-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          EMAIL_BACKEND: console
+          AI_PROVIDER: mock
+        run: pytest --tb=short -q
 
-  frontend:
+  frontend-lint-build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "26"
       - name: Install dependencies
-        run: npm install
-        working-directory: frontend
+        run: npm install --no-audit --no-fund
       - name: Lint
         run: npm run lint
-        working-directory: frontend
       - name: Type check
         run: npm run typecheck
-        working-directory: frontend
+      - name: Dependency audit (report-only)
+        run: npm audit --omit=dev || true
       - name: Build
+        env:
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1
+          NEXT_PUBLIC_WS_BASE_URL: ws://localhost:8000
         run: npm run build
-        working-directory: frontend

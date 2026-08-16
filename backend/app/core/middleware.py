@@ -18,7 +18,12 @@ settings = get_settings()
 # (they run inside the cluster network, never through the TLS-terminating
 # ingress), so redirecting them would make every probe fail and the pod would
 # be killed for "not being healthy" while actually serving traffic fine.
-_HTTPS_REDIRECT_EXEMPT_PATHS = {f"{settings.API_V1_PREFIX}/health", f"{settings.API_V1_PREFIX}/live"}
+_HTTPS_REDIRECT_EXEMPT_PATHS = {
+    "/health",
+    "/live",
+    f"{settings.API_V1_PREFIX}/health",
+    f"{settings.API_V1_PREFIX}/live",
+}
 
 
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):

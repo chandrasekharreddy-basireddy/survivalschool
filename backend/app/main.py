@@ -105,7 +105,7 @@ app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_chat_router)
 
 Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(app).expose(
-    app, should_include_in_schema=False
+    app, include_in_schema=False
 )
 
 

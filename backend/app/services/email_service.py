@@ -26,11 +26,11 @@ import asyncio
 import smtplib
 import ssl
 from email.message import EmailMessage
+from email.utils import parseaddr
 from pathlib import Path
 
 import httpx
 import structlog
-from email.utils import parseaddr
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.config import get_settings
@@ -97,10 +97,10 @@ async def send_email(to: str, subject: str, template: str, **context) -> bool:
 
 async def _send_brevo(*, to: str, subject: str, html: str, text: str) -> None:
     """Send via Brevo's HTTPS transactional API
-    (https://developers.brevo.com/reference/sendtransacemail).
+    (https://developers.brevo.com/reference/sendtransactemail).
 
     Only needs a single sender email verified in the Brevo dashboard -- no
-    domain DNS. The sender is parsed from EMAIL_FROM ("Name <email>"); that
+    domain DS. The sender is parsed from EMAIL_FROM ("Name <email>"); that
     email MUST be the one verified in Brevo or Brevo returns a 400 the caller
     surfaces verbatim. Runs over httpx (async, port 443) so it works on
     Render's SMTP-blocked network.

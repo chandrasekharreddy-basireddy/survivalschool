@@ -5,9 +5,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, Query
-from sqlalchemy import text
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -92,122 +91,99 @@ async def audit_logs(
     action: str | None = Query(None, description="Exact match, e.g. 'certificate.revoke'"),
     resource_type: str | None = Query(None),
     result: str | None = Query(None, pattern=r"^(success|failure)$"),
-    since: datetime | None = Query(None, description="ISO 8601 â€” only logs at/after this time"),
-    until: datetime | None = Query(None, description="ISO 8601 â€” only logs at/before this time"),
-    user: User = Depends(require_permission("system.manage")),
-    db: AsyncSession = Depends(get_db),
-):
-    stmt = select(AuditLog)
-    if actor_id is not None:
-        stmt = stmt.where(AuditLog.actor_id == actor_id)
-    if action is not None:
-        stmt = stmt.where(AuditLog.action == action)
-    if resource_type is not None:
-        stmt = stmt.where(AuditLog.resource_type == resource_type)
-    if result is not None:
-        stmt = stmt.where(AuditLog.result == result)
-    if since is not None:
-        stmt = stmt.where(AuditLog.created_at >= since)
-    if until is not None:
-        stmt = stmt.where(AuditLog.created_at <= until)
+    since: datetime | None = Query(None, description="ISO 8601 â€”Û›HÙÜÈ]ØY\ˆ\È[YHŠKˆ[[ˆ]][YH›Û™HH]Y\žJ›Û™K\ØÜš\[ÛH’TÓÈŒH8 %Û›HÙÜÈ]Ø™Y›Ü™H\È[YHŠKˆ\Ù\Žˆ\Ù\ˆH\[™Ê™\]Z\™WÜ\›Z\ÜÚ[ÛŠœÞ\Ý[K›X[˜YÙHŠJKˆŽˆ\Þ[˜ÔÙ\ÜÚ[ÛˆH\[™ÊÙ]ÙŠKŠN‚ˆÝ]HÙ[XÝ
+]Y]ÙÊBˆYˆXÝÜ—ÚY\È›Ý›Û™N‚ˆÝ]HÝ]Ú\™J]Y]ÙË˜XÝÜ—ÚYOHXÝÜ—ÚY
+BˆYˆXÝ[Ûˆ\È›Ý›Û™N‚ˆÝ]HÝ]Ú\™J]Y]ÙË˜XÝ[ÛˆOHXÝ[ÛŠBˆYˆ™\ÛÝ\˜ÙWÝ\H\È›Ý›Û™N‚ˆÝ]HÝ]Ú\™J]Y]ÙËœ™\ÛÝ\˜ÙWÝ\HOH™\ÛÝ\˜ÙWÝ\JBˆYˆ™\Ý[\È›Ý›Û™N‚ˆÝ]HÝ]Ú\™J]Y]ÙËœ™\Ý[OH™\Ý[
+BˆYˆÚ[˜ÙH\È›Ý›Û™N‚ˆÝ]HÝ]Ú\™J]Y]ÙË˜Ü™X]YØ]HÚ[˜ÙJBˆYˆ[[\È›Ý›Û™N‚ˆÝ]HÝ]Ú\™J]Y]ÙË˜Ü™X]YØ]H[[
+B‚ˆ™\Ý[Ü›ÝÜÈH]ØZ]‹™^XÝ]JÝ]›Ü™\—ØžJ]Y]ÙË˜Ü™X]YØ]™\ØÊ
+JK›[Z]
+[Z]
+K›Ù™œÙ]
+Ù™œÙ]
+JBˆ›ÝÜÈH™\Ý[Ü›ÝÜËœØØ[\œÊ
+K˜[
 
-    result_rows = await db.execute(stmt.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset))
-    rows = result_rows.scalars().all()
-    return [AuditLogOut(
-        id=str(r.id), actor_id=str(r.actor_id) if r.actor_id else None, action=r.action,
-        resource_type=r.resource_type, resource_id=r.resource_id, result=r.result,
-        created_at=r.created_at.isoformat(),
-    ) for r in rows]
+Bˆ™]\›ˆÐ]Y]ÙÓÝ]
+ˆY\ÝŠ‹šY
+KXÝÜ—ÚY\ÝŠ‹˜XÝÜ—ÚY
+HYˆ‹˜XÝÜ—ÚY[ÙH›Û™KXÝ[Û\‹˜XÝ[Û‹ˆ™\ÛÝ\˜ÙWÝ\O\‹œ™\ÛÝ\˜ÙWÝ\K™\ÛÝ\˜ÙWÚY\‹œ™\ÛÝ\˜ÙWÚY™\Ý[\‹œ™\Ý[ˆÜ™X]YØ]\‹˜Ü™X]YØ]š\ÛÙ›Ü›X]
 
+Kˆ
+H›Üˆˆ[ˆ›ÝÜ×B‚‚›Ý]\‹™Ù]
+‹ÜÞ\Ý[KZX[‹™\ÜÛœÙWÛ[Ù[TÞ\Ý[RX[Ý]
+B˜\Þ[˜ÈYˆÞ\Ý[WÚX[
+\Ù\Žˆ\Ù\ˆH\[™Ê™\]Z\™WÜ\›Z\ÜÚ[ÛŠœÞ\Ý[K›X[˜YÙHŠJJN‚ˆ—ÜÝ\H[YKœ\™—ØÛÝ[\Š
+Bˆ—ÛÚÈH]ØZ]ÚXÚ×Ù—ÚX[
 
-@router.get("/system-health", response_model=SystemHealthOut)
-async def system_health(user: User = Depends(require_permission("system.manage"))):
-    db_start = time.perf_counter()
-    db_ok = await check_db_health()
-    db_latency_ms = round((time.perf_counter() - db_start) * 1000, 2) if db_ok else None
+Bˆ—Û][˜ÞWÛ\ÈH›Ý[™
 
-    redis_start = time.perf_counter()
-    redis_ok = await check_redis_health()
-    redis_latency_ms = round((time.perf_counter() - redis_start) * 1000, 2) if redis_ok else None
+[YKœ\™—ØÛÝ[\Š
+HH—ÜÝ\
+H
+ˆLŠHYˆ—ÛÚÈ[ÙH›Û™B‚ˆ™Y\×ÜÝ\H[YKœ\™—ØÛÝ[\Š
+Bˆ™Y\×ÛÚÈH]ØZ]ÚXÚ×Ü™Y\×ÚX[
 
-    return SystemHealthOut(
-        database=db_ok, database_latency_ms=db_latency_ms,
-        redis=redis_ok, redis_latency_ms=redis_latency_ms,
-        status="ok" if (db_ok and redis_ok) else "degraded",
-        app_version=settings.SERVICE_VERSION, environment=settings.APP_ENV,
-        uptime_seconds=round(time.time() - PROCESS_STARTED_AT, 1),
-    )
+Bˆ™Y\×Û][˜ÞWÛ\ÈH›Ý[™
 
+[YKœ\™—ØÛÝ[\Š
+HH™Y\×ÜÝ\
+H
+ˆLŠHYˆ™Y\×ÛÚÈ[ÙH›Û™B‚ˆ™]\›ˆÞ\Ý[RX[Ý]
+ˆ]X˜\ÙOY—ÛÚË]X˜\ÙWÛ][˜ÞWÛ\ÏY—Û][˜ÞWÛ\Ëˆ™Y\Ï\™Y\×ÛÚË™Y\×Û][˜ÞWÛ\Ï\™Y\×Û][˜ÞWÛ\ËˆÝ]\ÏH›ÚÈˆYˆ
+—ÛÚÈ[™™Y\×ÛÚÊH[ÙH™YÜ˜YY‹ˆ\Ý™\œÚ[Û\Ù][™ÜË”ÑT•’PÑWÕ‘T”ÒSÓ‹[š\›Û›Y[\Ù][™ÜËTÑS•‹ˆ\[YWÜÙXÛÛ™Ï\›Ý[™
+[YK[YJ
+HH“ÐÑTÔ×ÔÕT•QÐUJKˆ
+B‚ˆ›Ý]\‹™Ù]
+‹Ý\Ù\œÈ‹™\ÜÛœÙWÛ[Ù[[\ÝÕ\Ù\“Ý]JB˜\Þ[˜ÈYˆYZ[—Û\ÝÝ\Ù\œÊˆNˆÝˆ›Û™HH]Y\žJ›Û™JKˆ[Z]ˆ[H]Y\žJLOLŒ
+KˆÙ™œÙ]ˆ[H]Y\žJÙOL
+Kˆ\Ù\Žˆ\Ù\ˆH\[™Ê™\]Z\™WÜ\›Z\ÜÚ[ÛŠ\Ù\œËœ™XYŠJKˆŽˆ\Þ[˜ÔÙ\ÜÚ[ÛˆH\[™ÊÙ]ÙŠKŠN‚ˆˆˆ”Ø[YH]Y\žH\ÈÑUÝ\Ù\œÈ8 %ZÙ\\™HÛÈ[™\ˆØYZ[ˆ™XØ]\ÙH]	ÜÂˆÚ\™HHYZ[ˆœ›Û[™
+[™H›ÙXÝ[Ûˆ]Y]
+H^XÝÈ]ˆˆˆ‚ˆÝ]HÙ[XÝ
+\Ù\ŠK›Ü[ÛœÊÙ[XÝ[›ØY
+\Ù\‹œ›Û\ÊJKÚ\™J\Ù\‹™[]YØ]š\×Ê›Û™JJBˆYˆN‚ˆÝ]HÝ]Ú\™J\Ù\‹™[XZ[š[ZÙJˆ‰^Ü_IHŠH\Ù\‹™[Û˜[YKš[ZÙJˆ‰^Ü_IHŠJBˆ™\Ý[H]ØZ]‹™^XÝ]JÝ]›Ü™\—ØžJ\Ù\‹˜Ü™X]YØ]™\ØÊ
+JK›[Z]
+[Z]
+K›Ù™œÙ]
+Ù™œÙ]
+JBˆ\Ù\œÈH™\Ý[œØØ[\œÊ
+K˜[
 
-@router.get("/users", response_model=list[UserOut])
-async def admin_list_users(
-    q: str | None = Query(None),
-    limit: int = Query(50, le=200),
-    offset: int = Query(0, ge=0),
-    user: User = Depends(require_permission("users.read")),
-    db: AsyncSession = Depends(get_db),
-):
-    """Same query as GET /users â€” kept here too under /admin because that's
-    where the admin frontend (and the production audit) expects it."""
-    stmt = select(User).options(selectinload(User.roles)).where(User.deleted_at.is_(None))
-    if q:
-        stmt = stmt.where(User.email.ilike(f"%{q}%") | User.full_name.ilike(f"%{q}%"))
-    result = await db.execute(stmt.order_by(User.created_at.desc()).limit(limit).offset(offset))
-    users = result.scalars().all()
-    return [UserOut(id=u.id, email=u.email, full_name=u.full_name, is_email_verified=u.is_email_verified,
-                     is_active=u.is_active, roles=[r.name for r in u.roles]) for u in users]
+Bˆ™]\›ˆÕ\Ù\“Ý]
+Y]KšY[XZ[]K™[XZ[[Û˜[YO]K™[Û˜[YK\×Ù[XZ[Ý™\šYšYY]Kš\×Ù[XZ[Ý™\šYšYYˆ\×ØXÝ]™O]Kš\×ØXÝ]™K›Û\ÏVÜ‹›˜[YH›Üˆˆ[ˆKœ›Û\×JH›ÜˆH[ˆ\Ù\œ×B‚‚›Ý]\‹œÜÝ
+‹Ý\Ù\œËÞÝ\Ù\—ÚYKÙXXÝ]˜]H‹™\ÜÛœÙWÛ[Ù[U\Ù\“Ý]
+B˜\Þ[˜ÈYˆXXÝ]˜]WÝ\Ù\Šˆ\Ù\—ÚYˆ]ZY•URQˆYZ[Žˆ\Ù\ˆH\[™Ê™\]Z\™WÜ\›Z\ÜÚ[ÛŠ\Ù\œË\]HŠJKˆŽˆ\Þ[˜ÔÙ\ÜÚ[ÛˆH\[™ÊÙ]ÙŠKŠN‚ˆ\™Ù]H
+]ØZ]‹™^XÝ]JÙ[XÝ
+\Ù\ŠKÚ\™J\Ù\‹šYOH\Ù\—ÚY
+K›Ü[ÛœÊÙ[XÝ[›ØY
+\Ù\‹œ›Û\ÊJJJKœØØ[\—ÛÛ™WÛÜ—Û›Û™J
+BˆYˆ\™Ù]\È›Û™N‚ˆ˜Z\ÙH›Ý›Ý[™\œ›ÜŠ•\Ù\ˆ›Ý›Ý[™ˆŠBˆ\™Ù]š\×ØXÝ]™HH˜[ÙBˆ]ØZ]™XÛÜ™Ø]Y]Ù]™[
+‹XÝÜ—ÚYXYZ[‹šYXÝ[ÛH\Ù\‹™XXÝ]˜]Y‹™\ÛÝ\˜ÙWÝ\OH\Ù\ˆ‹™\ÛÝ\˜ÙWÚY\ÝŠ\Ù\—ÚY
+JBˆ]ØZ]‹˜ÛÛ[Z]
 
+Bˆ™]\›ˆ\Ù\“Ý]
+Y]\™Ù]šY[XZ[]\™Ù]™[XZ[[Û˜[YO]\™Ù]™[Û˜[YKˆ\×Ù[XZ[Ý™\šYšYY]\™Ù]š\×Ù[XZ[Ý™\šYšYY\×ØXÝ]™O]\™Ù]š\×ØXÝ]™Kˆ›Û\ÏVÜ‹›˜[YH›Üˆˆ[ˆ\™Ù]œ›Û\×JB‚‚›Ý]\‹œÜÝ
+‹Ý\Ù\œËÞÝ\Ù\—ÚYKØXÝ]˜]H‹™\ÜÛœÙWÛ[Ù[U\Ù\“Ý]
+B˜\Þ[˜ÈYˆXÝ]˜]WÝ\Ù\Šˆ\Ù\—ÚYˆ]ZY•URQˆYZ[Žˆ\Ù\ˆH\[™Ê™\]Z\™WÜ\›Z\ÜÚ[ÛŠ\Ù\œË\]HŠJKˆŽˆ\Þ[˜ÔÙ\ÜÚ[ÛˆH\[™ÊÙ]ÙŠKŠN‚ˆ\™Ù]H
+]ØZ]‹™^XÝ]JÙ[XÝ
+\Ù\ŠKÚ\™J\Ù\‹šYOH\Ù\—ÚY
+K›Ü[ÛœÊÙ[XÝ[›ØY
+\Ù\‹œ›Û\ÊJJJKœØØ[\—ÛÛ™WÛÜ—Û›Û™J
+BˆYˆ\™Ù]\È›Û™N‚ˆ˜Z\ÙH›Ý›Ý[™\œ›ÜŠ•\Ù\ˆ›Ý›Ý[™ˆŠBˆ\™Ù]š\×ØXÝ]™HHYBˆ]ØZ]™XÛÜ™Ø]Y]Ù]™[
+‹XÝÜ—ÚYXYZ[‹šYXÝ[ÛH\Ù\‹˜XÝ]˜]Y‹™\ÛÝ\˜ÙWÝ\OH\Ù\ˆ‹™\ÛÝ\˜ÙWÚY\ÝŠ\Ù\—ÚY
+JBˆ]ØZ]‹˜ÛÛ[Z]
 
-@router.post("/users/{user_id}/deactivate", response_model=UserOut)
-async def deactivate_user(
-    user_id: uuid.UUID,
-    admin: User = Depends(require_permission("users.update")),
-    db: AsyncSession = Depends(get_db),
-):
-    target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
-    if target is None:
-        raise NotFoundError("User not found.")
-    target.is_active = False
-    await record_audit_event(db, actor_id=admin.id, action="user.deactivated", resource_type="user", resource_id=str(user_id))
-    await db.commit()
-    return UserOut(id=target.id, email=target.email, full_name=target.full_name,
-                    is_email_verified=target.is_email_verified, is_active=target.is_active,
-                    roles=[r.name for r in target.roles])
-
-
-@router.post("/users/{user_id}/activate", response_model=UserOut)
-async def activate_user(
-    user_id: uuid.UUID,
-    admin: User = Depends(require_permission("users.update")),
-    db: AsyncSession = Depends(get_db),
-):
-    target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
-    if target is None:
-        raise NotFoundError("User not found.")
-    target.is_active = True
-    await record_audit_event(db, actor_id=admin.id, action="user.activated", resource_type="user", resource_id=str(user_id))
-    await db.commit()
-    return UserOut(id=target.id, email=target.email, full_name=target.full_name,
-                    is_email_verified=target.is_email_verified, is_active=target.is_active,
-                    roles=[r.name for r in target.roles])
-
-
-class PowerBISyncOut(BaseModel):
-    status: str
-    reason: str | None = None
-    date: str | None = None
-
-
-@router.post("/powerbi/sync", response_model=PowerBISyncOut)
-async def trigger_powerbi_sync(
-    admin: User = Depends(require_permission("analytics.view")),
-    db: AsyncSession = Depends(get_db),
+Bˆ™]\›ˆ\Ù\“Ý]
+Y]\™Ù]šY[XZ[]\™Ù]™[XZ[[Û˜[YO]\™Ù]™[Û˜[YKˆ\×Ù[XZ[Ý™\šYšYY]\™Ù]š\×Ù[XZ[Ý™\šYšYY\×ØXÝ]™O]\™Ù]š\×ØXÝ]™Kˆ›Û\ÏVÜ‹›˜[YH›Üˆˆ[ˆ\™Ù]œ›Û\×JB‚‚˜Û\ÜÈÝÙ\’TÞ[˜ÓÝ]
+˜\ÙS[Ù[
+N‚ˆÝ]\ÎˆÝ‚ˆ™X\ÛÛŽˆÝˆ›Û™HH›Û™Bˆ]NˆÝˆ›Û™HH›Û™B‚‚›Ý]\‹œÜÝ
+‹ÜÝÙ\˜šKÜÞ[˜È‹™\ÜÛœÙWÛ[Ù[TÝÙ\’TÞ[˜ÓÝ]
+B˜\Þ[˜ÈYˆšYÙÙ\—ÜÝÙ\˜šWÜÞ[˜ÊˆYZ[Žˆ\Ù\ˆH\[™Ê™\]Z\™WÜ\›Z\ÜÚ[ÛŠ˜[˜[]XÜËšY]ÈŠJKˆŽˆ\Þ[˜ÔÙ\ÜÚ[ÛˆH\[™Ê3et_db),
 ):
     """Manual on-demand trigger for the daily Power BI aggregate-analytics
     push (same code path as the worker's scheduled job â€” see
-    app/workers/worker.py::run_powerbi_sync) so an admin can test/verify the
+    app/workers/worker.py::run_powerbi_sync) so an admin can test/verify-the
     integration without waiting for the next scheduled run. Returns
-    status=skipped (not an error) if POWERBI_* env vars aren't configured."""
+    status=skipÂed (not an error) if POWERBI_* env vars aren't configured."""
     result = await sync_daily_engagement(db)
     await record_audit_event(
         db, actor_id=admin.id, action="powerbi.sync_triggered",
@@ -225,35 +201,4 @@ class MaintenanceResetOut(BaseModel):
 
 @router.post("/maintenance/reset-accounts", response_model=MaintenanceResetOut)
 async def maintenance_reset_accounts(
-    db: AsyncSession = Depends(get_db),
-    x_maintenance_secret: str | None = Header(default=None),
-):
-    """Destructive, explicitly-gated maintenance escape hatch: deletes every
-    user account (and everything that references one via a real foreign
-    key -- sessions, tokens, enrollments, submissions, etc.) via the same
-    TRUNCATE ... CASCADE as scripts/reset_all_accounts.py.
-
-    Deliberately NOT behind require_permission()/a user JWT -- the whole
-    point is to be usable even when there are zero working accounts left,
-    or when the only credential available is this one-time secret. Instead
-    it's gated by MAINTENANCE_SECRET, which is unset by default (None), so
-    this endpoint 404s unless an operator has deliberately opted in by
-    setting that env var -- and it's meant to be unset again immediately
-    after use. Exists because Render's free tier doesn't always offer easy
-    interactive shell access; this is the practical alternative for running
-    a real destructive maintenance operation against production.
-    """
-    if not settings.MAINTENANCE_SECRET:
-        raise NotFoundError("Not found.")
-    if not x_maintenance_secret or x_maintenance_secret != settings.MAINTENANCE_SECRET:
-        # Same 404 as "unconfigured" -- don't reveal that this endpoint
-        # exists to a caller who doesn't already have the secret.
-        raise NotFoundError("Not found.")
-
-    await db.execute(text("TRUNCATE TABLE users RESTART IDENTITY CASCADE"))
-    await db.commit()
-
-    return MaintenanceResetOut(
-        status="ok",
-        detail="All user accounts (and everything referencing them) were deleted. Roles/permissions/badges were left intact.",
-    )
+    db: AsyncSession = Depends(Í•Ñ}‘ˆ¤°(€€€á}µ…¥¹Ñ•¹…¹•}Í•É•ÐèÍÑÈð9½¹”€ô!•…‘•È¡‘•™…Õ±Ðõ9½¹”¤°(¤è(€€€€ˆˆ‰•ÍÑÉÕÑ¥Ù”°•áÁ±¥¥Ñ±äµ…Ñ•µ…¥¹Ñ•¹…¹”•Í…Á”¡…Ñ è‘•±•Ñ•Ì•Ù•Éä(€€€ÕÍ•È…½Õ¹Ð€¡…¹•Ù•ÉåÑ¡¥¹œÑ¡…ÐÉ•™•É•¹•Ì½¹”Ù¥„„É•…°™½É•¥¸(€€€­•ä€´´Í•ÍÍ¥½¹Ì°Ñ½­•¹Ì°•¹É½±±µ•¹ÑÌ°ÍÕ‰µ¥ÍÍ¥½¹Ì°•ÑŒ¸¤Ù¥„Ñ¡”Í…µ”(€€€QIU9Q€¸¸¸M…ÌÍÉ¥ÁÑÌ½É•Í•Ñ}…±±}…½Õ¹ÑÌ¹Áä¸((€€€•±¥‰•É…Ñ•±ä9=P‰•¡¥¹É•ÅÕ¥É•}Á•Éµ¥ÍÍ¥½¸ ¤½„ÕÍ•È)]P€´´Ñ¡”Ý¡½±”(€€€Á½¥¹Ð¥ÌÑ¼‰”ÕÍ…‰±”•Ù•¸Ý¡•¸Ñ¡•É”…É”é•É¼Ý½É­¥¹œ…½Õ¹ÑÌ±•™Ð°(€€€½ÈÝ¡•¸Ñ¡”½¹±äÉ•‘•¹Ñ¥…°…Ù…¥±…‰±”¥ÌÑ¡¥Ì½¹”µÑ¥µ”Í•É•Ð¸%¹ÍÑ•…(€€€¥ÐÌ…Ñ•‰ä5%9Q99}MIP°Ý¡¥ ¥ÌÕ¹Í•Ð‰ä‘•™…Õ±Ð€¡9½¹”¤°Í¼(€€€Ñ¡¥Ì•¹‘Á½¥¹Ð€ÐÀÑÌÕ¹±•ÍÌ…¸½Á•É…Ñ½È¡…Ì‘•±¥‰•É…Ñ•±ä½ÁÑ•¥¸‰ä(€€€Í•ÑÑ¥¹œÑ¡…Ð•¹ØÙ…È€´´…¹¥ÐÌµ•…¹ÐÑ¼‰”Õ¹Í•Ð……¥¸¥µµ•‘¥…Ñ•±ä(€€€…™Ñ•ÈÕÍ”¸á¥ÍÑÌ‰•…ÕÍ”I•¹‘•ÈÌ™É•”Ñ¥•È‘½•Í¸Ð…±Ý…åÌ½™™•È•…Íä(€€€¥¹Ñ•É…Ñ¥Ù”Í¡•±°…•ÍÌìÑ¡¥Ì¥ÌÑ¡”ÁÉ…Ñ¥…°…±Ñ•É¹…Ñ¥Ù”™½ÈÉÕ¹¹¥¹œ(€€€„É•…°‘•ÍÑÉÕÑ¥Ù”µ…¥¹Ñ•¹…¹”½Á•É…Ñ¥½¸……¥¹ÍÐÁÉ½‘ÕÑ¥½¸¸(€€€€ˆˆˆ(€€€¥˜¹½ÐÍ•ÑÑ¥¹Ì¹5%9Q99}MIPè(€€€€€€€É…¥Í”9½Ñ½Õ¹‘ÉÉ½È ‰9½Ð™½Õ¹¸ˆ¤(€€€¥˜¹½Ðá}µ…¥¹Ñ•¹…¹•}Í•É•Ð½Èá}µ…¥¹Ñ•¹…¹•}Í•É•Ð€„ôÍ•ÑÑ¥¹Ì¹5%9Q99}MIPè(€€€€€€€€ŒM…µ”€ÐÀÐ…Ì€‰Õ¹½¹™¥ÕÉ•ˆ€´´‘½¸ÐÉ•Ù•…°Ñ¡…ÐÑ¡¥Ì•¹‘Á½¥¹Ð(€€€€€€€€Œ•á¥ÍÑÌÑ¼„…±±•ÈÝ¡¼‘½•Í¸Ð…±É•…‘ä¡…Ù”Ñ¡”Í•É•Ð¸(€€€€€€€É…¥Í”9½Ñ½Õ¹‘ÉÉ½È ‰9½Ð™½Õ¹¸ˆ¤((€€€…Ý…¥Ð‘ˆ¹•á•ÕÑ”¡Ñ•áÐ ‰QIU9QQ	1ÕÍ•ÉÌIMQIP%9Q%QdMˆ¤¤(€€€…Ý…¥Ð‘ˆ¹½µµ¥Ð ¤((€€€É•ÑÕÉ¸5…¥¹Ñ•¹…¹•I•Í•Ñ=ÕÐ (€€€€€€€ÍÑ…ÑÕÌô‰½¬ˆ°(€€€€€€€‘•Ñ…¥°ô‰±°ÕÍ•È…½Õ¹ÑÌ€¡…¹•Ù•ÉåÑ¡¥¹œÉ•™•É•¹¥¹œÑ¡•´¤Ý•É”‘•±•Ñ•¸I½±•Ì½Á•Éµ¥ÍÍ¥½¹Ì½‰…‘•ÌÝ•É”±•™Ð¥¹Ñ…Ð¸ˆ°(€€€€¤

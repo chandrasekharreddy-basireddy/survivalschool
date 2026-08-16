@@ -84,8 +84,6 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "26"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm install --no-audit --no-fund
       - name: Lint
@@ -93,7 +91,7 @@ jobs:
       - name: Type check
         run: npm run typecheck
       - name: Dependency audit (blocking)
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --omit=dev --audit-level=low
       - name: Build
         env:
           NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api/v1

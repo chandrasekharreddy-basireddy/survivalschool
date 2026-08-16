@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -64,6 +65,26 @@ async def _setup_database():
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     await seed_rbac()
+
+    # Force registration window open during tests — CI may run on any day of
+    # the week, but the registration_window_guard middleware in main.py blocks
+    # POST /auth/register on non-Thursday days. Setting override_until to a
+    # far-future date makes registration_is_open() return True.
+    from app.database import AsyncSessionLocal
+    from app.models.scheduling import RegistrationWindow
+    from app.services.registration_service import next_thursday_ist
+
+    async with AsyncSessionLocal() as db:
+        from sqlalchemy import select
+        result = await db.execute(select(RegistrationWindow).limit(1))
+        window = result.scalar_one_or_none()
+        if window is None:
+            window = RegistrationWindow(next_open_at=next_thursday_ist())
+            db.add(window)
+            await db.flush()
+        window.override_until = datetime.now(timezone.utc) + timedelta(days=365)
+        window.is_open = True
+        await db.commit()
 
     # Rate limiting is real (Redis-backed) and must stay real in tests — a
     # dedicated test suite is exactly where you want to catch a regression in

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 
@@ -19,9 +19,10 @@ export default function RegisterPage() {
   const [done, setDone] = useState(false);
   const [emailDeliveryOk, setEmailDeliveryOk] = useState(true);
   const [status, setStatus] = useState<RegistrationStatus | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
+    setNow(Date.now());
     apiFetch<RegistrationStatus>("/auth/registration-status", { auth: false })
       .then(setStatus)
       .catch(() => setStatus({ is_open: true, next_open_at: null, message: "Registration is available." }));
@@ -29,7 +30,7 @@ export default function RegisterPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const countdown = useMemo(() => {
+  const countdown = (() => {
     if (!status?.next_open_at) return null;
     const seconds = Math.max(0, Math.floor((new Date(status.next_open_at).getTime() - now) / 1000));
     const days = Math.floor(seconds / 86400);
@@ -37,7 +38,7 @@ export default function RegisterPage() {
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
     return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
-  }, [status?.next_open_at, now]);
+  })();
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +63,7 @@ export default function RegisterPage() {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="card w-full">
-          {emailDeliveryOk ? <><h1 className="text-xl font-bold text-fg">Check your inbox</h1><p className="mt-2 text-sm text-fg-muted">We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.</p></> : <><h1 className="text-xl font-bold text-fg">Account created</h1><p className="mt-2 text-sm text-red-700 dark:text-red-400">Your account was created, but we couldn&apos;t send the verification email to <span className="text-fg">{email}</span> right now.</p></>}
+          {emailDeliveryOk ? <><h1 className="text-xl font-bold text-fg">Check your inbox</h1><p className="mt-2 text-sm text-fg-muted">We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.</p></> : <><h1 className="text-xl font-bold text-fg">Account created</h1><p className="mt-2 text-sm text-red-700 dark:text-red-400">Your account was created, but we couldn't send the verification email to <span className="text-fg">{email}</span> right now.</p></>}
           <Link href="/login" className="btn-primary mt-6 w-full">Go to sign in</Link>
         </div>
       </div>

@@ -21,7 +21,6 @@ export default function ChatRoomsPage() {
 
   useEffect(() => {
     if (user) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const createRoom = async () => {

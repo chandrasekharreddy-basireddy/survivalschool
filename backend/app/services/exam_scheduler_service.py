@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -10,6 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.models.assessment import Exam, ExamAttempt, ExamAnswer, Question, QuestionOption
 from app.models.lms import Course
 from app.models.scheduling import ScheduledExamConfig
+from app.models.user import User
 from app.services.ai_provider import get_ai_provider
 from app.services.certificate_service import issue_certificate
 from app.services.scoring_service import grade_answer, summarize_attempt
@@ -23,6 +25,8 @@ def _occurrence_key(now_ist: datetime, time_slot: str) -> str:
 
 def _slot_minutes(time_slot: str) -> tuple[int, int]:
     hour, minute = (int(part) for part in time_slot.split(":", 1))
+    if not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        raise ValueError(f"Invalid time slot: {time_slot}")
     return hour, minute
 
 
@@ -35,9 +39,12 @@ async def create_due_scheduled_exams(db: AsyncSession, now: datetime | None = No
     for config in configs:
         if config.day_of_week != current.weekday():
             continue
-        hour, minute = _slot_minutes(config.time_slot)
+        try:
+            hour, minute = _slot_minutes(config.time_slot)
+        except ValueError:
+            continue
         slot = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if current < slot or current >= slot + timedelta(minutes=5):
+        if current < slot or current >= slot + timedelta(minutes=10):
             continue
         key = _occurrence_key(current, config.time_slot)
         if config.last_occurrence_key == key:
@@ -75,9 +82,9 @@ async def create_due_scheduled_exams(db: AsyncSession, now: datetime | None = No
             auto_certificate_top_n=config.auto_certificate_top_n,
         )
         db.add(exam)
+        await db.flush()
         config.last_occurrence_key = key
         created.append(exam)
-        await db.flush()
 
     await db.commit()
     return created
@@ -89,7 +96,6 @@ async def finalize_expired_scheduled_exams(db: AsyncSession, now: datetime | Non
         select(ExamAttempt)
         .join(Exam, Exam.id == ExamAttempt.exam_id)
         .where(Exam.is_ai_scheduled.is_(True), ExamAttempt.status == "in_progress", ExamAttempt.server_deadline_at < current)
-        .options(selectinload(ExamAttempt.user) if hasattr(ExamAttempt, "user") else selectinload(ExamAttempt.exam))
     )).scalars().all()
     finalized = 0
 
@@ -101,7 +107,7 @@ async def finalize_expired_scheduled_exams(db: AsyncSession, now: datetime | Non
         answers = {row.question_id: row for row in rows}
         points_earned = 0
         points_possible = 0
-        for qid in [__import__("uuid").UUID(q) for q in attempt.question_order]:
+        for qid in [uuid.UUID(q) for q in attempt.question_order]:
             question = (await db.execute(select(Question).where(Question.id == qid).options(selectinload(Question.options)))).scalar_one_or_none()
             if question is None:
                 continue
@@ -132,26 +138,21 @@ async def finalize_expired_scheduled_exams(db: AsyncSession, now: datetime | Non
 async def issue_scheduled_exam_certificates(db: AsyncSession) -> int:
     exams = (await db.execute(select(Exam).where(Exam.is_ai_scheduled.is_(True), Exam.auto_certificate_top_n > 0))).scalars().all()
     issued = 0
+    current = datetime.now(timezone.utc)
     for exam in exams:
-        if exam.available_until is None or exam.available_until > datetime.now(timezone.utc):
+        if exam.available_until is None or exam.available_until > current:
             continue
         attempts = (await db.execute(
-            select(ExamAttempt).where(
-                ExamAttempt.exam_id == exam.id,
-                ExamAttempt.status == "submitted",
-                ExamAttempt.passed.is_(True),
-            ).order_by(ExamAttempt.score_percent.desc(), ExamAttempt.submitted_at.asc()).limit(exam.auto_certificate_top_n)
+            select(ExamAttempt).where(ExamAttempt.exam_id == exam.id, ExamAttempt.status == "submitted", ExamAttempt.passed.is_(True)).order_by(ExamAttempt.score_percent.desc(), ExamAttempt.submitted_at.asc()).limit(exam.auto_certificate_top_n)
         )).scalars().all()
         course = await db.get(Course, exam.course_id)
         if course is None:
             continue
         for attempt in attempts:
-            from app.models.user import User
             student = await db.get(User, attempt.student_id)
             if student is None:
                 continue
-            cert = await issue_certificate(db, student, course)
-            if cert:
-                issued += 1
+            await issue_certificate(db, student, course)
+            issued += 1
         await db.commit()
     return issued

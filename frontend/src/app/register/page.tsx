@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 
@@ -8,6 +8,16 @@ interface RegistrationStatus {
   is_open: boolean;
   next_open_at: string | null;
   message: string;
+}
+
+function formatCountdown(nextOpenAt: string | null, now: number): string | null {
+  if (!nextOpenAt || now <= 0) return null;
+  const seconds = Math.max(0, Math.floor((new Date(nextOpenAt).getTime() - now) / 1000));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
 }
 
 export default function RegisterPage() {
@@ -19,25 +29,18 @@ export default function RegisterPage() {
   const [done, setDone] = useState(false);
   const [emailDeliveryOk, setEmailDeliveryOk] = useState(true);
   const [status, setStatus] = useState<RegistrationStatus | null>(null);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
     apiFetch<RegistrationStatus>("/auth/registration-status", { auth: false })
       .then(setStatus)
       .catch(() => setStatus({ is_open: true, next_open_at: null, message: "Registration is available." }));
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  const countdown = useMemo(() => {
-    if (!status?.next_open_at) return null;
-    const seconds = Math.max(0, Math.floor((new Date(status.next_open_at).getTime() - now) / 1000));
-    const days = Math.floor(seconds / 86400);
-    const hours = Math.floor((seconds % 86400) / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-    return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
-  }, [status?.next_open_at, now]);
+  const countdown = formatCountdown(status?.next_open_at ?? null, now);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,7 +95,7 @@ export default function RegisterPage() {
         <div><label className="label" htmlFor="email">Email</label><input id="email" type="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
         <div><label className="label" htmlFor="password">Password</label><input id="password" type="password" required minLength={10} className="input" value={password} onChange={(e) => setPassword(e.target.value)} /><p className="mt-1 text-xs text-fg-subtle">At least 10 characters, with uppercase, lowercase, a digit, and a symbol.</p></div>
         {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
-        <button type="submit" disabled={submitting || status === null} className="btn-primary w-full">{submitting ? "Creating account…" : "Create account"}</button>
+        <button type="submit" disabled={submitting || status === null || status.is_open === false} className="btn-primary w-full">{submitting ? "Creating account…" : "Create account"}</button>
       </form>
       <p className="mt-6 text-center text-sm text-fg-muted">Already have an account? <Link href="/login" className="text-brand-600 underline dark:text-brand-400">Sign in</Link></p>
     </div>

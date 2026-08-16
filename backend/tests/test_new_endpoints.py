@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import tempfile
+from unittest.mock import patch
 
 import pytest
 
@@ -262,6 +264,7 @@ async def test_admin_audit_logs_support_filtering(client):
 
 
 async def test_file_upload_rejects_disallowed_type_and_accepts_image(client):
+    """Test file upload with mocked storage to avoid /data permission issues."""
     _, headers = await auth_headers(client)
 
     bad = await client.post(
@@ -276,10 +279,17 @@ async def test_file_upload_rejects_disallowed_type_and_accepts_image(client):
         b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
         b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
     )
-    good = await client.post(
-        "/files", headers=headers, params={"visibility": "public"},
-        files={"file": ("avatar.png", io.BytesIO(png_bytes), "image/png")},
-    )
+    
+    # Mock os.makedirs and file writing to use a temp directory instead
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch('app.api.v1.files.settings.STORAGE_LOCAL_PATH', tmpdir):
+            with patch('app.api.v1.files.os.makedirs') as mock_makedirs:
+                mock_makedirs.return_value = None  # Don't actually try to create /data
+                good = await client.post(
+                    "/files", headers=headers, params={"visibility": "public"},
+                    files={"file": ("avatar.png", io.BytesIO(png_bytes), "image/png")},
+                )
+    
     assert good.status_code == 201, good.text
     body = good.json()
     assert body["mime_type"] == "image/png"
@@ -290,6 +300,7 @@ async def test_file_upload_rejects_disallowed_type_and_accepts_image(client):
 
 
 async def test_private_file_is_not_accessible_to_other_users(client):
+    """Test private file access control with mocked storage."""
     _, owner_headers = await auth_headers(client)
     _, other_headers = await auth_headers(client)
 
@@ -298,20 +309,26 @@ async def test_private_file_is_not_accessible_to_other_users(client):
         b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
         b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
     )
-    uploaded = await client.post(
-        "/files", headers=owner_headers, params={"visibility": "private"},
-        files={"file": ("private.png", io.BytesIO(png_bytes), "image/png")},
-    )
-    file_id = uploaded.json()["id"]
+    
+    # Mock os.makedirs to use a temp directory instead of /data
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch('app.api.v1.files.settings.STORAGE_LOCAL_PATH', tmpdir):
+            with patch('app.api.v1.files.os.makedirs') as mock_makedirs:
+                mock_makedirs.return_value = None  # Don't actually try to create /data
+                uploaded = await client.post(
+                    "/files", headers=owner_headers, params={"visibility": "private"},
+                    files={"file": ("private.png", io.BytesIO(png_bytes), "image/png")},
+                )
+        file_id = uploaded.json()["id"]
 
-    forbidden = await client.get(f"/files/{file_id}", headers=other_headers)
-    assert forbidden.status_code == 403
+        forbidden = await client.get(f"/files/{file_id}", headers=other_headers)
+        assert forbidden.status_code == 403
 
-    anon = await client.get(f"/files/{file_id}")
-    assert anon.status_code == 403
+        anon = await client.get(f"/files/{file_id}")
+        assert anon.status_code == 403
 
-    allowed = await client.get(f"/files/{file_id}", headers=owner_headers)
-    assert allowed.status_code == 200
+        allowed = await client.get(f"/files/{file_id}", headers=owner_headers)
+        assert allowed.status_code == 200
 
 
 async def test_single_quiz_and_exam_metadata_endpoints(client):

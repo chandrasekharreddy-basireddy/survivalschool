@@ -1,16 +1,9 @@
 "use client";
 
-// Thin wrapper around the native WebSocket for the chat room socket
-// (backend: app/websockets/chat.py, mounted at /ws/chat/{room_id}). Handles
-// the token-in-query-param handshake (browsers can't set custom headers on a
-// WS upgrade request, so the access token travels as ?token=), JSON framing,
-// and automatic reconnect with capped exponential backoff so a dropped wifi
-// connection doesn't just leave the chat room permanently disconnected.
-//
-// Message history is never solely reliant on this socket — see the backend
-// docstring — so callers should always hydrate from GET
-// /chat/rooms/{id}/messages first and treat this purely as a live-append feed.
-
+// Thin wrapper around the native WebSocket for the chat room socket.
+// Browser auth now rides the HttpOnly ss_access_token cookie automatically;
+// no JWT is placed in the URL. The backend still accepts a legacy query token
+// temporarily for non-browser clients during migration.
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000";
 
 export type ChatEvent =
@@ -24,20 +17,18 @@ type Listener = (evt: ChatEvent) => void;
 export class ChatSocket {
   private ws: WebSocket | null = null;
   private roomId: string;
-  private token: string;
   private listeners = new Set<Listener>();
   private closedByUser = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(roomId: string, token: string) {
+  constructor(roomId: string) {
     this.roomId = roomId;
-    this.token = token;
   }
 
   connect() {
     this.closedByUser = false;
-    const url = `${WS_BASE}/ws/chat/${this.roomId}?token=${encodeURIComponent(this.token)}`;
+    const url = `${WS_BASE}/ws/chat/${this.roomId}`;
     this.ws = new WebSocket(url);
     this.ws.onmessage = (msg) => {
       try {

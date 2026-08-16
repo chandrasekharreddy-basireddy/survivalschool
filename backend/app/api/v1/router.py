@@ -15,6 +15,8 @@ from app.api.v1 import (
     contests,
     courses,
     discussions,
+    exam_scheduler,
+    exam_security,
     exams,
     files,
     gamification,
@@ -38,7 +40,9 @@ api_router.include_router(courses.router)
 api_router.include_router(lessons.router)
 api_router.include_router(quizzes.router)
 api_router.include_router(quizzes.questions_router)
+api_router.include_router(exam_security.router)
 api_router.include_router(exams.router)
+api_router.include_router(exam_scheduler.router)
 api_router.include_router(certificates.router)
 api_router.include_router(files.router)
 api_router.include_router(gamification.router)

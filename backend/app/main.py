@@ -101,7 +101,7 @@ async def registration_window_guard(request, call_next):
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_chat_router)
 
-Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(
+Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(app).expose(
     app, endpoint="/metrics", include_in_schema=False
 )
 

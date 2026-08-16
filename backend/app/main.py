@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from sqlalchemy import text, select
+from sqlalchemy import text
 from starlette.responses import JSONResponse
 
 from app.api.v1.router import api_router
@@ -15,7 +15,6 @@ from app.core.exceptions import AppError, app_error_handler, unhandled_exception
 from app.core.logging import configure_logging
 from app.core.middleware import HTTPSRedirectMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
 from app.database import AsyncSessionLocal
-from app.models.scheduling import RegistrationWindow
 from app.redis_client import get_redis
 from app.services.registration_service import refresh_window
 from app.websockets.chat import router as ws_chat_router
@@ -79,20 +78,24 @@ async def registration_window_guard(request, call_next):
             async with AsyncSessionLocal() as db:
                 window = await refresh_window(db)
                 await db.commit()
-                if not window.is_open:
-                    next_open = window.next_open_at.astimezone(timezone.utc).isoformat() if window.next_open_at else None
-                    return JSONResponse(
-                        status_code=403,
-                        content={
-                            "message": "Registration is currently closed. Registration opens every Thursday (IST).",
-                            "code": "registration_closed",
-                            "next_open_at": next_open,
-                        },
-                    )
         except Exception:
-            # Never fail closed because the window table is temporarily unavailable.
-            # The API's normal registration path and deployment health checks should remain available.
-            pass
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "message": "Registration is temporarily unavailable while the registration window is being checked.",
+                    "code": "registration_window_unavailable",
+                },
+            )
+        if not window.is_open:
+            next_open = window.next_open_at.astimezone(timezone.utc).isoformat() if window.next_open_at else None
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "message": "Registration is currently closed. Registration opens every Thursday (IST).",
+                    "code": "registration_closed",
+                    "next_open_at": next_open,
+                },
+            )
     return await call_next(request)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
@@ -105,7 +108,6 @@ Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json"
 
 @app.get("/health")
 async def health():
-    """Lightweight readiness check for Render and external uptime monitors."""
     checks = {"database": False, "redis": False}
     try:
         async with AsyncSessionLocal() as db:

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.exceptions import NotFoundError, ValidationAppError
+from app.core.exceptions import AppError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.social import Notification, NotificationPreference
@@ -125,18 +125,14 @@ async def update_preferences(payload: PreferencesUpdate, user: User = Depends(ge
 
 @router.get("/push/vapid-public-key", response_model=VapidPublicKeyOut)
 async def get_vapid_public_key():
-    """Public info only — the VAPID public key is meant to be given to the
-    browser (`PushManager.subscribe({applicationServerKey: ...})`); the
-    private key never leaves the server. No auth required so the frontend
-    can fetch it before the user necessarily has a session (though in
-    practice we only call it from the authenticated settings page)."""
+    """Expose only the public VAPID key; the private key stays server-side."""
     return VapidPublicKeyOut(configured=push_configured(), public_key=settings.VAPID_PUBLIC_KEY if push_configured() else None)
 
 
 @router.post("/push/subscribe", status_code=201, response_model=PushSubscribeOut)
 async def subscribe_push(payload: PushSubscribeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not push_configured():
-        raise ValidationAppError("Push notifications are not configured on this server.")
+        raise AppError("Push notifications are not configured on this server.")
     await save_subscription(
         db, user_id=user.id, endpoint=payload.endpoint,
         p256dh=payload.keys.p256dh, auth=payload.keys.auth, user_agent=payload.user_agent,
@@ -154,11 +150,8 @@ async def unsubscribe_push(payload: PushUnsubscribeIn, user: User = Depends(get_
 
 @router.post("/push/test")
 async def send_test_push(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Lets a user verify their own push subscription actually works end to
-    end — sends one real push through the browser's real push service right
-    now, rather than making them wait for a real event to trigger one."""
     if not push_configured():
-        raise ValidationAppError("Push notifications are not configured on this server.")
+        raise AppError("Push notifications are not configured on this server.")
     sent = await send_to_user(db, user_id=user.id, title="Test notification", body="Push notifications are working.", url="/settings")
     await db.commit()
     return {"sent": sent}

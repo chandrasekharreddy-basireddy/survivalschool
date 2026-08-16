@@ -65,6 +65,10 @@ class PushSubscribeIn(BaseModel):
     user_agent: str | None = None
 
 
+class PushSubscribeOut(BaseModel):
+    status: str
+
+
 class PushUnsubscribeIn(BaseModel):
     endpoint: str
 
@@ -129,7 +133,7 @@ async def get_vapid_public_key():
     return VapidPublicKeyOut(configured=push_configured(), public_key=settings.VAPID_PUBLIC_KEY if push_configured() else None)
 
 
-@router.post("/push/subscribe", status_code=201)
+@router.post("/push/subscribe", status_code=201, response_model=PushSubscribeOut)
 async def subscribe_push(payload: PushSubscribeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     if not push_configured():
         raise ValidationAppError("Push notifications are not configured on this server.")
@@ -138,7 +142,7 @@ async def subscribe_push(payload: PushSubscribeIn, user: User = Depends(get_curr
         p256dh=payload.keys.p256dh, auth=payload.keys.auth, user_agent=payload.user_agent,
     )
     await db.commit()
-    return {"status": "subscribed"}
+    return PushSubscribeOut(status="subscribed")
 
 
 @router.post("/push/unsubscribe")

@@ -20,12 +20,6 @@ export interface PushSupport {
   permission: NotificationPermission | "unsupported";
 }
 
-/** `navigator.serviceWorker.ready` never resolves at all if no service
- * worker ever successfully registers (e.g. registration failed silently,
- * or Serwist is disabled outside production — see
- * ServiceWorkerRegister.tsx) — without a bound, a user clicking "Enable"
- * would see a spinner that never finishes and no error, with no way to
- * know anything went wrong. */
 async function serviceWorkerReadyOrTimeout(timeoutMs = 8000): Promise<ServiceWorkerRegistration> {
   return Promise.race([
     navigator.serviceWorker.ready,
@@ -42,12 +36,6 @@ export function getPushSupport(): PushSupport {
   return { supported: true, permission: Notification.permission };
 }
 
-/** Requests notification permission (if not already decided), then
- * registers a real PushManager subscription against the browser's own push
- * service, and finally POSTs it to our backend — the exact three-step flow
- * every real Web Push integration does, no shortcuts. Throws with a
- * human-readable message on any failure (permission denied, VAPID not
- * configured server-side, etc.) so the caller can toast it. */
 export async function subscribeToPush(): Promise<void> {
   const support = getPushSupport();
   if (!support.supported) throw new Error("Push notifications aren't supported in this browser.");
@@ -82,4 +70,31 @@ export async function subscribeToPush(): Promise<void> {
       user_agent: navigator.userAgent,
     }),
   });
+}
+
+export async function unsubscribeFromPush(): Promise<void> {
+  if (!("serviceWorker" in navigator)) return;
+  const registration = await serviceWorkerReadyOrTimeout();
+  const subscription = await registration.pushManager.getSubscription();
+  if (!subscription) return;
+  const endpoint = subscription.endpoint;
+  await subscription.unsubscribe();
+  await apiFetch("/notifications/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint }) });
+}
+
+export async function isSubscribedToPush(): Promise<boolean> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return false;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return false;
+    const subscription = await registration.pushManager.getSubscription();
+    return !!subscription;
+  } catch {
+    return false;
+  }
+}
+
+export async function sendTestPush(): Promise<number> {
+  const res = await apiFetch<{ sent: number }>("/notifications/push/test", { method: "POST" });
+  return res.sent;
 }

@@ -16,7 +16,7 @@ def _lock_table(table_name: str) -> None:
     op.execute(f"DROP POLICY IF EXISTS deny_direct_api_access ON public.{table_name}")
     op.execute(
         f"CREATE POLICY deny_direct_api_access ON public.{table_name} "
-        "AS RESTRICTIVE FOR ALL TO anon, authenticated "
+        "AS RESTRICTIVE FOR ALL TO PUBLIC "
         "USING (false) WITH CHECK (false)"
     )
 

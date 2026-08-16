@@ -1,13 +1,8 @@
-"""Authenticated, authorized WebSocket chat (spec sections 19, 47).
+"""Authenticated, authorized WebSocket chat.
 
-Every connection must present a valid access token as a query param (browsers
-can't set custom headers on the WS handshake) and must be a member of the
-room it's joining — unauthorized rooms are rejected before `accept()`.
-Messages are always persisted to Postgres first, then broadcast; a client
-that misses the broadcast (dropped connection) can always recover full
-history via GET /api/v1/chat/rooms/{id}/messages, so the WebSocket is never
-the sole source of truth (spec: "Never rely solely on the WebSocket
-connection for message persistence.").
+Browser clients authenticate with the HttpOnly access cookie so JWTs are never
+placed in the WebSocket URL. A query token remains temporarily supported for
+legacy non-browser clients and can be removed after all clients migrate.
 """
 from __future__ import annotations
 
@@ -18,8 +13,10 @@ import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
+from app.core.auth_cookie import ACCESS_COOKIE
 from app.database import AsyncSessionLocal
 from app.models.social import ChatMember, ChatMessage, MessageRead
+from app.models.user import Session as SessionModel
 from app.security.tokens import decode_access_token
 from app.websockets.manager import manager
 
@@ -29,7 +26,7 @@ logger = structlog.get_logger("survivalschool.ws")
 
 @router.websocket("/ws/chat/{room_id}")
 async def chat_socket(websocket: WebSocket, room_id: uuid.UUID):
-    token = websocket.query_params.get("token")
+    token = websocket.cookies.get(ACCESS_COOKIE) or websocket.query_params.get("token")
     if not token:
         await websocket.close(code=4401, reason="Missing auth token")
         return
@@ -39,9 +36,22 @@ async def chat_socket(websocket: WebSocket, room_id: uuid.UUID):
         await websocket.close(code=4401, reason="Invalid token")
         return
 
-    user_id = uuid.UUID(payload["sub"])
+    if payload.get("type") != "access" or not payload.get("sid"):
+        await websocket.close(code=4401, reason="Invalid token")
+        return
+
+    try:
+        user_id = uuid.UUID(payload["sub"])
+        session_id = uuid.UUID(payload["sid"])
+    except (KeyError, ValueError, TypeError):
+        await websocket.close(code=4401, reason="Invalid token")
+        return
 
     async with AsyncSessionLocal() as db:
+        session_row = await db.get(SessionModel, session_id)
+        if session_row is None or session_row.revoked_at is not None:
+            await websocket.close(code=4401, reason="Session revoked")
+            return
         member = (await db.execute(
             select(ChatMember).where(ChatMember.room_id == room_id, ChatMember.user_id == user_id)
         )).scalar_one_or_none()
@@ -88,12 +98,6 @@ async def chat_socket(websocket: WebSocket, room_id: uuid.UUID):
                 message_id = data.get("message_id")
                 if not message_id:
                     continue
-                # Previously this only broadcast the event and never persisted
-                # it — MessageRead rows were written by the REST endpoint
-                # (POST /chat/rooms/{id}/messages/{id}/read) but nothing ever
-                # called it, so read receipts silently never survived a page
-                # reload. Persist here too, idempotently, so the two paths
-                # agree and a reload can recover read state.
                 try:
                     parsed_message_id = uuid.UUID(str(message_id))
                 except (ValueError, TypeError):

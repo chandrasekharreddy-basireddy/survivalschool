@@ -111,6 +111,26 @@ Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json"
 )
 
 
+@app.get("/health")
+async def health():
+    checks = {"database": False, "redis": False}
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(text("SELECT 1"))
+        checks["database"] = True
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={"status": "unhealthy", "checks": checks}) from exc
+
+    try:
+        redis = await get_redis()
+        await redis.ping()
+        checks["redis"] = True
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={"status": "unhealthy", "checks": checks}) from exc
+
+    return {"status": "healthy", "checks": checks, "version": settings.SERVICE_VERSION}
+
+
 @app.get("/")
 async def root():
     return {"service": settings.APP_NAME, "status": "running", "docs": "/api/docs", "health": "/health"}

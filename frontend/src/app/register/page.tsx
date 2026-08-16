@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
 
+interface RegistrationStatus {
+  is_open: boolean;
+  next_open_at: string | null;
+  message: string;
+}
+
 export default function RegisterPage() {
-  const router = useRouter();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,6 +18,26 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [emailDeliveryOk, setEmailDeliveryOk] = useState(true);
+  const [status, setStatus] = useState<RegistrationStatus | null>(null);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    apiFetch<RegistrationStatus>("/auth/registration-status", { auth: false })
+      .then(setStatus)
+      .catch(() => setStatus({ is_open: true, next_open_at: null, message: "Registration is available." }));
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const countdown = useMemo(() => {
+    if (!status?.next_open_at) return null;
+    const seconds = Math.max(0, Math.floor((new Date(status.next_open_at).getTime() - now) / 1000));
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${days}d ${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(secs).padStart(2, "0")}s`;
+  }, [status?.next_open_at, now]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,10 +49,6 @@ export default function RegisterPage() {
         auth: false,
         body: JSON.stringify({ full_name: fullName, email, password }),
       });
-      // The account is real and created either way -- email_delivery_ok only
-      // tells us whether the verification link actually got sent, so we
-      // don't tell the user to "check your inbox" when we know it's not
-      // there.
       setEmailDeliveryOk(res.email_delivery_ok);
       setDone(true);
     } catch (err) {
@@ -42,24 +62,22 @@ export default function RegisterPage() {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center px-6 text-center">
         <div className="card w-full">
-          {emailDeliveryOk ? (
-            <>
-              <h1 className="text-xl font-bold text-fg">Check your inbox</h1>
-              <p className="mt-2 text-sm text-fg-muted">
-                We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.
-              </p>
-            </>
-          ) : (
-            <>
-              <h1 className="text-xl font-bold text-fg">Account created</h1>
-              <p className="mt-2 text-sm text-red-700 dark:text-red-400">
-                Your account was created, but we couldn&apos;t send the verification email to{" "}
-                <span className="text-fg">{email}</span> right now. Use &quot;Resend verification email&quot; on the
-                verify-email page in a few minutes, or contact support if it keeps failing.
-              </p>
-            </>
-          )}
+          {emailDeliveryOk ? <><h1 className="text-xl font-bold text-fg">Check your inbox</h1><p className="mt-2 text-sm text-fg-muted">We sent a verification link to <span className="text-fg">{email}</span>. Click it to activate your account.</p></> : <><h1 className="text-xl font-bold text-fg">Account created</h1><p className="mt-2 text-sm text-red-700 dark:text-red-400">Your account was created, but we couldn&apos;t send the verification email to <span className="text-fg">{email}</span> right now.</p></>}
           <Link href="/login" className="btn-primary mt-6 w-full">Go to sign in</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (status && !status.is_open) {
+    return (
+      <div className="mx-auto flex min-h-[70vh] max-w-lg flex-col justify-center px-6 py-16 text-center">
+        <div className="section-card">
+          <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-brand-400">Registration window</p>
+          <h1 className="mt-2 text-2xl font-bold text-fg">Signups are closed right now</h1>
+          <p className="mt-3 text-sm text-fg-muted">{status.message}</p>
+          {countdown && <p className="mt-6 font-mono text-lg font-bold text-teal-300" aria-live="polite">Next opening: {countdown}</p>}
+          <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center"><Link href="/login" className="btn-secondary">Sign in</Link><Link href="/courses" className="btn-primary">Browse courses</Link></div>
         </div>
       </div>
     );
@@ -68,31 +86,15 @@ export default function RegisterPage() {
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-6 py-16">
       <h1 className="text-2xl font-bold text-fg">Create your account</h1>
-      <p className="mt-1 text-sm text-fg-muted">Start learning in minutes.</p>
-
+      <p className="mt-1 text-sm text-fg-muted">Registration is open on Thursdays (IST).</p>
       <form onSubmit={onSubmit} className="mt-8 space-y-5">
-        <div>
-          <label className="label" htmlFor="full_name">Full name</label>
-          <input id="full_name" required className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        </div>
-        <div>
-          <label className="label" htmlFor="email">Email</label>
-          <input id="email" type="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} />
-        </div>
-        <div>
-          <label className="label" htmlFor="password">Password</label>
-          <input id="password" type="password" required minLength={10} className="input" value={password} onChange={(e) => setPassword(e.target.value)} />
-          <p className="mt-1 text-xs text-fg-subtle">At least 10 characters, with uppercase, lowercase, a digit, and a symbol.</p>
-        </div>
+        <div><label className="label" htmlFor="full_name">Full name</label><input id="full_name" required className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
+        <div><label className="label" htmlFor="email">Email</label><input id="email" type="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+        <div><label className="label" htmlFor="password">Password</label><input id="password" type="password" required minLength={10} className="input" value={password} onChange={(e) => setPassword(e.target.value)} /><p className="mt-1 text-xs text-fg-subtle">At least 10 characters, with uppercase, lowercase, a digit, and a symbol.</p></div>
         {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}
-        <button type="submit" disabled={submitting} className="btn-primary w-full">
-          {submitting ? "Creating account…" : "Create account"}
-        </button>
+        <button type="submit" disabled={submitting || status === null} className="btn-primary w-full">{submitting ? "Creating account…" : "Create account"}</button>
       </form>
-
-      <p className="mt-6 text-center text-sm text-fg-muted">
-        Already have an account? <Link href="/login" className="text-brand-600 underline dark:text-brand-400">Sign in</Link>
-      </p>
+      <p className="mt-6 text-center text-sm text-fg-muted">Already have an account? <Link href="/login" className="text-brand-600 underline dark:text-brand-400">Sign in</Link></p>
     </div>
   );
 }

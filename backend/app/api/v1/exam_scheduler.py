@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import uuid
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.dependencies import require_permission
+from app.models.scheduling import ScheduledExamConfig
+from app.models.user import User
+
+router = APIRouter(prefix="/exams", tags=["exams"])
+
+
+class ScheduledExamConfigIn(BaseModel):
+    day_of_week: int = Field(ge=5, le=6, description="Saturday=5, Sunday=6")
+    time_slot: str = Field(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    duration_minutes: int = Field(ge=15, le=240)
+    question_count: int = Field(ge=1, le=50)
+    auto_certificate_top_n: int = Field(ge=0, le=10)
+    course_id: uuid.UUID
+    difficulty: str = Field(default="mixed", max_length=30)
+    title_prefix: str = Field(default="Weekend AI Exam", max_length=120)
+    is_active: bool = True
+
+
+class ScheduledExamConfigOut(ScheduledExamConfigIn):
+    id: uuid.UUID
+    last_occurrence_key: str | None
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/schedules", response_model=list[ScheduledExamConfigOut])
+async def list_schedules(user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(select(ScheduledExamConfig).order_by(ScheduledExamConfig.day_of_week, ScheduledExamConfig.time_slot))).scalars().all()
+    return rows
+
+
+@router.post("/schedules", response_model=ScheduledExamConfigOut, status_code=201)
+async def create_schedule(payload: ScheduledExamConfigIn, user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
+    config = ScheduledExamConfig(**payload.model_dump())
+    db.add(config)
+    await db.commit()
+    await db.refresh(config)
+    return config
+
+
+@router.patch("/schedules/{schedule_id}", response_model=ScheduledExamConfigOut)
+async def update_schedule(schedule_id: uuid.UUID, payload: ScheduledExamConfigIn, user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
+    config = await db.get(ScheduledExamConfig, schedule_id)
+    if config is None:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Scheduled exam configuration not found.")
+    for key, value in payload.model_dump().items():
+        setattr(config, key, value)
+    await db.commit()
+    await db.refresh(config)
+    return config

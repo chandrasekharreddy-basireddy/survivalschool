@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 export default function ErrorBoundary({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
+    // eslint-disable-next-line no-console
     console.error("Unhandled page error:", error);
   }, [error]);
 

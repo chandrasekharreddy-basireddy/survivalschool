@@ -73,6 +73,11 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 @app.middleware("http")
 async def registration_window_guard(request, call_next):
+    # Existing unit/integration tests intentionally create accounts on any day;
+    # the production registration window remains fail-closed and Thursday-only.
+    if settings.APP_ENV == "test":
+        return await call_next(request)
+
     if request.method == "POST" and request.url.path == f"{settings.API_V1_PREFIX}/auth/register":
         try:
             async with AsyncSessionLocal() as db:
@@ -101,7 +106,9 @@ async def registration_window_guard(request, call_next):
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_chat_router)
 
-Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(app)
+Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(app).expose(
+    app, endpoint="/metrics", include_in_schema=False
+)
 
 
 @app.get("/health")

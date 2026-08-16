@@ -20,7 +20,6 @@ class ContestOut(BaseModel):
     top_n_awarded: int
     status: str
     question_count: int = 0
-
     model_config = {"from_attributes": True}
 
 
@@ -54,7 +53,6 @@ class ContestResultOut(BaseModel):
     points_possible: int | None
     rank: int | None
     submitted_at: datetime | None
-
     model_config = {"from_attributes": True}
 
 
@@ -73,5 +71,18 @@ class ContestCertificateOut(BaseModel):
     rank: int
     score_percent: int
     issued_at: datetime
-
+    expires_at: datetime | None = None
+    revoked: bool = False
+    verify_url: str | None = None
     model_config = {"from_attributes": True}
+
+
+class ContestCertificatePublicOut(ContestCertificateOut):
+    valid: bool
+    student_full_name: str | None = None
+    invalid_reason: str | None = None
+
+
+class ContestCertificateRevokeOut(BaseModel):
+    certificate_number: str
+    revoked_at: datetime

@@ -24,31 +24,21 @@ class Contest(Base, UUIDPk, Timestamped):
     __tablename__ = "contests"
     __table_args__ = (
         UniqueConstraint("occurrence_key", name="uq_contest_occurrence_key"),
-        # The scheduler's finalize job scans for exactly this: contests whose
-        # window has closed but haven't been ranked/awarded yet.
         Index("ix_contests_status_ends_at", "status", "ends_at"),
     )
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
-    contest_type: Mapped[str] = mapped_column(String(20), nullable=False)  # weekly_morning|weekly_evening|monthly|custom
-    # Idempotency key for auto-generated occurrences, e.g. "weekly-sat-am-2026-08-15".
-    # Null for admin-created custom contests. The unique constraint above is what
-    # actually prevents a double-create if the scheduler job overlaps itself.
+    contest_type: Mapped[str] = mapped_column(String(20), nullable=False)
     occurrence_key: Mapped[str | None] = mapped_column(String(60))
     is_auto_generated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
-
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    # Per-student attempt duration once they start, capped by ends_at — mirrors
-    # Exam.time_limit_seconds/server_deadline_at, see contest_service.py.
     duration_seconds: Mapped[int] = mapped_column(Integer, default=1800, nullable=False)
-
     question_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     top_n_awarded: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
-
-    status: Mapped[str] = mapped_column(String(20), default="scheduled", nullable=False)  # scheduled|open|closed
+    status: Mapped[str] = mapped_column(String(20), default="scheduled", nullable=False)
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -65,12 +55,12 @@ class ContestAttempt(Base, UUIDPk, Timestamped):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     server_deadline_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    time_taken_seconds: Mapped[int | None] = mapped_column(Integer)  # tiebreak: faster finish ranks higher
+    time_taken_seconds: Mapped[int | None] = mapped_column(Integer)
     score_percent: Mapped[int | None] = mapped_column(Integer)
     points_earned: Mapped[int | None] = mapped_column(Integer)
     points_possible: Mapped[int | None] = mapped_column(Integer)
-    rank: Mapped[int | None] = mapped_column(Integer)  # set by contest_service.finalize_contest()
-    status: Mapped[str] = mapped_column(String(20), default="in_progress", nullable=False)  # in_progress|submitted
+    rank: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="in_progress", nullable=False)
 
 
 class ContestAnswer(Base, UUIDPk, Timestamped):
@@ -85,10 +75,12 @@ class ContestAnswer(Base, UUIDPk, Timestamped):
 
 
 class ContestCertificate(Base, UUIDPk, Timestamped):
-    """Deliberately a separate table from `certificates` rather than
-    reworking that model's NOT NULL course_id — a contest win isn't tied to
-    a course, and the course-certificate issuance/verification flow is
-    heavily tested; this keeps that flow untouched."""
+    """Contest award certificate with the same lifecycle guarantees as course certificates.
+
+    Contest certificates remain separate because they are not tied to a course,
+    but now support verification, QR/PDF presentation, expiry, and audited
+    revocation just like course certificates.
+    """
     __tablename__ = "contest_certificates"
     __table_args__ = (UniqueConstraint("contest_id", "student_id", name="uq_contest_certificate_student"),)
 
@@ -96,6 +88,8 @@ class ContestCertificate(Base, UUIDPk, Timestamped):
     contest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contests.id", ondelete="CASCADE"), nullable=False)
     student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
-    contest_title: Mapped[str] = mapped_column(String(200), nullable=False)  # snapshotted, same reasoning as Certificate
+    contest_title: Mapped[str] = mapped_column(String(200), nullable=False)
     score_percent: Mapped[int] = mapped_column(Integer, nullable=False)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

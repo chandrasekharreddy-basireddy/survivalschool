@@ -2,7 +2,34 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1 import admin, ai, ai_practice, analytics, attendance, auth, certificates, challenges, chat, contests, courses, discussions, exam_scheduler, exam_security, exams, files, gamification, health, lessons, notifications, practice, quizzes, registration, search, timetable, users
+from app.api.v1 import (
+    admin,
+    ai,
+    ai_practice,
+    analytics,
+    attendance,
+    auth,
+    certificates,
+    challenges,
+    chat,
+    contests,
+    courses,
+    discussions,
+    exam_scheduler,
+    exam_security,
+    exams,
+    files,
+    gamification,
+    health,
+    lessons,
+    notifications,
+    practice,
+    quizzes,
+    registration,
+    search,
+    timetable,
+    users,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)

@@ -1,118 +1,57 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-:root {
-  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  color-scheme: light;
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
 
-  /* Light theme — warm, clean neutral palette (default). Values are
-   * space-separated RGB triplets so Tailwind's alpha-value opacity
-   * modifiers (bg-ink-900/40) keep working. */
-  --bg-0: 247 247 245;      /* page background */
-  --bg-1: 255 255 255;      /* card / panel background */
-  --bg-2: 240 240 238;      /* hover / elevated surface */
-  --border-c: 229 229 224;  /* standard border */
-  --border-strong: 209 209 201;
-  --fg-0: 26 26 26;         /* primary text */
-  --fg-1: 87 83 78;         /* secondary text */
-  /* tertiary / hint text — darkened from the original 138/133/128 (a real
-   * WCAG 2.1 AA failure caught by an automated axe-core scan: 3.41:1
-   * against this background, below the 4.5:1 minimum for normal text).
-   * This value gives 4.7:1. */
-  --fg-2: 115 110 106;
-}
-
-.dark {
-  color-scheme: dark;
-
-  /* Dark theme — near-black with a faint red tint (Squid Game-inspired),
-   * replacing the previous indigo-tinted ink palette. Verified AA: fg-0
-   * (near-white) against bg-0 is 16.9:1; fg-2 (dimmest tier) is checked the
-   * same way as before -- see brand palette comment in tailwind.config.ts
-   * for the button/accent contrast numbers. */
-  --bg-0: 10 8 10;
-  --bg-1: 18 14 16;
-  --bg-2: 28 20 22;
-  --border-c: 46 26 28;
-  --border-strong: 74 34 37;
-  --fg-0: 245 240 240;
-  --fg-1: 214 200 200;
-  --fg-2: 158 138 138;
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+  }
 }
 
 @layer base {
-  body {
-    @apply bg-ink-950 text-fg antialiased;
-  }
-  ::selection {
-    @apply bg-brand-500/40;
-  }
-  /* Theme changes (and only theme changes) transition smoothly; layout/interaction
-   * properties are left alone so this never adds lag to hover/focus states. */
   * {
-    transition-property: background-color, border-color, color, box-shadow;
-    transition-duration: 150ms;
+    @apply border-border;
   }
-}
-
-@layer components {
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400 disabled:cursor-not-allowed disabled:opacity-50;
+  body {
+    @apply bg-background text-foreground;
   }
-  .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-ink-700 bg-ink-900 px-5 py-2.5 text-sm font-semibold text-fg transition hover:bg-ink-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400;
-  }
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-fg-muted transition hover:bg-ink-900 hover:text-fg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-400;
-  }
-  .card {
-    @apply rounded-xl2 border border-ink-700 bg-ink-900/70 p-6 shadow-soft dark:shadow-soft-dark;
-  }
-  .input {
-    @apply w-full rounded-lg border border-ink-700 bg-ink-950 px-4 py-2.5 text-sm text-fg placeholder:text-fg-subtle focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500;
-  }
-  .label {
-    @apply mb-1.5 block text-sm font-medium text-fg-muted;
-  }
-  .badge {
-    @apply inline-flex items-center gap-1 rounded-full border border-ink-700 bg-ink-900 px-2.5 py-1 text-xs font-medium text-fg-muted;
-  }
-
-  /* Renders the AI tutor's markdown replies as readable rich text instead of
-     a raw wall of "###", "**", and fenced ```code```. Scoped to
-     .markdown-body so it never affects the rest of the app. Spacing is the
-     important part: without it, react-markdown's block elements collapse
-     together and read as one merged paragraph. */
-  .markdown-body {
-    @apply leading-relaxed;
-  }
-  .markdown-body > :first-child { @apply mt-0; }
-  .markdown-body > :last-child { @apply mb-0; }
-  .markdown-body p { @apply my-3; }
-  .markdown-body h1 { @apply mb-2 mt-5 text-lg font-bold text-fg; }
-  .markdown-body h2 { @apply mb-2 mt-5 text-base font-bold text-fg; }
-  .markdown-body h3 { @apply mb-1.5 mt-4 text-sm font-bold uppercase tracking-wide text-fg-muted; }
-  .markdown-body h4 { @apply mb-1.5 mt-4 text-sm font-semibold text-fg; }
-  .markdown-body ul { @apply my-3 list-disc space-y-1 pl-5; }
-  .markdown-body ol { @apply my-3 list-decimal space-y-1 pl-5; }
-  .markdown-body li { @apply pl-1; }
-  .markdown-body strong { @apply font-semibold text-fg; }
-  .markdown-body a { @apply text-brand-500 underline underline-offset-2 dark:text-brand-400; }
-  .markdown-body blockquote { @apply my-3 border-l-2 border-ink-700 pl-3 text-fg-muted; }
-  /* inline code */
-  .markdown-body :not(pre) > code {
-    @apply rounded bg-ink-950 px-1.5 py-0.5 font-mono text-[0.85em] text-brand-400;
-  }
-  /* fenced code blocks */
-  .markdown-body pre {
-    @apply my-3 overflow-x-auto rounded-lg border border-ink-700 bg-ink-950 p-3;
-  }
-  .markdown-body pre code {
-    @apply block font-mono text-[0.85em] leading-relaxed text-fg;
-  }
-  .markdown-body table { @apply my-3 w-full border-collapse text-left text-xs; }
-  .markdown-body th, .markdown-body td { @apply border border-ink-700 px-2 py-1; }
-  .markdown-body th { @apply bg-ink-900 font-semibold; }
-  .markdown-body hr { @apply my-4 border-ink-700; }
 }

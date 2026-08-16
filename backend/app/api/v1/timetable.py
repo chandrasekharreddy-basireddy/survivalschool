@@ -4,7 +4,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AuthorizationError, NotFoundError, ValidationAppError
@@ -49,11 +49,6 @@ async def create_entry(
     db: AsyncSession = Depends(get_db),
 ):
     course = await _require_course_ownership(db, user, payload.course_id)
-    # The entry's instructor is whoever actually teaches the course, not
-    # necessarily the caller — an ADMIN with system.manage can create/edit
-    # timetable entries on an instructor's behalf, in which case the entry
-    # should still be attributed to the real instructor for conflict
-    # detection and for that instructor's own /timetable/me view to work.
     instructor_id = course.instructor_id
     await check_conflict(
         db, instructor_id=instructor_id, room=payload.room, term=payload.term,
@@ -141,18 +136,28 @@ async def delete_entry(
     return MessageResponse(message="Timetable entry deleted.")
 
 
-async def _my_course_ids(db: AsyncSession, user: User) -> list[uuid.UUID]:
-    """A student's timetable is derived from their active enrollments; an
-    instructor's is derived from the courses they teach — there is no
-    separate per-student schedule table (see TimetableEntry's docstring)."""
-    if user.has_role("INSTRUCTOR") or user.has_permission("system.manage"):
-        taught = (await db.execute(select(Course.id).where(Course.instructor_id == user.id))).scalars().all()
-        if taught:
-            return list(taught)
-    enrolled = (await db.execute(
-        select(Enrollment.course_id).where(Enrollment.student_id == user.id, Enrollment.status == "active")
-    )).scalars().all()
-    return list(enrolled)
+async def _personal_timetable_stmt(db: AsyncSession, user: User, term: str | None):
+    """Build the personal timetable query directly from ownership/enrollment.
+
+    The query intentionally uses a correlated EXISTS rather than first loading
+    course IDs into Python. This keeps the relationship in one database
+    statement and avoids stale/intermediate identity state between reads.
+    """
+    enrolled_course_ids = select(Enrollment.course_id).where(
+        Enrollment.student_id == user.id,
+        Enrollment.status.in_(("active", "completed")),
+    )
+    stmt = select(TimetableEntry).where(
+        or_(
+            TimetableEntry.instructor_id == user.id,
+            TimetableEntry.course_id.in_(enrolled_course_ids),
+        )
+    )
+    if term:
+        stmt = stmt.where(TimetableEntry.term == term)
+    else:
+        stmt = stmt.where(TimetableEntry.term_end_date >= date.today())
+    return stmt
 
 
 @router.get("/me", response_model=list[TimetableEntryOut])
@@ -161,15 +166,7 @@ async def my_timetable(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    course_ids = await _my_course_ids(db, user)
-    if not course_ids:
-        return []
-    stmt = select(TimetableEntry).where(TimetableEntry.course_id.in_(course_ids))
-    if term:
-        stmt = stmt.where(TimetableEntry.term == term)
-    else:
-        today = date.today()
-        stmt = stmt.where(TimetableEntry.term_end_date >= today)
+    stmt = await _personal_timetable_stmt(db, user, term)
     entries = (await db.execute(stmt.order_by(TimetableEntry.day_of_week, TimetableEntry.start_time))).scalars().all()
     return [await _to_out(db, e) for e in entries]
 
@@ -180,15 +177,8 @@ async def export_my_timetable_ics(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    course_ids = await _my_course_ids(db, user)
-    entries: list[TimetableEntry] = []
-    if course_ids:
-        stmt = select(TimetableEntry).where(TimetableEntry.course_id.in_(course_ids))
-        if term:
-            stmt = stmt.where(TimetableEntry.term == term)
-        else:
-            stmt = stmt.where(TimetableEntry.term_end_date >= date.today())
-        entries = list((await db.execute(stmt)).scalars().all())
+    stmt = await _personal_timetable_stmt(db, user, term)
+    entries = list((await db.execute(stmt.order_by(TimetableEntry.day_of_week, TimetableEntry.start_time))).scalars().all())
 
     course_titles = {}
     for cid in {e.course_id for e in entries}:

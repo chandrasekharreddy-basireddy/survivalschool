@@ -108,11 +108,11 @@ async def test_student_personal_timetable_and_ics_export(client):
 
     await client.post("/timetable", json={
         "course_id": enrolled_course, "term": "2026-Fall", "term_start_date": "2026-08-24", "term_end_date": "2026-12-12",
-        "day_of_week": 0, "start_time": "09:00:00", "end_time": "10:00:00", "room": "R1",
+        "day_of_week": 0, "start_time": "09:00:00", "end_time": "10:00:00", "room": "Student TT Room 1",
     }, headers=instructor)
     await client.post("/timetable", json={
         "course_id": other_course, "term": "2026-Fall", "term_start_date": "2026-08-24", "term_end_date": "2026-12-12",
-        "day_of_week": 1, "start_time": "09:00:00", "end_time": "10:00:00", "room": "R2",
+        "day_of_week": 1, "start_time": "09:00:00", "end_time": "10:00:00", "room": "Student TT Room 2",
     }, headers=instructor)
 
     _, student = await auth_headers(client)

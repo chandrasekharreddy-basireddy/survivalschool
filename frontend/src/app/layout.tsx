@@ -22,9 +22,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <head>
-        {/* Must run before first paint to avoid a flash of the wrong theme —
-            see NO_FLASH_THEME_SCRIPT's own comment in lib/theme.tsx for why
-            this can't just be a useEffect in ThemeProvider. */}
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_THEME_SCRIPT }} />
       </head>
       <body>
@@ -34,7 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <NavBar />
               <AnalyticsTracker />
               <ServiceWorkerRegister />
-              <main className="min-h-screen">{children}</main>
+              <main className="safe-area-x min-h-screen">{children}</main>
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>

@@ -20,7 +20,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.social import ChatMember, ChatMessage, MessageRead
-from app.models.system import Session as SessionModel
+from app.models.user import Session as SessionModel
 from app.security.tokens import decode_access_token
 from app.websockets.manager import manager
 

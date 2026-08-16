@@ -20,6 +20,7 @@ from sqlalchemy import select
 
 from app.database import AsyncSessionLocal
 from app.models.social import ChatMember, ChatMessage, MessageRead
+from app.models.system import Session as SessionModel
 from app.security.tokens import decode_access_token
 from app.websockets.manager import manager
 
@@ -39,9 +40,25 @@ async def chat_socket(websocket: WebSocket, room_id: uuid.UUID):
         await websocket.close(code=4401, reason="Invalid token")
         return
 
+    # V-07: Validate token type and session revocation — prevents use of
+    # refresh tokens or revoked-session tokens for WebSocket connections.
+    if payload.get("type") != "access":
+        await websocket.close(code=4401, reason="Invalid token type")
+        return
+
     user_id = uuid.UUID(payload["sub"])
+    session_id = payload.get("sid")
+    if not session_id:
+        await websocket.close(code=4401, reason="Malformed token")
+        return
 
     async with AsyncSessionLocal() as db:
+        # Check session not revoked
+        session_row = await db.get(SessionModel, uuid.UUID(session_id))
+        if session_row is None or session_row.revoked_at is not None:
+            await websocket.close(code=4401, reason="Session has been revoked")
+            return
+
         member = (await db.execute(
             select(ChatMember).where(ChatMember.room_id == room_id, ChatMember.user_id == user_id)
         )).scalar_one_or_none()

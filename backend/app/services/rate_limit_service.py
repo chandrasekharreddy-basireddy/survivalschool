@@ -16,7 +16,7 @@ from app.redis_client import get_redis
 logger = structlog.get_logger("survivalschool.ratelimit")
 
 
-async def enforce_rate_limit(key: str, *, limit: int, window_seconds: int) -> None:
+async def enforce_rate_limit(key: str, *, limit: int, window_seconds: int, fail_closed: bool = False) -> None:
     try:
         client = get_redis()
         redis_key = f"ratelimit:{key}"
@@ -31,5 +31,11 @@ async def enforce_rate_limit(key: str, *, limit: int, window_seconds: int) -> No
     except RateLimitedError:
         raise
     except Exception:
+        if fail_closed:
+            logger.warning("rate_limit_fail_closed", key=key)
+            raise RateLimitedError(
+                "Unable to verify rate limit. Please try again later.",
+                details={"limit": limit, "window_seconds": window_seconds},
+            )
         logger.warning("rate_limit_degraded_open", key=key)
         return

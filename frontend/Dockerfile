@@ -17,18 +17,19 @@ RUN npm run build
 
 FROM node:26-slim AS runtime
 WORKDIR /app
-# node:26-slim already reserves low system IDs, including GID/UID 1000.
-# Use a dedicated unprivileged application identity that is stable across CI.
-RUN groupadd --gid 10001 appuser && useradd --uid 10001 --gid appuser --shell /bin/bash --create-home appuser
+# node:26-slim already ships a 'node' user with uid/gid 1000 — creating a
+# new group/user with the same IDs causes 'groupadd: GID '1000' already exists'.
+# Use the existing 'node' user instead.
+RUN mkdir -p /home/node && chown -R node:node /home/node
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 
-COPY --from=builder --chown=appuser:appuser /app/.next ./.next
-COPY --from=builder --chown=appuser:appuser /app/public ./public
-COPY --from=builder --chown=appuser:appuser /app/package.json ./package.json
-COPY --from=builder --chown=appuser:appuser /app/node_modules ./node_modules
-COPY --from=builder --chown=appuser:appuser /app/next.config.mjs ./next.config.mjs
+COPY --from=builder --chown=node:node /app/.next ./.next
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/next.config.mjs ./next.config.mjs
 
-USER appuser
+USER node
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

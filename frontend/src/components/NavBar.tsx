@@ -6,38 +6,20 @@ import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBar } from "@/components/SearchBar";
 
+const navLinkClass = "rounded-md px-2 py-1.5 transition-colors hover:bg-ink-900/70 hover:text-fg";
+
 export function NavBar() {
   const { user, loading, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-ink-800 bg-ink-950/80 backdrop-blur">
-      <nav className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-3 sm:px-5">
-        <Link href="/" className="flex shrink-0 items-center gap-2 text-lg font-bold tracking-tight text-fg">
-          <span className="inline-flex h-8 w-8 items-center justify-center">
-            <svg viewBox="0 0 200 200" fill="none" className="h-8 w-8" aria-hidden="true">
-              <defs>
-                <linearGradient id="navCap" x1="40" y1="60" x2="160" y2="120" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#59f0d0" /><stop offset=".5" stopColor="#4d7dff" /><stop offset="1" stopColor="#a838ff" />
-                </linearGradient>
-                <linearGradient id="navBase" x1="70" y1="110" x2="130" y2="150" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#4d7dff" /><stop offset="1" stopColor="#8a2be0" />
-                </linearGradient>
-                <linearGradient id="navSpark" x1="140" y1="120" x2="170" y2="160" gradientUnits="userSpaceOnUse">
-                  <stop stopColor="#ffd23f" /><stop offset="1" stopColor="#ff7a2d" />
-                </linearGradient>
-                <radialGradient id="navBg" cx="50%" cy="42%" r="72%">
-                  <stop offset="0%" stopColor="#141018" /><stop offset="100%" stopColor="#060409" />
-                </radialGradient>
-              </defs>
-              <rect x="18" y="18" width="164" height="164" rx="42" fill="url(#navBg)" stroke="url(#navCap)" strokeWidth="3" />
-              <g stroke="#0a070c" strokeWidth="1" strokeLinejoin="round">
-                <path d="M100 52 L168 84 L100 116 L32 84 Z" fill="url(#navCap)" />
-                <path d="M64 100 V128 C64 140 84 150 100 150 C116 150 136 140 136 128 V100 L100 116 Z" fill="url(#navBase)" />
-                <path d="M168 84 V120" stroke="#ffd23f" strokeWidth="3" fill="none" />
-                <circle cx="168" cy="126" r="7" fill="url(#navSpark)" />
-              </g>
-              <path d="M52 128 l3 8 l8 3 l-8 3 l-3 8 l-3 -8 l-8 -3 l8 -3 Z" fill="#ffd23f" />
+    <header className="sticky top-0 z-40 border-b border-ink-800/90 bg-ink-950/95 backdrop-blur">
+      <nav className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-2.5 sm:px-5">
+        <Link href="/" className="flex shrink-0 items-center gap-2 text-base font-semibold tracking-tight text-fg">
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-ink-700 bg-ink-900">
+            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
+              <path d="M4 10.5 12 6l8 4.5-8 4.5-8-4.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+              <path d="M7 13.5V16c0 1.4 2.2 2.8 5 2.8s5-1.4 5-2.8v-2.5M20 10.5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
           <span className="hidden sm:inline">Survival School</span>
@@ -47,49 +29,35 @@ export function NavBar() {
           <SearchBar />
         </div>
 
-        <div className="hidden items-center gap-4 text-sm text-fg-muted lg:flex">
-          <Link href="/courses" className="hover:text-fg">Courses</Link>
-          <Link href="/contests" className="hover:text-fg">Contests</Link>
-          {user && <Link href="/dashboard" className="hover:text-fg">Dashboard</Link>}
-          {user && <Link href="/timetable" className="hover:text-fg">Timetable</Link>}
-          {user && <Link href="/daily-challenge" className="hover:text-fg">Daily Challenge</Link>}
-          {user && <Link href="/practice" className="hover:text-fg">Practice</Link>}
-          {user && <Link href="/ai-practice" className="hover:text-fg">AI Practice</Link>}
-          {user && <Link href="/leaderboard" className="hover:text-fg">Leaderboard</Link>}
-          {user && <Link href="/chat" className="hover:text-fg">Chat</Link>}
-          {user && <Link href="/ai-assistant" className="hover:text-fg">AI Tutor</Link>}
-          {user?.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)) && (
-            <Link href="/instructor/courses" className="hover:text-fg">Instructor</Link>
-          )}
-          {user?.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)) && (
-            <Link href="/admin" className="hover:text-fg">Admin</Link>
-          )}
+        <div className="hidden items-center gap-1 text-sm text-fg-muted lg:flex">
+          <Link href="/courses" className={navLinkClass}>Courses</Link>
+          <Link href="/contests" className={navLinkClass}>Contests</Link>
+          {user && <Link href="/dashboard" className={navLinkClass}>Dashboard</Link>}
+          {user && <Link href="/timetable" className={navLinkClass}>Timetable</Link>}
+          {user && <Link href="/practice" className={navLinkClass}>Practice</Link>}
+          {user && <Link href="/leaderboard" className={navLinkClass}>Leaderboard</Link>}
+          {user && <Link href="/chat" className={navLinkClass}>Chat</Link>}
+          {user && <Link href="/ai-practice" className={navLinkClass}>AI Practice</Link>}
+          {user && <Link href="/ai-assistant" className={navLinkClass}>AI Tutor</Link>}
+          {user?.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/instructor/courses" className={navLinkClass}>Instructor</Link>}
+          {user?.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/admin" className={navLinkClass}>Admin</Link>}
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2">
           <ThemeToggle />
           {loading ? null : user ? (
             <>
-              <Link href="/notifications" className="hidden text-fg-muted hover:text-fg sm:inline" aria-label="Notifications">
-                <BellIcon />
-              </Link>
-              <Link href="/profile" className="hidden text-sm text-fg-muted hover:text-fg lg:inline">{user.full_name}</Link>
-              <button onClick={() => logout()} className="btn-secondary hidden !px-4 !py-2 sm:inline-flex">
-                Sign out
-              </button>
+              <Link href="/notifications" className="hidden rounded-md p-2 text-fg-muted hover:bg-ink-900/70 hover:text-fg sm:inline-flex" aria-label="Notifications"><BellIcon /></Link>
+              <Link href="/profile" className="hidden max-w-32 truncate rounded-md px-2 py-1.5 text-sm text-fg-muted hover:bg-ink-900/70 hover:text-fg lg:inline" title={user.full_name}>{user.full_name}</Link>
+              <button onClick={() => logout()} className="btn-secondary hidden !min-h-9 !px-3 !py-1.5 sm:inline-flex">Sign out</button>
             </>
           ) : (
             <>
-              <Link href="/login" className="btn-secondary hidden !px-4 !py-2 sm:inline-flex">Sign in</Link>
-              <Link href="/register" className="btn-primary !px-4 !py-2">Get started</Link>
+              <Link href="/login" className="btn-secondary hidden !min-h-9 !px-3 !py-1.5 sm:inline-flex">Sign in</Link>
+              <Link href="/register" className="btn-primary !min-h-9 !px-3 !py-1.5">Get started</Link>
             </>
           )}
-          <button
-            onClick={() => setMobileOpen((v) => !v)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted hover:bg-ink-900 hover:text-fg lg:hidden"
-            aria-label="Toggle menu"
-            aria-expanded={mobileOpen}
-          >
+          <button onClick={() => setMobileOpen((v) => !v)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-fg-muted hover:bg-ink-900 hover:text-fg lg:hidden" aria-label="Toggle menu" aria-expanded={mobileOpen}>
             <MenuIcon open={mobileOpen} />
           </button>
         </div>
@@ -97,34 +65,25 @@ export function NavBar() {
 
       {mobileOpen && (
         <div className="border-t border-ink-800 px-3 py-3 sm:px-5 lg:hidden">
-          <div className="mb-3 md:hidden">
-            <SearchBar />
-          </div>
-          <div className="flex flex-col gap-2.5 text-sm text-fg-muted">
-            <Link href="/courses" onClick={() => setMobileOpen(false)} className="hover:text-fg">Courses</Link>
-            <Link href="/contests" onClick={() => setMobileOpen(false)} className="hover:text-fg">Contests</Link>
-            {user && <Link href="/dashboard" onClick={() => setMobileOpen(false)} className="hover:text-fg">Dashboard</Link>}
-            {user && <Link href="/timetable" onClick={() => setMobileOpen(false)} className="hover:text-fg">Timetable</Link>}
-            {user && <Link href="/daily-challenge" onClick={() => setMobileOpen(false)} className="hover:text-fg">Daily Challenge</Link>}
-            {user && <Link href="/practice" onClick={() => setMobileOpen(false)} className="hover:text-fg">Practice</Link>}
-            {user && <Link href="/ai-practice" onClick={() => setMobileOpen(false)} className="hover:text-fg">AI Practice</Link>}
-            {user && <Link href="/leaderboard" onClick={() => setMobileOpen(false)} className="hover:text-fg">Leaderboard</Link>}
-            {user && <Link href="/chat" onClick={() => setMobileOpen(false)} className="hover:text-fg">Chat</Link>}
-            {user && <Link href="/ai-assistant" onClick={() => setMobileOpen(false)} className="hover:text-fg">AI Tutor</Link>}
-            {user?.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)) && (
-              <Link href="/instructor/courses" onClick={() => setMobileOpen(false)} className="hover:text-fg">Instructor</Link>
-            )}
-            {user?.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)) && (
-              <Link href="/admin" onClick={() => setMobileOpen(false)} className="hover:text-fg">Admin</Link>
-            )}
+          <div className="mb-3 md:hidden"><SearchBar /></div>
+          <div className="flex flex-col gap-1 text-sm text-fg-muted">
+            <Link href="/courses" onClick={() => setMobileOpen(false)} className={navLinkClass}>Courses</Link>
+            <Link href="/contests" onClick={() => setMobileOpen(false)} className={navLinkClass}>Contests</Link>
+            {user && <Link href="/dashboard" onClick={() => setMobileOpen(false)} className={navLinkClass}>Dashboard</Link>}
+            {user && <Link href="/timetable" onClick={() => setMobileOpen(false)} className={navLinkClass}>Timetable</Link>}
+            {user && <Link href="/practice" onClick={() => setMobileOpen(false)} className={navLinkClass}>Practice</Link>}
+            {user && <Link href="/leaderboard" onClick={() => setMobileOpen(false)} className={navLinkClass}>Leaderboard</Link>}
+            {user && <Link href="/chat" onClick={() => setMobileOpen(false)} className={navLinkClass}>Chat</Link>}
+            {user && <Link href="/ai-practice" onClick={() => setMobileOpen(false)} className={navLinkClass}>AI Practice</Link>}
+            {user && <Link href="/ai-assistant" onClick={() => setMobileOpen(false)} className={navLinkClass}>AI Tutor</Link>}
+            {user?.roles.some((r) => ["INSTRUCTOR", "ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/instructor/courses" onClick={() => setMobileOpen(false)} className={navLinkClass}>Instructor</Link>}
+            {user?.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r)) && <Link href="/admin" onClick={() => setMobileOpen(false)} className={navLinkClass}>Admin</Link>}
             {user ? (
               <>
-                <Link href="/profile" onClick={() => setMobileOpen(false)} className="hover:text-fg">{user.full_name}</Link>
+                <Link href="/profile" onClick={() => setMobileOpen(false)} className={navLinkClass}>{user.full_name}</Link>
                 <button onClick={() => logout()} className="btn-secondary mt-1 justify-center">Sign out</button>
               </>
-            ) : (
-              <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-secondary mt-1 justify-center">Sign in</Link>
-            )}
+            ) : <Link href="/login" onClick={() => setMobileOpen(false)} className="btn-secondary mt-1 justify-center">Sign in</Link>}
           </div>
         </div>
       )}
@@ -133,21 +92,9 @@ export function NavBar() {
 }
 
 function BellIcon() {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="h-5 w-5">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
-    </svg>
-  );
+  return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="h-5 w-5"><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" /></svg>;
 }
 
 function MenuIcon({ open }: { open: boolean }) {
-  return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="h-5 w-5">
-      {open ? (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-      ) : (
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />
-      )}
-    </svg>
-  );
+  return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="h-5 w-5">{open ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /> : <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5M3.75 17.25h16.5" />}</svg>;
 }

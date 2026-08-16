@@ -32,6 +32,7 @@ from app.models.contest import Contest, ContestAttempt, ContestCertificate
 from app.models.lms import Course
 from app.models.user import User
 from app.services.cache_service import bump_cache_version, cache_delete
+from app.services.certificate_service import certificate_expiry
 from app.services.gamification_service import award_points
 from app.services.notification_service import create_notification
 
@@ -39,27 +40,21 @@ logger = structlog.get_logger("survivalschool.contests")
 
 IST = ZoneInfo("Asia/Kolkata")
 
-# (weekday: Mon=0..Sun=6, hour, minute, duration_minutes, slot_key, contest_type)
 WEEKLY_SLOTS = [
     (5, 9, 0, 90, "sat-am", "weekly_morning"),
     (5, 18, 0, 90, "sat-pm", "weekly_evening"),
     (6, 9, 0, 90, "sun-am", "weekly_morning"),
     (6, 18, 0, 90, "sun-pm", "weekly_evening"),
 ]
-MONTHLY_SLOT = (6, 9, 0, 120)  # first Sunday of the month, 9:00 IST, 2-hour window, bigger contest
-
+MONTHLY_SLOT = (6, 9, 0, 120)
 WEEKLY_QUESTION_COUNT = 15
 MONTHLY_QUESTION_COUNT = 30
-CONTEST_ATTEMPT_DURATION_SECONDS = 1800  # 30 minutes per student once they start
-
+CONTEST_ATTEMPT_DURATION_SECONDS = 1800
 POINTS_CONTEST_FINISH = 15
 POINTS_CONTEST_TOP3 = 50
 
 
 async def select_contest_questions(db: AsyncSession, count: int) -> list[uuid.UUID]:
-    """Random sample of real questions from published, non-deleted courses.
-    Real content only — no AI generation anywhere near this path (see
-    module docstring)."""
     rows = (await db.execute(
         select(Question.id)
         .join(Course, Course.id == Question.course_id)
@@ -67,24 +62,17 @@ async def select_contest_questions(db: AsyncSession, count: int) -> list[uuid.UU
     )).scalars().all()
     if not rows:
         return []
-    sample_size = min(count, len(rows))
-    return random.sample(list(rows), sample_size)
-
-
-def _next_occurrence_date(now_ist: datetime, weekday: int) -> date:
-    days_ahead = (weekday - now_ist.weekday()) % 7
-    return (now_ist + timedelta(days=days_ahead)).date()
+    return random.sample(list(rows), min(count, len(rows)))
 
 
 def _this_or_last_occurrence_date(now_ist: datetime, weekday: int) -> date:
-    """The most recent date (today or earlier this week) matching `weekday`."""
     days_since = (now_ist.weekday() - weekday) % 7
     return (now_ist - timedelta(days=days_since)).date()
 
 
 def _first_sunday_of_month(now_ist: datetime) -> date:
     first_of_month = now_ist.date().replace(day=1)
-    offset = (6 - first_of_month.weekday()) % 7  # 6 = Sunday
+    offset = (6 - first_of_month.weekday()) % 7
     return first_of_month + timedelta(days=offset)
 
 
@@ -95,12 +83,10 @@ async def _create_if_missing(
     existing = (await db.execute(select(Contest).where(Contest.occurrence_key == occurrence_key))).scalar_one_or_none()
     if existing is not None:
         return None
-
     question_ids = await select_contest_questions(db, question_count)
     if not question_ids:
         logger.warning("contest_skipped_no_questions", occurrence_key=occurrence_key)
         return None
-
     contest = Contest(
         title=title, description=description, contest_type=contest_type,
         occurrence_key=occurrence_key, is_auto_generated=True, created_by=None,
@@ -112,27 +98,18 @@ async def _create_if_missing(
             db.add(contest)
             await db.flush()
     except IntegrityError:
-        # Lost a race with another worker tick / replica creating the same
-        # occurrence at the same time — completely normal, not an error.
         return None
     await bump_cache_version("contests_list")
     return contest
 
 
 async def check_and_create_scheduled_contests(db: AsyncSession) -> list[Contest]:
-    """Idempotent — safe to call every worker tick. Creates any weekly/monthly
-    contest occurrence whose scheduled start has just arrived (or recently
-    passed, e.g. if the worker was briefly down) and doesn't exist yet."""
     now_ist = datetime.now(IST)
     created: list[Contest] = []
-
     for weekday, hour, minute, duration_minutes, slot_key, contest_type in WEEKLY_SLOTS:
         occurrence_date = _this_or_last_occurrence_date(now_ist, weekday)
         slot_start = datetime.combine(occurrence_date, datetime.min.time(), tzinfo=IST).replace(hour=hour, minute=minute)
         slot_end = slot_start + timedelta(minutes=duration_minutes)
-        # Only create once we've actually reached the slot's start time, and
-        # only within a reasonable catch-up window (don't backfill contests
-        # from days ago if the worker was down for a while).
         if slot_start > now_ist or now_ist > slot_start + timedelta(hours=6):
             continue
         occurrence_key = f"weekly-{slot_key}-{occurrence_date.isoformat()}"
@@ -146,7 +123,7 @@ async def check_and_create_scheduled_contests(db: AsyncSession) -> list[Contest]
         if contest:
             created.append(contest)
 
-    m_weekday, m_hour, m_minute, m_duration_minutes = MONTHLY_SLOT
+    _, m_hour, m_minute, m_duration_minutes = MONTHLY_SLOT
     monthly_date = _first_sunday_of_month(now_ist)
     monthly_start = datetime.combine(monthly_date, datetime.min.time(), tzinfo=IST).replace(hour=m_hour, minute=m_minute)
     monthly_end = monthly_start + timedelta(minutes=m_duration_minutes)
@@ -161,7 +138,6 @@ async def check_and_create_scheduled_contests(db: AsyncSession) -> list[Contest]
         )
         if contest:
             created.append(contest)
-
     if created:
         await db.commit()
     return created
@@ -172,14 +148,8 @@ def _generate_contest_certificate_number() -> str:
 
 
 async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
-    """Ranks every submitted attempt (score desc, then time-taken asc as a
-    tiebreak, then submitted_at asc as a final tiebreak), awards participation
-    points to everyone who finished, and issues a real ContestCertificate to
-    the top N. If fewer than N students actually competed, only that many
-    certificates are issued — never fabricated placements."""
     if contest.finalized_at is not None:
         return contest
-
     attempts = (await db.execute(
         select(ContestAttempt)
         .where(ContestAttempt.contest_id == contest.id, ContestAttempt.status == "submitted")
@@ -192,20 +162,20 @@ async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
         if student is None:
             continue
         await award_points(db, student.id, POINTS_CONTEST_FINISH, reason="contest_finish", reference_id=contest.id)
-
         if idx <= contest.top_n_awarded:
             await award_points(db, student.id, POINTS_CONTEST_TOP3, reason="contest_top3", reference_id=contest.id)
             cert = ContestCertificate(
                 certificate_number=_generate_contest_certificate_number(),
                 contest_id=contest.id, student_id=student.id, rank=idx,
                 contest_title=contest.title, score_percent=attempt.score_percent or 0,
+                expires_at=certificate_expiry(),
             )
             try:
                 async with db.begin_nested():
                     db.add(cert)
                     await db.flush()
             except IntegrityError:
-                pass  # already issued (re-run safety)
+                pass
             await create_notification(
                 db, user=student, category="achievement",
                 title=f"You placed #{idx} in {contest.title}!",
@@ -233,12 +203,8 @@ async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
 
 
 async def check_and_finalize_contests(db: AsyncSession) -> list[Contest]:
-    """Finds every contest whose window has closed but hasn't been ranked
-    yet, and finalizes each. Safe to call every worker tick."""
     now = datetime.now(timezone.utc)
-    pending = (await db.execute(
-        select(Contest).where(Contest.status != "closed", Contest.ends_at < now)
-    )).scalars().all()
+    pending = (await db.execute(select(Contest).where(Contest.status != "closed", Contest.ends_at < now))).scalars().all()
     finalized = []
     for contest in pending:
         finalized.append(await finalize_contest(db, contest))

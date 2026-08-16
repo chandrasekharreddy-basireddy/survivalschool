@@ -13,6 +13,7 @@ import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.core.auth_cookie import ACCESS_COOKIE
 from app.database import AsyncSessionLocal
 from app.models.social import ChatMember, ChatMessage, MessageRead
@@ -22,10 +23,16 @@ from app.websockets.manager import manager
 
 router = APIRouter()
 logger = structlog.get_logger("survivalschool.ws")
+settings = get_settings()
 
 
 @router.websocket("/ws/chat/{room_id}")
 async def chat_socket(websocket: WebSocket, room_id: uuid.UUID):
+    origin = websocket.headers.get("origin")
+    if origin and origin not in settings.cors_origins_list:
+        await websocket.close(code=4403, reason="Origin not allowed")
+        return
+
     token = websocket.cookies.get(ACCESS_COOKIE) or websocket.query_params.get("token")
     if not token:
         await websocket.close(code=4401, reason="Missing auth token")

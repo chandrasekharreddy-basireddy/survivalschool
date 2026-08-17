@@ -41,15 +41,52 @@ export function getAccessToken(): string | undefined {
 async function tryRefresh(): Promise<string | null> {
   const { refresh } = getStoredTokens();
   if (!refresh) return null;
-  const resp = await fetch(`${API_BASE}/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refresh }),
-  });
-  if (!resp.ok) return null;
-  const data = await resp.json();
-  storeTokens(data.access_token, data.refresh_token);
-  return data.access_token as string;
+
+  try {
+    const resp = await fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!resp.ok) {
+      // A refresh token that the server rejects is no longer usable. Remove
+      // both credentials so every caller converges on the signed-out state
+      // instead of retrying the same dead token on every request.
+      clearTokens();
+      return null;
+    }
+
+    const data = await resp.json();
+    if (!data?.access_token || !data?.refresh_token) {
+      clearTokens();
+      return null;
+    }
+
+    storeTokens(data.access_token as string, data.refresh_token as string);
+    return data.access_token as string;
+  } catch {
+    // Network failures are also treated as a failed refresh. The caller will
+    // surface the original request error, while stale credentials are removed
+    // to avoid a loop of doomed refresh attempts.
+    clearTokens();
+    return null;
+  }
+}
+
+// Refresh-token rotation is intentionally single-use on the backend. Without
+// a single-flight promise, several simultaneous 401s can all submit the same
+// refresh token; only one can win the rotation and the others look like token
+// reuse and may revoke the whole session. Sharing one in-flight refresh avoids
+// that client-side race and lets every waiting request use the rotated token.
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = tryRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
 }
 
 export async function apiFetch<T = unknown>(
@@ -76,7 +113,7 @@ export async function apiFetch<T = unknown>(
   let resp = await doFetch();
 
   if (resp.status === 401 && auth) {
-    const newAccess = await tryRefresh();
+    const newAccess = await refreshAccessToken();
     if (newAccess) {
       resp = await doFetch(newAccess);
     }

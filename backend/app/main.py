@@ -71,8 +71,8 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 
 @app.middleware("http")
 async def registration_window_guard(request, call_next):
-    # Existing unit/integration tests intentionally create accounts on any day;
-    # the production registration window remains fail-closed and Thursday-only.
+    # Tests intentionally create accounts on any day; production registration
+    # is fail-closed and unavailable on Thursdays (IST).
     if settings.APP_ENV == "test":
         return await call_next(request)
 
@@ -94,7 +94,7 @@ async def registration_window_guard(request, call_next):
             return JSONResponse(
                 status_code=403,
                 content={
-                    "message": "Registration is currently closed. Registration opens every Thursday (IST).",
+                    "message": "Registration is currently closed every Thursday (IST).",
                     "code": "registration_closed",
                     "next_open_at": next_open,
                 },

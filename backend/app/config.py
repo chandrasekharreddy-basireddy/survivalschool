@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool"
     DATABASE_URL_SYNC: str = "postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool"
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    DB_POOL_SIZE: int = Field(default=10, ge=1, le=100)
+    DB_MAX_OVERFLOW: int = Field(default=20, ge=0, le=200)
 
     # --- Redis ---
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -37,13 +37,13 @@ class Settings(BaseSettings):
     # --- Auth / JWT ---
     JWT_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(64))
     JWT_REFRESH_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(64))
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_TTL_MINUTES: int = 15
-    REFRESH_TOKEN_TTL_DAYS: int = 30
-    EMAIL_VERIFICATION_TTL_HOURS: int = 24
-    PASSWORD_RESET_TTL_MINUTES: int = 30
-    MAX_FAILED_LOGIN_ATTEMPTS: int = 5
-    ACCOUNT_LOCK_MINUTES: int = 15
+    JWT_ALGORITHM: Literal["HS256"] = "HS256"
+    ACCESS_TOKEN_TTL_MINUTES: int = Field(default=15, ge=1, le=24 * 60)
+    REFRESH_TOKEN_TTL_DAYS: int = Field(default=30, ge=1, le=365)
+    EMAIL_VERIFICATION_TTL_HOURS: int = Field(default=24, ge=1, le=168)
+    PASSWORD_RESET_TTL_MINUTES: int = Field(default=30, ge=5, le=1440)
+    MAX_FAILED_LOGIN_ATTEMPTS: int = Field(default=5, ge=1, le=20)
+    ACCOUNT_LOCK_MINUTES: int = Field(default=15, ge=1, le=1440)
 
     # --- Client IP resolution ---
     # X-Forwarded-For is a client-supplied header — trusting it unconditionally
@@ -61,17 +61,17 @@ class Settings(BaseSettings):
     # the test suite, which legitimately calls these endpoints far more often
     # than any real client would in the same window) can tune them without
     # code changes. ---
-    RATE_LIMIT_REGISTER_PER_HOUR: int = 5
-    RATE_LIMIT_LOGIN_PER_5MIN: int = 10
-    RATE_LIMIT_RESEND_VERIFY_PER_HOUR: int = 3
-    RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR: int = 3
-    RATE_LIMIT_EXAM_START_PER_HOUR: int = 10
+    RATE_LIMIT_REGISTER_PER_HOUR: int = Field(default=5, ge=1, le=10000)
+    RATE_LIMIT_LOGIN_PER_5MIN: int = Field(default=10, ge=1, le=10000)
+    RATE_LIMIT_RESEND_VERIFY_PER_HOUR: int = Field(default=3, ge=1, le=10000)
+    RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR: int = Field(default=3, ge=1, le=10000)
+    RATE_LIMIT_EXAM_START_PER_HOUR: int = Field(default=10, ge=1, le=10000)
 
     # --- Certificates ---
     # Days a certificate remains valid after issuance; None (default) means
     # certificates never expire. Set to an integer (e.g. 730 for 2 years) for
     # time-limited certifications (spec section 8: "Expiry date (optional)").
-    CERTIFICATE_VALIDITY_DAYS: int | None = None
+    CERTIFICATE_VALIDITY_DAYS: int | None = Field(default=None, ge=1, le=3650)
 
     # --- CORS ---
     CORS_ORIGINS: str = "http://localhost:3000"
@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     # is still valid on hosts that permit SMTP egress.
     EMAIL_BACKEND: Literal["console", "smtp", "resend", "brevo"] = "console"
     SMTP_HOST: str | None = None
-    SMTP_PORT: int = 587
+    SMTP_PORT: int = Field(default=587, ge=1, le=65535)
     SMTP_USER: str | None = None
     SMTP_PASSWORD: str | None = None
     # Resend HTTPS API key (starts with "re_"). Required when EMAIL_BACKEND=
@@ -106,8 +106,8 @@ class Settings(BaseSettings):
     # API -- sending it returns 400 Bad Request. sarvam-105b is the current
     # flagship chat model. See https://docs.sarvam.ai/api/api-guides-tutorials/chat-completion/overview
     SARVAM_CHAT_MODEL: str = "sarvam-105b"
-    AI_DAILY_MESSAGE_LIMIT: int = 100
-    AI_REQUEST_TIMEOUT_SECONDS: int = 30
+    AI_DAILY_MESSAGE_LIMIT: int = Field(default=100, ge=1, le=100000)
+    AI_REQUEST_TIMEOUT_SECONDS: int = Field(default=30, ge=1, le=120)
 
     # --- n8n ---
     N8N_WEBHOOK_BASE_URL: str | None = None
@@ -121,36 +121,13 @@ class Settings(BaseSettings):
 
     # --- File storage ---
     STORAGE_BACKEND: Literal["local", "supabase"] = "local"
-    # Default to a path under the app's own working directory rather than an
-    # absolute root path like "/data/uploads" -- the app process (in CI, in
-    # Docker, and on Render's non-root web service containers) usually can't
-    # create top-level directories and hits PermissionError: [Errno 13] on
-    # the first upload. Deployments that mount a real persistent disk (e.g. a
-    # Render Disk at /data) should set STORAGE_LOCAL_PATH explicitly via env.
-    # Only used when STORAGE_BACKEND=local -- Render's own container disk is
-    # ephemeral (wiped on every redeploy), so "local" is fine for dev/CI but
-    # not for real user-uploaded files in production; use STORAGE_BACKEND=
-    # supabase there instead for durable storage.
     STORAGE_LOCAL_PATH: str = "var/uploads"
-    # --- Supabase Storage (real backend for durable file uploads) ---
-    SUPABASE_STORAGE_URL: str | None = None  # e.g. https://<ref>.supabase.co
+    SUPABASE_STORAGE_URL: str | None = None
     SUPABASE_STORAGE_BUCKET: str = "survivalschool-uploads"
-    # Service role key (secret, bypasses RLS) -- the backend already enforces
-    # its own auth/visibility checks in app/api/v1/files.py before touching
-    # storage, so a service-role-authenticated bucket is the correct model
-    # here rather than trying to map our own JWT users onto Supabase Auth.
     SUPABASE_SERVICE_ROLE_KEY: str | None = None
-    MAX_UPLOAD_MB: int = 25
+    MAX_UPLOAD_MB: int = Field(default=25, ge=1, le=1024)
 
     # --- Destructive maintenance operations ---
-    # Optional, unset by default (endpoint is 404-equivalent/inert unless
-    # explicitly configured). When set, POST /api/v1/admin/maintenance/reset-accounts
-    # is enabled and requires this exact value in the X-Maintenance-Secret
-    # header. This exists because some real hosts (Render's free tier here)
-    # don't always offer easy interactive shell access, so a one-time,
-    # explicitly-gated HTTP escape hatch is the practical way to run a
-    # real destructive maintenance script against production. Meant to be
-    # unset again immediately after use.
     MAINTENANCE_SECRET: str | None = None
 
     # --- Observability ---
@@ -158,22 +135,10 @@ class Settings(BaseSettings):
     SERVICE_VERSION: str = "1.0.0"
 
     # --- Error tracking (Sentry) ---
-    # Deliberately optional and inert by default: this build has no real
-    # Sentry account/DSN to wire up, and fabricating one would violate the
-    # "no fake credentials" rule for this project. SENTRY_DSN is None unless
-    # a real deployment sets it via env var — see app/main.py for the guard
-    # that skips sentry_sdk.init() entirely when it's unset, and
-    # docs/OBSERVABILITY.md for what actually gets captured once it's set.
     SENTRY_DSN: str | None = None
-    SENTRY_TRACES_SAMPLE_RATE: float = 0.0
+    SENTRY_TRACES_SAMPLE_RATE: float = Field(default=0.0, ge=0.0, le=1.0)
 
     # --- Web Push (VAPID, RFC 8292) ---
-    # Self-generated keypair — no Firebase/APNs/OneSignal account needed.
-    # Generate a real pair per deployment with
-    # `backend/scripts/generate_vapid_keys.py` and set these via env vars;
-    # never commit real values (see backend/.env.example). Push sending is
-    # a no-op (silently skipped) whenever these are unset, same inert-by-
-    # default pattern as SENTRY_DSN above.
     VAPID_PUBLIC_KEY: str | None = None
     VAPID_PRIVATE_KEY: str | None = None
     VAPID_SUBJECT: str = "mailto:admin@example.com"
@@ -189,10 +154,23 @@ class Settings(BaseSettings):
 
     def validate_for_production(self) -> None:
         """Called explicitly at startup when APP_ENV=production. Fails fast."""
-        missing = []
         if self.APP_ENV != "production":
             return
-        if "localhost" in self.DATABASE_URL:
+
+        missing: list[str] = []
+        explicit_fields = self.model_fields_set
+
+        if "JWT_SECRET" not in explicit_fields:
+            missing.append("JWT_SECRET (must be explicitly configured in production)")
+        if "JWT_REFRESH_SECRET" not in explicit_fields:
+            missing.append("JWT_REFRESH_SECRET (must be explicitly configured in production)")
+        if len(self.JWT_SECRET) < 32:
+            missing.append("JWT_SECRET (too short)")
+        if len(self.JWT_REFRESH_SECRET) < 32:
+            missing.append("JWT_REFRESH_SECRET (too short)")
+        if self.JWT_SECRET == self.JWT_REFRESH_SECRET:
+            missing.append("JWT_REFRESH_SECRET (must differ from JWT_SECRET)")
+        if "localhost" in self.DATABASE_URL.lower():
             missing.append("DATABASE_URL (points at localhost in production)")
         if self.EMAIL_BACKEND == "console":
             missing.append("EMAIL_BACKEND (console backend not allowed in production)")
@@ -206,8 +184,17 @@ class Settings(BaseSettings):
             missing.append("SARVAM_API_KEY")
         if self.STORAGE_BACKEND == "supabase" and not (self.SUPABASE_STORAGE_URL and self.SUPABASE_SERVICE_ROLE_KEY):
             missing.append("SUPABASE_STORAGE_URL/SUPABASE_SERVICE_ROLE_KEY (required when STORAGE_BACKEND=supabase)")
-        if len(self.JWT_SECRET) < 32:
-            missing.append("JWT_SECRET (too short)")
+        origins = self.cors_origins_list
+        if not origins:
+            missing.append("CORS_ORIGINS (must contain at least one trusted origin in production)")
+        elif "*" in origins:
+            missing.append("CORS_ORIGINS (wildcard origin is incompatible with credentialed requests)")
+        elif all("localhost" in origin.lower() or "127.0.0.1" in origin for origin in origins):
+            missing.append("CORS_ORIGINS (must not be localhost-only in production)")
+        if "localhost" in self.FRONTEND_URL.lower() or "127.0.0.1" in self.FRONTEND_URL:
+            missing.append("FRONTEND_URL (must not point at localhost in production)")
+        if self.MAINTENANCE_SECRET is not None and len(self.MAINTENANCE_SECRET) < 32:
+            missing.append("MAINTENANCE_SECRET (must be at least 32 characters when enabled)")
         if missing:
             raise RuntimeError(
                 "Missing/invalid mandatory production configuration: " + ", ".join(missing)

@@ -2,30 +2,13 @@ from __future__ import annotations
 
 from datetime import timezone
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1 import auth
-from app.core.exceptions import ValidationAppError
 from app.database import get_db
-from app.schemas.auth import RegisterRequest, UserOut
-from app.services.registration_service import refresh_window, registration_is_open
+from app.services.registration_service import refresh_window
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-@router.post("/register", response_model=UserOut, status_code=201)
-async def register(
-    payload: RegisterRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    if not registration_is_open():
-        raise ValidationAppError(
-            "Registration is closed every Thursday (IST). Please try again on another day.",
-            code="registration_closed",
-        )
-    return await auth.register(payload, request, db)
 
 
 @router.get("/registration-status")

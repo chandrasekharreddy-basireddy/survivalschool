@@ -34,7 +34,11 @@ export default function RegisterPage() {
   useEffect(() => {
     apiFetch<RegistrationStatus>("/auth/registration-status", { auth: false })
       .then(setStatus)
-      .catch(() => setStatus({ is_open: true, next_open_at: null, message: "Registration is available." }));
+      .catch(() => setStatus({
+        is_open: false,
+        next_open_at: null,
+        message: "Registration status is temporarily unavailable. Please try again shortly.",
+      }));
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
@@ -89,7 +93,7 @@ export default function RegisterPage() {
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center px-6 py-16">
       <h1 className="text-2xl font-bold text-fg">Create your account</h1>
-      <p className="mt-1 text-sm text-fg-muted">Registration is open on Thursdays (IST).</p>
+      <p className="mt-1 text-sm text-fg-muted">Registration is available every day except Thursday (IST).</p>
       <form onSubmit={onSubmit} className="mt-8 space-y-5">
         <div><label className="label" htmlFor="full_name">Full name</label><input id="full_name" required className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} /></div>
         <div><label className="label" htmlFor="email">Email</label><input id="email" type="email" required className="input" value={email} onChange={(e) => setEmail(e.target.value)} /></div>

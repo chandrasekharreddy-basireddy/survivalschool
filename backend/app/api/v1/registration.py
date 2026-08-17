@@ -19,8 +19,8 @@ async def registration_status(db: AsyncSession = Depends(get_db)):
         "is_open": window.is_open,
         "next_open_at": window.next_open_at.astimezone(timezone.utc).isoformat() if window.next_open_at else None,
         "message": (
-            "Registration is open today."
-            if window.is_open
-            else "Registration is closed. It opens every Thursday (IST)."
+            "Registration is closed every Thursday (IST)."
+            if not window.is_open
+            else "Registration is open today."
         ),
     }

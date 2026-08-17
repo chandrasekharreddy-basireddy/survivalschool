@@ -6,6 +6,7 @@ import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
 import { NavBar } from "@/components/NavBar";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: "Survival School — Learn. Compete. Certify.",
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>
+        <SpeedInsights />
       </body>
     </html>
   );

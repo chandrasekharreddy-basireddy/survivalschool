@@ -1,0 +1,68 @@
+name: Debug Backend Tests
+
+on:
+  push:
+    branches: [fix/registration-thursday-and-e2e]
+
+jobs:
+  backend-debug:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: survivalschool
+          POSTGRES_PASSWORD: survivalschool
+          POSTGRES_DB: survivalschool_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U survivalschool"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Migrate
+        env:
+          DATABASE_URL: postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          DATABASE_URL_SYNC: postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          JWT_SECRET: ci-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          JWT_REFRESH_SECRET: ci-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        run: alembic upgrade head
+      - name: Test with full output
+        env:
+          APP_ENV: test
+          DATABASE_URL: postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          DATABASE_URL_SYNC: postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          REDIS_URL: redis://localhost:6379/1
+          JWT_SECRET: ci-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          JWT_REFRESH_SECRET: ci-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          EMAIL_BACKEND: console
+          AI_PROVIDER: mock
+        run: |
+          set -o pipefail
+          pytest --tb=long -q 2>&1 | tee /tmp/pytest.log
+      - name: Upload diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-pytest-log
+          path: /tmp/pytest.log

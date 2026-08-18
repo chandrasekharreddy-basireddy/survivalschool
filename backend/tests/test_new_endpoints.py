@@ -342,7 +342,13 @@ async def test_single_quiz_and_exam_metadata_endpoints(client):
     assert quiz_resp.json()["title"] == "Meta Quiz"
     assert quiz_resp.json()["max_attempts"] == 2
 
-    exam_resp = await client.get(f"/exams/{exam_id}")
+    # Exam metadata (including question_ids) is not public: anonymous callers are
+    # rejected, and the managing instructor can still read their own unpublished
+    # exam. See the get_exam auth hardening (audit BE-H6).
+    anon_exam = await client.get(f"/exams/{exam_id}")
+    assert anon_exam.status_code == 401
+
+    exam_resp = await client.get(f"/exams/{exam_id}", headers=instructor_headers)
     assert exam_resp.status_code == 200
     assert exam_resp.json()["title"] == "Meta Exam"
 

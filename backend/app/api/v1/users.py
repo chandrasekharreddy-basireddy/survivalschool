@@ -9,11 +9,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthorizationError, NotFoundError
+from typing import Literal
+
+from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_user, require_permission
 from app.models.user import Profile, Role, User
 from app.schemas.auth import MessageResponse, UserOut
+from app.security.passwords import verify_password
 from app.services.gdpr_service import delete_account, export_user_data
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -67,6 +70,60 @@ async def update_me(
         is_active=user.is_active,
         roles=[r.name for r in user.roles],
     )
+
+
+class ProfileOut(BaseModel):
+    id: uuid.UUID
+    bio: str | None
+    avatar_url: str | None
+    timezone: str
+    locale: str
+
+    model_config = {"from_attributes": True}
+
+
+class ProfilePatch(BaseModel):
+    bio: str | None = None
+    avatar_url: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
+
+
+async def _get_or_create_profile(db: AsyncSession, user: User) -> Profile:
+    profile = (await db.execute(select(Profile).where(Profile.user_id == user.id))).scalar_one_or_none()
+    if profile is None:
+        profile = Profile(user_id=user.id)
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
+    return profile
+
+
+@router.get("/me/profile", response_model=ProfileOut)
+async def get_my_profile(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """The caller's profile, created on first read so settings pages always
+    have a row to edit."""
+    return await _get_or_create_profile(db, user)
+
+
+@router.patch("/me/profile", response_model=ProfileOut)
+async def update_my_profile(
+    body: ProfilePatch,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await _get_or_create_profile(db, user)
+    if body.bio is not None:
+        profile.bio = body.bio
+    if body.avatar_url is not None:
+        profile.avatar_url = body.avatar_url
+    if body.timezone is not None:
+        profile.timezone = body.timezone
+    if body.locale is not None:
+        profile.locale = body.locale
+    await db.commit()
+    await db.refresh(profile)
+    return profile
 
 
 @router.get("", response_model=list[UserOut])
@@ -160,14 +217,28 @@ async def remove_role(
                     roles=[r.name for r in target.roles])
 
 
-@router.delete("/me", response_model=MessageResponse)
-async def delete_me(
+class DeleteAccountRequest(BaseModel):
+    password: str
+    # Must be the literal string "DELETE" — a mistyped confirmation fails
+    # validation (422) before any deletion is attempted.
+    confirm: Literal["DELETE"]
+
+
+@router.post("/me/delete-account", response_model=MessageResponse)
+async def delete_my_account(
+    payload: DeleteAccountRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await delete_account(db, user.id)
+    """Permanently delete the caller's account and all associated data (GDPR
+    erasure). Requires the current password and a typed "DELETE" confirmation.
+    Deletion cascades to sessions and refresh tokens, so the access token used
+    to make this call stops working immediately afterwards."""
+    if not verify_password(payload.password, user.password_hash):
+        raise AuthenticationError("Password is incorrect.")
+    await delete_account(db, user)
     await db.commit()
-    return MessageResponse(message="Your account has been scheduled for deletion.")
+    return MessageResponse(message="Your account and all associated data have been permanently deleted.")
 
 
 @router.get("/me/export")
@@ -175,6 +246,6 @@ async def export_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    data = await export_user_data(db, user.id)
+    data = await export_user_data(db, user)
     return Response(content=json.dumps(data, default=str, indent=2), media_type="application/json",
                     headers={"Content-Disposition": f"attachment; filename=user-data-{user.id}.json"})

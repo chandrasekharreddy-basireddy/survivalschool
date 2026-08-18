@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
@@ -31,8 +32,22 @@ else:
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
+# Without an explicit naming convention SQLAlchemy invents constraint names,
+# and autogenerate can emit a different name for the same constraint between
+# runs. That makes migration diffs noisy and, worse, leaves you unable to drop
+# or alter a constraint by name later. Fixing the convention makes generated
+# DDL deterministic.
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
 class Base(DeclarativeBase):
-    pass
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

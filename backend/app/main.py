@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from datetime import timezone
 
@@ -18,6 +20,8 @@ from app.services.registration_service import refresh_window
 from app.websockets.chat import router as ws_chat_router
 
 settings = get_settings()
+
+_EXPOSE_API_DOCS = settings.APP_ENV in ("development", "staging", "test")
 
 if settings.SENTRY_DSN:
     import sentry_sdk
@@ -41,7 +45,24 @@ async def lifespan(app: FastAPI):
     settings.validate_for_production()
     from app.seed import seed_rbac
     await seed_rbac()
-    yield
+
+    # Drive the weekend-exam / contest scheduler from inside the web process
+    # when no standalone worker is deployed. Guarded by a Redis leader lock in
+    # scheduler_loop, so running multiple gunicorn workers is safe.
+    stop_event = asyncio.Event()
+    scheduler_task: asyncio.Task | None = None
+    if settings.RUN_INPROCESS_SCHEDULER and settings.APP_ENV != "test":
+        from app.services.scheduler_runtime import scheduler_loop
+        scheduler_task = asyncio.create_task(scheduler_loop(stop_event))
+
+    try:
+        yield
+    finally:
+        stop_event.set()
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
 
 
 app = FastAPI(
@@ -49,15 +70,22 @@ app = FastAPI(
     version=settings.SERVICE_VERSION,
     description="Production API for Survival School — MCQ-driven learning platform.",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    # Publishing the full OpenAPI schema in production hands an unauthenticated
+    # caller a complete map of every endpoint, request/response model and field
+    # — free attack-surface reconnaissance. Expose it only outside production.
+    docs_url="/api/docs" if _EXPOSE_API_DOCS else None,
+    redoc_url="/api/redoc" if _EXPOSE_API_DOCS else None,
+    openapi_url="/api/openapi.json" if _EXPOSE_API_DOCS else None,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    # This API authenticates with Bearer tokens in the Authorization header,
+    # which CORS sends regardless of this flag. Enabling credentials only widens
+    # the cookie/CSRF surface for no benefit — flip it back on if cookie auth
+    # is ever introduced.
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-Id", "X-Maintenance-Secret"],
 )

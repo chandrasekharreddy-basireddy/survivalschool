@@ -1,6 +1,6 @@
 # Testing
 
-## Backend: 70 tests, all passing against real infrastructure
+## Backend: 136 tests, all passing against real infrastructure
 
 ```bash
 cd backend
@@ -59,7 +59,7 @@ ruff check app tests              # lint — must be zero errors
 pip-audit -r requirements.txt     # dependency vulnerability scan — must be clean
 bandit -r app -ll                 # security static analysis, medium+ severity
 alembic upgrade head              # apply schema to whatever DB DATABASE_URL points at
-APP_ENV=test python -m pytest -q  # the 70 tests above
+APP_ENV=test python -m pytest -q  # the 136 tests above
 ```
 
 ```bash

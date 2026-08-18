@@ -62,3 +62,103 @@ spec:
         - podSelector:
             matchLabels:
               app: worker
+---
+# --- Egress restrictions (XC-M3) ---------------------------------------------
+# Default-deny egress for every pod in the namespace; the policies below
+# re-open only what each workload legitimately needs. Without this a
+# compromised pod can exfiltrate to any host on the internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: survivalschool
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+---
+# DNS resolution is required by every pod, so allow it cluster-wide.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: survivalschool
+spec:
+  podSelector: {}
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Backend and worker: reach Postgres/Redis in-namespace and external APIs
+# (Sarvam AI, Supabase Storage, Brevo/SMTP-over-TLS, n8n) over HTTPS. External
+# destinations are constrained to 443; scope to specific CIDRs once the egress
+# gateway story is decided (see the note at the top of this file).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-worker-egress
+  namespace: survivalschool
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["backend", "worker"]
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - podSelector:
+            matchLabels:
+              app: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32 # block cloud metadata endpoint
+      ports:
+        - protocol: TCP
+          port: 443
+---
+# Frontend (Next.js server): call the backend API in-namespace, plus HTTPS for
+# Sentry/source-map upload and any SSR data fetch.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-frontend-egress
+  namespace: survivalschool
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes: ["Egress"]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 8000
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+      ports:
+        - protocol: TCP
+          port: 443

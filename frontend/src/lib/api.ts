@@ -52,11 +52,30 @@ async function tryRefresh(): Promise<string | null> {
   return data.access_token as string;
 }
 
+/** Default per-request timeout. Uploads override this via options.timeoutMs
+ * because multipart bodies legitimately take longer. Without a timeout a slow
+ * or wedged backend leaves the UI stuck on a loading state that never
+ * resolves. */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+/** Sends the user to the login screen when their session can no longer be
+ * refreshed. Kept here (rather than in every caller) so a hard expiry always
+ * ends the same way instead of leaving a protected page half-broken. Guards
+ * against redirect loops if we're already on /login. */
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  clearTokens();
+  const { pathname, search } = window.location;
+  if (pathname.startsWith("/login")) return;
+  const next = encodeURIComponent(pathname + search);
+  window.location.assign(`/login?next=${next}&reason=session_expired`);
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
-  options: RequestInit & { auth?: boolean } = {}
+  options: RequestInit & { auth?: boolean; timeoutMs?: number } = {}
 ): Promise<T> {
-  const { auth = true, headers, ...rest } = options;
+  const { auth = true, headers, timeoutMs = DEFAULT_TIMEOUT_MS, ...rest } = options;
   const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
   const doFetch = async (accessOverride?: string) => {
     const { access } = getStoredTokens();
@@ -70,7 +89,26 @@ export async function apiFetch<T = unknown>(
       ...(headers as Record<string, string>),
     };
     if (auth && token) finalHeaders["Authorization"] = `Bearer ${token}`;
-    return fetch(`${API_BASE}${path}`, { ...rest, headers: finalHeaders });
+
+    // Abort the request if it outlives the timeout, while still respecting any
+    // signal the caller passed (we abort our controller when theirs fires).
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const callerSignal = rest.signal as AbortSignal | null | undefined;
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort();
+      else callerSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    }
+    try {
+      return await fetch(`${API_BASE}${path}`, { ...rest, headers: finalHeaders, signal: controller.signal });
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError" && !callerSignal?.aborted) {
+        throw new ApiError("The request timed out. Please try again.", "request_timeout", 0);
+      }
+      throw new ApiError("Network error. Please check your connection and try again.", "network_error", 0);
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   let resp = await doFetch();
@@ -79,6 +117,12 @@ export async function apiFetch<T = unknown>(
     const newAccess = await tryRefresh();
     if (newAccess) {
       resp = await doFetch(newAccess);
+    } else {
+      // Refresh token is gone or rejected — the session is truly over. Send the
+      // user to login rather than leaving them on a protected page whose data
+      // fetches all 401.
+      redirectToLogin();
+      throw new ApiError("Your session has expired. Please log in again.", "session_expired", 401);
     }
   }
 

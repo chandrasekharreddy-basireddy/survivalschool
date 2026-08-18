@@ -33,7 +33,6 @@ mirrors this file and is the actual template to copy for local development.
 | Variable | Default | Notes |
 |---|---|---|
 | `JWT_SECRET` | random 64-byte, generated at import if unset | **Must** be set explicitly and ≥32 chars in production — `validate_for_production()` enforces this |
-| `JWT_REFRESH_SECRET` | random 64-byte, generated at import if unset | |
 | `JWT_ALGORITHM` | `HS256` | |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | |
 | `REFRESH_TOKEN_TTL_DAYS` | `30` | |

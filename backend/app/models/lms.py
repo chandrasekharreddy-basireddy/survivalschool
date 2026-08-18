@@ -29,8 +29,10 @@ class Course(Base, UUIDPk, Timestamped):
     cover_image_url: Mapped[str | None] = mapped_column(String(500))
     difficulty: Mapped[str] = mapped_column(String(20), default="beginner", nullable=False)
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Indexed: the instructor dashboard and the exam flagged-attempts endpoint
+    # both filter courses by instructor, which was a sequential scan.
     instructor_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     prerequisite_course_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("courses.id", ondelete="SET NULL")

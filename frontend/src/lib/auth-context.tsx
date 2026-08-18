@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { apiFetch, clearTokens, storeTokens } from "./api";
+import { unsubscribeFromPush } from "./push";
 
 export interface CurrentUser {
   id: string;
@@ -70,6 +71,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     const refresh = window.localStorage.getItem("ss_refresh_token");
+    // Tear the push subscription down before we drop the tokens: otherwise the
+    // browser stays subscribed and the backend keeps its record, so push
+    // notifications keep arriving on a device where nobody is logged in — a
+    // privacy leak. Best-effort; a failure here must not block sign-out.
+    try {
+      await unsubscribeFromPush();
+    } catch {
+      /* best-effort */
+    }
     try {
       if (refresh) await apiFetch("/auth/logout", { method: "POST", body: JSON.stringify({ refresh_token: refresh }) });
     } catch {

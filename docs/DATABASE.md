@@ -15,7 +15,7 @@ backend/alembic/versions/6f1ba11d04f8_add_timetable_discussions_practice_.py
 backend/alembic/versions/31e4fc98f4cf_add_contests_ai_mock_practice_.py
 ```
 
-The first migration creates all 44 tables. The second adds two composite
+The initial schema migration creates the original core tables; later migrations (15 in total, including a merge head) grow the schema to the current 66 tables. The second migration adds two composite
 indexes — `(student_id, quiz_id, status)` on `quiz_attempts` and
 `(student_id, exam_id, status)` on `exam_attempts` — found during a security/
 correctness review: `start_attempt()`/`start_exam_attempt()` and
@@ -51,7 +51,7 @@ alembic revision --autogenerate -m "describe the change"
 alembic upgrade head
 ```
 
-## Table inventory (60 tables, by domain)
+## Table inventory (66 tables, by domain)
 
 **Identity & access** (`app/models/user.py`): `users`, `roles`, `permissions`,
 `role_permissions`, `user_roles`, `profiles`, `email_verifications`,

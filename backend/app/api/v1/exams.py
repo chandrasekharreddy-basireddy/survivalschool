@@ -4,7 +4,7 @@ import random
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -54,9 +54,19 @@ async def create_exam(payload: ExamCreate, user: User = Depends(require_permissi
 
 
 @router.get("/{exam_id}", response_model=ExamOut)
-async def get_exam(exam_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_exam(
+    exam_id: uuid.UUID,
+    user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Requires authentication: exam metadata (title, timing, and especially the
+    # question_ids list) is sensitive pre-exam information, and this endpoint
+    # used to be fully anonymous — anyone who guessed a UUID could read it.
+    # Unpublished exams stay visible only to users who can manage exams.
     exam = await db.get(Exam, exam_id)
     if exam is None:
+        raise NotFoundError("Exam not found.")
+    if not exam.is_published and not user.has_permission("exam.manage"):
         raise NotFoundError("Exam not found.")
     return exam
 
@@ -120,12 +130,20 @@ async def start_exam_attempt(exam_id: uuid.UUID, user: User = Depends(get_curren
 
 
 @router.get("/me/attempts", response_model=list[AttemptHistoryOut])
-async def my_exam_attempts(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def my_exam_attempts(
+    user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
+    # Paginated: a prolific student can accumulate thousands of attempts, and an
+    # unbounded SELECT loads them all into memory on every dashboard load.
     rows = (await db.execute(
         select(ExamAttempt, Exam.title)
         .join(Exam, Exam.id == ExamAttempt.exam_id)
         .where(ExamAttempt.student_id == user.id)
         .order_by(ExamAttempt.started_at.desc())
+        .limit(limit).offset(offset)
     )).all()
     return [
         AttemptHistoryOut(
@@ -252,11 +270,20 @@ async def submit_exam_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, use
     )).scalars().all()}
     submitted_by_qid = {a.question_id: a for a in payload.answers}
 
+    # Batch-fetch every question before grading. Issuing the SELECT inside the
+    # loop costs one DB round-trip per question, so a 50-question exam becomes
+    # 50 sequential queries on the hot submit path — latency spikes and
+    # connection-pool exhaustion when a cohort submits at the same time.
+    all_qids = set(autosaved) | set(submitted_by_qid)
+    questions_by_id = {
+        q.id: q for q in (await db.execute(
+            select(Question).where(Question.id.in_(all_qids)).options(selectinload(Question.options))
+        )).scalars().all()
+    } if all_qids else {}
+
     points_earned, points_possible = 0, 0
-    for qid in set(autosaved) | set(submitted_by_qid):
-        question = (await db.execute(
-            select(Question).where(Question.id == qid).options(selectinload(Question.options))
-        )).scalar_one_or_none()
+    for qid in all_qids:
+        question = questions_by_id.get(qid)
         if question is None:
             continue
         if qid in submitted_by_qid and not late:

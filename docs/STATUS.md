@@ -446,7 +446,7 @@ Full detail and the reasoning behind each fix: `docs/SECURITY.md`,
   migration (composite indexes) and a third (certificate grade/score/skills,
   see the audit-resolution section above) were added and applied during
   this build.
-- **44/44 tests passing** (`APP_ENV=test python -m pytest -q`), up from 30 —
+- **136 tests passing** (`APP_ENV=test python -m pytest -q`) —
   all integration-style against real Postgres/Redis, covering: registration,
   email verification, login, account lockout, refresh-token rotation +
   reuse detection, logout/logout-all session revocation, password reset,

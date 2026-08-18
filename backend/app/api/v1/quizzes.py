@@ -180,12 +180,18 @@ async def start_attempt(quiz_id: uuid.UUID, user: User = Depends(get_current_ver
 
 
 @router.get("/me/attempts", response_model=list[AttemptHistoryOut])
-async def my_quiz_attempts(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def my_quiz_attempts(
+    user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+):
     rows = (await db.execute(
         select(QuizAttempt, Quiz.title)
         .join(Quiz, Quiz.id == QuizAttempt.quiz_id)
         .where(QuizAttempt.student_id == user.id)
         .order_by(QuizAttempt.started_at.desc())
+        .limit(limit).offset(offset)
     )).all()
     return [
         AttemptHistoryOut(

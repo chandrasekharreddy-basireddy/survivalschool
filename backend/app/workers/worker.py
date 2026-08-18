@@ -26,6 +26,7 @@ from app.services.contest_service import check_and_create_scheduled_contests, ch
 from app.services.email_service import send_email
 from app.services.exam_scheduler_service import (
     create_due_scheduled_exams,
+    ensure_weekend_schedules,
     finalize_expired_scheduled_exams,
     issue_scheduled_exam_certificates,
 )
@@ -121,9 +122,12 @@ async def run_exam_scheduler() -> None:
     certificates for the top-N scorers. All three phases are idempotent —
     see app/services/exam_scheduler_service.py."""
     async with AsyncSessionLocal() as db:
+        ensured = await ensure_weekend_schedules(db)
         created = await create_due_scheduled_exams(db)
         finalized = await finalize_expired_scheduled_exams(db)
         issued = await issue_scheduled_exam_certificates(db)
+    if ensured:
+        logger.info("weekend_schedules_ensured", count=ensured)
     if created:
         logger.info("scheduled_exams_created", count=len(created), titles=[e.title for e in created])
     if finalized:

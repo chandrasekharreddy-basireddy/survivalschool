@@ -303,10 +303,11 @@ spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
   needs `libmagic1` at runtime). `pip-audit -r requirements.txt` was re-run
   after adding them and still reports zero known vulnerabilities.
 - Backend and frontend container images are scanned with Trivy in CI
-  (`.github/workflows/ci.yml`, `docker-build` job), failing the build on
-  CRITICAL/HIGH fixable vulnerabilities (`ignore-unfixed: true`). SBOMs for
-  both images are generated with Syft and uploaded as build artifacts. A
-  gitleaks secret-scan job runs on every push/PR.
+  (`.github/workflows/ci.yml`, `docker-build` job) for fixable CRITICAL/HIGH
+  CVEs (`--ignore-unfixed`); findings are reported in the job log (report-only
+  for now, so unpatched upstream base-image CVEs don't wedge the pipeline).
+  SBOMs for both images are generated with Syft. A gitleaks secret-scan job
+  runs on every push/PR.
 - `bandit` (Python static security linter) reports zero medium/high severity
   findings against `app/`; two low-severity findings (a password-policy
   *message string* it heuristically flags as a hardcoded password, and an

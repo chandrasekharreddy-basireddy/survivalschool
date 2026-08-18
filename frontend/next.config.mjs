@@ -17,6 +17,7 @@ try {
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  agentRules: false,
   images: { remotePatterns },
   async headers() {
     return [

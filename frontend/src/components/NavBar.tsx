@@ -1,21 +1,20 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchBar } from "@/components/SearchBar";
 import { hasRole, isAdmin, isInstructor } from "@/lib/roles";
 
-const navLinkClass = "rounded-md px-2 py-1.5 text-[0.82rem] font-medium text-fg-muted transition-colors hover:bg-ink-900/80 hover:text-fg";
-
 function LogoMark() {
   return (
-    <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-500/30 bg-ink-900">
-      <svg viewBox="0 0 40 40" fill="none" className="h-7 w-7" aria-hidden="true">
-        <circle cx="20" cy="20" r="15" stroke="#e83385" strokeWidth="2.2" />
-        <path d="M20 8 31 27H9L20 8Z" stroke="#48d5c4" strokeWidth="2.2" strokeLinejoin="round" />
-        <rect x="15.3" y="15.3" width="9.4" height="9.4" stroke="#fff" strokeWidth="2" />
+    <span className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-ink-700 bg-ink-900 shadow-sm">
+      <svg viewBox="0 0 40 40" fill="none" className="h-6 w-6" aria-hidden="true">
+        <circle cx="20" cy="21" r="14" stroke="rgb(var(--accent-2))" strokeWidth="2.4" />
+        <path d="M20 8 32 30H8L20 8Z" fill="rgb(var(--brand))" />
+        <rect x="15.5" y="21" width="9" height="9" rx="1.4" fill="#f4f6fb" />
       </svg>
     </span>
   );
@@ -23,6 +22,7 @@ function LogoMark() {
 
 export function NavBar() {
   const { user, loading, logout } = useAuth();
+  const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = () => setMobileOpen(false);
   const canTeach = isInstructor(user);
@@ -43,13 +43,24 @@ export function NavBar() {
     ["/admin", "Admin", canAdmin],
   ] as const;
 
+  const isActive = (href: string) => pathname === href || (href !== "/" && pathname.startsWith(href + "/"));
+  const linkClass = (href: string) =>
+    `rounded-lg px-2.5 py-1.5 text-[0.82rem] font-medium transition-colors ${
+      isActive(href) ? "bg-ink-800 text-fg" : "text-fg-muted hover:bg-ink-800/70 hover:text-fg"
+    }`;
+
   return (
-    <header className="sticky top-0 z-40 border-b border-ink-800/90 bg-ink-950/96 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-ink-700/80 bg-ink-950/80 backdrop-blur-xl">
       <nav className="mx-auto flex min-h-14 max-w-7xl items-center gap-2 px-3 sm:px-5 lg:px-6">
-        <Link href="/" className="flex shrink-0 items-center gap-2.5 text-sm font-bold tracking-tight text-fg"><LogoMark /><span className="hidden sm:inline">SURVIVAL SCHOOL</span></Link>
+        <Link href="/" className="flex shrink-0 items-center gap-2.5 text-sm font-bold tracking-tight text-fg">
+          <LogoMark />
+          <span className="hidden text-[0.9rem] tracking-tight sm:inline">
+            Survival<span className="text-brand-600 dark:text-brand-400"> School</span>
+          </span>
+        </Link>
         <div className="mx-auto hidden w-full max-w-sm md:block"><SearchBar /></div>
         <div className="ml-auto hidden items-center gap-0.5 lg:flex">
-          {links.map(([href, label, visible]) => visible ? <Link key={href} href={href} className={navLinkClass}>{label}</Link> : null)}
+          {links.map(([href, label, visible]) => visible ? <Link key={href} href={href} className={linkClass(href)}>{label}</Link> : null)}
         </div>
         <div className="ml-auto flex items-center gap-1.5 lg:ml-2">
           <ThemeToggle />
@@ -62,16 +73,16 @@ export function NavBar() {
           ) : (
             <><Link href="/login" className="btn-secondary hidden !min-h-9 !px-3 !py-1.5 sm:inline-flex">Sign in</Link><Link href="/register" className="btn-primary !min-h-9 !px-3 !py-1.5">Join</Link></>
           )}
-          <button onClick={() => setMobileOpen((value) => !value)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-ink-800 bg-ink-900 text-fg-muted hover:text-fg lg:hidden" aria-label="Toggle menu" aria-expanded={mobileOpen}><MenuIcon open={mobileOpen} /></button>
+          <button onClick={() => setMobileOpen((value) => !value)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-ink-700 bg-ink-900 text-fg-muted hover:text-fg lg:hidden" aria-label="Toggle menu" aria-expanded={mobileOpen}><MenuIcon open={mobileOpen} /></button>
         </div>
       </nav>
       {mobileOpen && (
-        <div className="border-t border-ink-800 bg-ink-950 px-3 py-3 sm:px-5 lg:hidden">
+        <div className="border-t border-ink-700 bg-ink-950/95 px-3 py-3 backdrop-blur-xl sm:px-5 lg:hidden">
           <div className="mb-3"><SearchBar /></div>
           <div className="grid grid-cols-2 gap-1 text-sm text-fg-muted">
-            {links.map(([href, label, visible]) => visible ? <Link key={href} href={href} onClick={closeMobile} className={navLinkClass}>{label}</Link> : null)}
-            {isPrivileged && <Link href="/notifications" onClick={closeMobile} className={navLinkClass}>Notifications</Link>}
-            {user && <Link href="/profile" onClick={closeMobile} className={navLinkClass}>{user.full_name}</Link>}
+            {links.map(([href, label, visible]) => visible ? <Link key={href} href={href} onClick={closeMobile} className={linkClass(href)}>{label}</Link> : null)}
+            {isPrivileged && <Link href="/notifications" onClick={closeMobile} className={linkClass("/notifications")}>Notifications</Link>}
+            {user && <Link href="/profile" onClick={closeMobile} className={linkClass("/profile")}>{user.full_name}</Link>}
             {user ? <button onClick={() => { logout(); closeMobile(); }} className="btn-secondary col-span-2 mt-1">Sign out</button> : <Link href="/login" onClick={closeMobile} className="btn-secondary col-span-2 mt-1">Sign in</Link>}
           </div>
         </div>

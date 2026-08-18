@@ -93,7 +93,8 @@
   --color-warn: rgb(var(--warn));
   --color-danger: rgb(var(--danger));
 
-  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --radius-xl2: 1.1rem;
 }
 

@@ -65,6 +65,7 @@
 }
 
 @theme inline {
+  --color-bg: rgb(var(--bg-0));
   --color-ink-950: rgb(var(--bg-0));
   --color-ink-900: rgb(var(--bg-1));
   --color-ink-800: rgb(var(--bg-2));

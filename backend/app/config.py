@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     # peer address rather than failing open to a spoofable header.
     TRUST_PROXY_HEADERS: bool = False
 
+    # Run the weekend-exam / contest scheduler inside the web process. Needed
+    # when no standalone worker is deployed (e.g. a single Render web service).
+    # A Redis leader lock keeps multiple gunicorn workers from double-ticking;
+    # disabled automatically under APP_ENV=test.
+    RUN_INPROCESS_SCHEDULER: bool = True
+
     # --- Rate limits (spec section 49) — configurable so environments (and
     # the test suite, which legitimately calls these endpoints far more often
     # than any real client would in the same window) can tune them without

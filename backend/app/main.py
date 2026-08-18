@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from datetime import timezone
 
@@ -43,7 +45,24 @@ async def lifespan(app: FastAPI):
     settings.validate_for_production()
     from app.seed import seed_rbac
     await seed_rbac()
-    yield
+
+    # Drive the weekend-exam / contest scheduler from inside the web process
+    # when no standalone worker is deployed. Guarded by a Redis leader lock in
+    # scheduler_loop, so running multiple gunicorn workers is safe.
+    stop_event = asyncio.Event()
+    scheduler_task: asyncio.Task | None = None
+    if settings.RUN_INPROCESS_SCHEDULER and settings.APP_ENV != "test":
+        from app.services.scheduler_runtime import scheduler_loop
+        scheduler_task = asyncio.create_task(scheduler_loop(stop_event))
+
+    try:
+        yield
+    finally:
+        stop_event.set()
+        if scheduler_task is not None:
+            scheduler_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler_task
 
 
 app = FastAPI(

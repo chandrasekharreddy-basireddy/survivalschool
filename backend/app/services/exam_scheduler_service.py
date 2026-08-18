@@ -30,6 +30,52 @@ def _slot_minutes(time_slot: str) -> tuple[int, int]:
     return hour, minute
 
 
+# Weekend AI-exam grid: Saturday (5) and Sunday (6), morning and evening IST.
+WEEKEND_DAYS = (5, 6)
+WEEKEND_SLOTS = ("09:00", "18:00")
+
+
+async def ensure_weekend_schedules(db: AsyncSession) -> int:
+    """Guarantee every published course has the four weekend AI-exam slots
+    (Sat/Sun x morning/evening IST). Idempotent: the unique constraint on
+    (day_of_week, time_slot, course_id) means re-running only fills gaps, so
+    this can run on every worker tick and newly published courses pick up their
+    weekend exams automatically, with no manual scheduling.
+    """
+    courses = (await db.execute(
+        select(Course).where(Course.is_published.is_(True), Course.deleted_at.is_(None))
+    )).scalars().all()
+    if not courses:
+        return 0
+
+    existing = {
+        (c.course_id, c.day_of_week, c.time_slot)
+        for c in (await db.execute(select(ScheduledExamConfig))).scalars().all()
+    }
+
+    created = 0
+    for course in courses:
+        for day in WEEKEND_DAYS:
+            for slot in WEEKEND_SLOTS:
+                if (course.id, day, slot) in existing:
+                    continue
+                db.add(ScheduledExamConfig(
+                    day_of_week=day,
+                    time_slot=slot,
+                    duration_minutes=60,
+                    question_count=10,
+                    auto_certificate_top_n=3,
+                    course_id=course.id,
+                    difficulty="mixed",
+                    title_prefix="Weekend AI Exam",
+                    is_active=True,
+                ))
+                created += 1
+    if created:
+        await db.commit()
+    return created
+
+
 async def create_due_scheduled_exams(db: AsyncSession, now: datetime | None = None) -> list[Exam]:
     current = (now or datetime.now(timezone.utc)).astimezone(IST)
     configs = (await db.execute(select(ScheduledExamConfig).where(ScheduledExamConfig.is_active.is_(True)))).scalars().all()

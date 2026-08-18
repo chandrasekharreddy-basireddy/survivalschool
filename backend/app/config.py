@@ -12,8 +12,13 @@ import secrets
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Fixed, non-secret placeholder used only when APP_ENV is development/test.
+# validate_for_production() rejects it, so it can never reach production.
+DEV_JWT_SECRET = "insecure-development-only-jwt-secret-do-not-use-in-production"
 
 
 class Settings(BaseSettings):
@@ -35,8 +40,13 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # --- Auth / JWT ---
-    JWT_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(64))
-    JWT_REFRESH_SECRET: str = Field(default_factory=lambda: secrets.token_urlsafe(64))
+    # Deliberately NOT default_factory=secrets.token_urlsafe: a per-boot random
+    # secret silently invalidates every issued access token and breaks refresh
+    # rotation on each restart, producing intermittent mass logouts that are
+    # extremely hard to diagnose. Unset is an error everywhere except local
+    # dev/test, which fall back to a *fixed* (and obviously non-secret) value so
+    # that restarting the dev server does not log everyone out.
+    JWT_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_TTL_MINUTES: int = 15
     REFRESH_TOKEN_TTL_DAYS: int = 30
@@ -183,6 +193,19 @@ class Settings(BaseSettings):
     def _validate_production_requirements(cls, v: str, info) -> str:
         return v
 
+    @model_validator(mode="after")
+    def _require_stable_jwt_secret(self) -> "Settings":
+        if not self.JWT_SECRET:
+            if self.APP_ENV in ("development", "test"):
+                object.__setattr__(self, "JWT_SECRET", DEV_JWT_SECRET)
+            else:
+                raise ValueError(
+                    "JWT_SECRET must be set explicitly when APP_ENV="
+                    f"{self.APP_ENV!r}. Generate one with: "
+                    "python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+                )
+        return self
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
@@ -206,7 +229,9 @@ class Settings(BaseSettings):
             missing.append("SARVAM_API_KEY")
         if self.STORAGE_BACKEND == "supabase" and not (self.SUPABASE_STORAGE_URL and self.SUPABASE_SERVICE_ROLE_KEY):
             missing.append("SUPABASE_STORAGE_URL/SUPABASE_SERVICE_ROLE_KEY (required when STORAGE_BACKEND=supabase)")
-        if len(self.JWT_SECRET) < 32:
+        if self.JWT_SECRET == DEV_JWT_SECRET:
+            missing.append("JWT_SECRET (still set to the insecure development placeholder)")
+        elif len(self.JWT_SECRET) < 32:
             missing.append("JWT_SECRET (too short)")
         if missing:
             raise RuntimeError(

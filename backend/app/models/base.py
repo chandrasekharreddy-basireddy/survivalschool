@@ -23,5 +23,14 @@ class Timestamped:
     )
 
 
-class SoftDeleteMixin:
-    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+# NOTE: deletion in this codebase is hard-delete by design — the GDPR erasure
+# path in gdpr_service really removes rows, which is the behaviour that policy
+# requires. The two exceptions (User.deleted_at, Course.deleted_at) are
+# deliberate per-model deactivation flags, not a general soft-delete scheme, and
+# they declare their own column.
+#
+# A SoftDeleteMixin used to live here but was inherited by nothing, which
+# implied a repo-wide soft-delete convention that does not exist and invited new
+# models to opt into a filter no query applies. It was removed rather than
+# retrofitted; reintroduce it only alongside a query-level filter that actually
+# excludes deleted rows, otherwise "deleted" records stay visible.

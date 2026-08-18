@@ -162,7 +162,12 @@ class RefreshToken(Base, UUIDPk, Timestamped):
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Points at the token that superseded this one during rotation. Without a
+    # real FK the column can outlive its target (the cleanup job deletes expired
+    # tokens) and silently dangle; SET NULL keeps the audit trail honest.
+    replaced_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("refresh_tokens.id", ondelete="SET NULL")
+    )
 
 
 class Session(Base, UUIDPk, Timestamped):

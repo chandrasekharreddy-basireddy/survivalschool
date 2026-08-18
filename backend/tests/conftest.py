@@ -12,7 +12,6 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://survivalschool:survi
 os.environ.setdefault("DATABASE_URL_SYNC", "postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test")
 os.environ.setdefault("REDIS_URL", "redis://localhost:6379/1")
 os.environ.setdefault("JWT_SECRET", "test-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-os.environ.setdefault("JWT_REFRESH_SECRET", "test-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 os.environ.setdefault("EMAIL_BACKEND", "console")
 os.environ.setdefault("AI_PROVIDER", "mock")
 # The suite legitimately calls these endpoints far more often, from the same

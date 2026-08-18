@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 import jwt as pyjwt
+import structlog
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +60,7 @@ from app.services.totp_service import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
+logger = structlog.get_logger("survivalschool.auth")
 
 
 async def _load_user_with_roles(db: AsyncSession, user_id: uuid.UUID) -> User | None:
@@ -261,11 +263,19 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
     await track_event(db, event_type="login", user_id=user.id, source="web")
     await db.commit()
 
-    await notify_security_event(
-        db, user, "login_alert", "New sign-in to your account",
-        device_label=payload.device_label, ip_address=get_client_ip(request),
-    )
-    await db.commit()
+    # The login already succeeded and committed above. The security-alert
+    # notification is a best-effort side effect: if it (or its own commit)
+    # fails, log it and still return valid tokens rather than turning a
+    # successful sign-in into a 500 the user can do nothing about.
+    try:
+        await notify_security_event(
+            db, user, "login_alert", "New sign-in to your account",
+            device_label=payload.device_label, ip_address=get_client_ip(request),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.warning("login_alert_notify_failed", user_id=str(user.id))
     return tokens
 
 
@@ -312,11 +322,16 @@ async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, db: 
     await track_event(db, event_type="login", user_id=user.id, source="web")
     await db.commit()
 
-    await notify_security_event(
-        db, user, "login_alert", "New sign-in to your account",
-        device_label=None, ip_address=get_client_ip(request),
-    )
-    await db.commit()
+    # Best-effort post-login alert — see the note on the password login path.
+    try:
+        await notify_security_event(
+            db, user, "login_alert", "New sign-in to your account",
+            device_label=None, ip_address=get_client_ip(request),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        logger.warning("login_alert_notify_failed", user_id=str(user.id))
     return tokens
 
 

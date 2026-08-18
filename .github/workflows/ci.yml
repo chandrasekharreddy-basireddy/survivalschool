@@ -55,13 +55,30 @@ jobs:
           --ignore I001,UP017,UP037,UP043,B904,C416,SIM103,SIM105,SIM117,W293
       - name: Dependency vulnerability scan
         run: pip-audit -r requirements.txt
+      - name: Type check (mypy)
+        # Non-blocking for now: the codebase is type-hinted but has never been
+        # gated on a clean mypy run. This surfaces type errors in the log
+        # without failing the build; drop continue-on-error once burned down.
+        continue-on-error: true
+        run: |
+          pip install mypy
+          mypy app
       - name: Run database migrations
         env:
           DATABASE_URL: postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool_test
           DATABASE_URL_SYNC: postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test
           JWT_SECRET: ci-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-          JWT_REFRESH_SECRET: ci-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
         run: alembic upgrade head
+      - name: Check for model/migration drift
+        # Fails if models changed without a matching migration. Non-blocking
+        # initially: autogenerate does not perfectly detect CHECK constraints
+        # and can report benign diffs.
+        continue-on-error: true
+        env:
+          DATABASE_URL: postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          DATABASE_URL_SYNC: postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test
+          JWT_SECRET: ci-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        run: alembic check
       - name: Run tests
         env:
           APP_ENV: test
@@ -69,7 +86,6 @@ jobs:
           DATABASE_URL_SYNC: postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool_test
           REDIS_URL: redis://localhost:6379/1
           JWT_SECRET: ci-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-          JWT_REFRESH_SECRET: ci-refresh-secret-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
           EMAIL_BACKEND: console
           AI_PROVIDER: mock
         run: pytest --tb=short -q
@@ -98,6 +114,17 @@ jobs:
           NEXT_PUBLIC_WS_BASE_URL: ws://localhost:8000
         run: npm run build
 
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan for committed secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   docker-build:
     runs-on: ubuntu-latest
     needs: [backend-lint-and-test, frontend-lint-build]
@@ -107,3 +134,31 @@ jobs:
         run: docker build --pull --tag survivalschool-backend:ci ./backend
       - name: Build frontend image
         run: docker build --pull --tag survivalschool-frontend:ci ./frontend
+      - name: Scan backend image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: survivalschool-backend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+      - name: Scan frontend image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: survivalschool-frontend:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+      - name: Generate SBOMs (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: survivalschool-backend:ci
+          artifact-name: sbom-backend.spdx.json
+      - name: Generate frontend SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: survivalschool-frontend:ci
+          artifact-name: sbom-frontend.spdx.json

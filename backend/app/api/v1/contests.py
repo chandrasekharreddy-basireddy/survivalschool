@@ -69,12 +69,19 @@ def _contest_certificate_is_expired(cert: ContestCertificate) -> bool:
 
 
 @router.get("", response_model=list[ContestOut])
-async def list_contests(status_filter: str | None = Query(None, alias="status"), db: AsyncSession = Depends(get_db)):
-    cache_key = f"status={status_filter or ''}"
+async def list_contests(
+    status_filter: str | None = Query(None, alias="status"),
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    # Bounded fetch + a page-aware cache key so a growing contest archive can't
+    # turn this into an unbounded SELECT.
+    cache_key = f"status={status_filter or ''}&limit={limit}&offset={offset}"
     cached = await cache_get_versioned("contests_list", cache_key)
     if cached is not None:
         return cached
-    stmt = select(Contest).order_by(Contest.starts_at.desc())
+    stmt = select(Contest).order_by(Contest.starts_at.desc()).limit(limit).offset(offset)
     if status_filter:
         stmt = stmt.where(Contest.status == status_filter)
     contests = (await db.execute(stmt)).scalars().all()
@@ -198,9 +205,19 @@ async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, 
         return ContestResultOut.model_validate(attempt)
     now = datetime.now(timezone.utc)
     late = now > attempt.server_deadline_at
+    # Batch-fetch the questions rather than querying per answer inside the loop:
+    # during a timed contest every submit lands in the same narrow window, so a
+    # per-question round-trip multiplies DB load exactly when it is highest.
+    answer_qids = {ans.question_id for ans in payload.answers}
+    questions_by_id = {
+        q.id: q for q in (await db.execute(
+            select(Question).where(Question.id.in_(answer_qids)).options(selectinload(Question.options))
+        )).scalars().all()
+    } if answer_qids else {}
+
     points_earned, points_possible = 0, 0
     for ans in payload.answers:
-        question = (await db.execute(select(Question).where(Question.id == ans.question_id).options(selectinload(Question.options)))).scalar_one_or_none()
+        question = questions_by_id.get(ans.question_id)
         if question is None:
             continue
         sel = [] if late else [str(i) for i in ans.selected_option_ids]

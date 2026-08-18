@@ -16,8 +16,19 @@ async def health():
     """Liveness-ish general health summary."""
     db_ok = await check_db_health()
     redis_ok = await check_redis_health()
+    # DB down => unhealthy (the app cannot serve). Redis down => degraded, not
+    # unhealthy: rate limiting fails open by design, so a Redis outage must be
+    # visible to monitoring without pulling the pod out of rotation (that is
+    # what /ready is for, and it deliberately checks only the DB so a Redis
+    # blip cannot trigger a restart storm).
+    if not db_ok:
+        status = "unhealthy"
+    elif not redis_ok:
+        status = "degraded"
+    else:
+        status = "ok"
     return {
-        "status": "ok" if db_ok else "degraded",
+        "status": status,
         "version": settings.SERVICE_VERSION,
         "environment": settings.APP_ENV,
         "dependencies": {"database": db_ok, "redis": redis_ok},

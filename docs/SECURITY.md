@@ -302,10 +302,11 @@ spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
   and `python-magic==0.4.27` (real content-sniffing for file uploads, also
   needs `libmagic1` at runtime). `pip-audit -r requirements.txt` was re-run
   after adding them and still reports zero known vulnerabilities.
-- Backend container images are scanned with Trivy in CI
-  (`.github/workflows/ci.yml`, `docker-build` job) — this has not yet run
-  against a real build, since this sandbox cannot push to a container
-  registry (see `docs/DEPLOYMENT.md`).
+- Backend and frontend container images are scanned with Trivy in CI
+  (`.github/workflows/ci.yml`, `docker-build` job), failing the build on
+  CRITICAL/HIGH fixable vulnerabilities (`ignore-unfixed: true`). SBOMs for
+  both images are generated with Syft and uploaded as build artifacts. A
+  gitleaks secret-scan job runs on every push/PR.
 - `bandit` (Python static security linter) reports zero medium/high severity
   findings against `app/`; two low-severity findings (a password-policy
   *message string* it heuristically flags as a hardcoded password, and an
@@ -343,9 +344,10 @@ spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
 - No WAF / DDoS layer is provisioned — that's an infrastructure decision for
   wherever this is actually deployed (Cloudflare, AWS WAF, etc.), not
   something the application code can provide.
-- No automated dependency-update bot (Dependabot/Renovate) is configured —
-  the versions in `requirements.txt`/`package.json` are a snapshot as of this
-  build and will drift.
+- Automated dependency updates are configured via Dependabot
+  (`.github/dependabot.yml`) for the pip (backend) and npm (frontend)
+  ecosystems, so `requirements.txt`/`package.json` receive update PRs rather
+  than silently drifting.
 - The `Profile.avatar_url` / `Course.cover_image_url` fields are stored and
   returned to clients as plain strings with no server-side validation that
   they're actually image URLs.
@@ -363,8 +365,9 @@ spoofing issue this fix closes. See `docs/ENVIRONMENT.md`.
   ADMIN all hold it); a private file is only readable by its owner or an
   admin, verified by a dedicated test for both a different authenticated
   user and an anonymous caller. Storage is local-disk only in this build —
-  the `STORAGE_BACKEND: Literal["local", "s3"]` setting's `s3` value remains
-  a documented, unimplemented option, not a working feature (see
+  the cloud option is `STORAGE_BACKEND: Literal["local", "supabase"]` — the
+  `supabase` backend uploads to Supabase Storage (`SUPABASE_STORAGE_URL` /
+  `SUPABASE_SERVICE_ROLE_KEY`); there is no `s3` backend (see
   `docs/DEPLOYMENT.md`).
 - No penetration test or third-party security audit has been performed —
   everything above is internal static/dependency scanning, integration

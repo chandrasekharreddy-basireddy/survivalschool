@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,7 +44,19 @@ class Quiz(Base, UUIDPk, Timestamped):
 
 class QuizAttempt(Base, UUIDPk, Timestamped):
     __tablename__ = "quiz_attempts"
-    __table_args__ = (Index("ix_quiz_attempts_student_quiz_status", "student_id", "quiz_id", "status"),)
+    __table_args__ = (
+        Index("ix_quiz_attempts_student_quiz_status", "student_id", "quiz_id", "status"),
+        # The database is the last line of defence for scores: a service-layer
+        # bug must not be able to persist 140%%, a negative score, or more points
+        # earned than were available. (Kept as Integer rather than Numeric(5,2)
+        # — percentages are whole numbers throughout the grading code and the
+        # schemas/frontend; the range checks are what actually protect the data.)
+        CheckConstraint("score_percent IS NULL OR (score_percent >= 0 AND score_percent <= 100)", name="score_percent_range"),
+        CheckConstraint("points_earned IS NULL OR points_earned >= 0", name="points_earned_non_negative"),
+        CheckConstraint("points_possible IS NULL OR points_possible >= 0", name="points_possible_non_negative"),
+        CheckConstraint("points_earned IS NULL OR points_possible IS NULL OR points_earned <= points_possible", name="points_earned_within_possible"),
+        CheckConstraint("status IN ('in_progress', 'submitted', 'abandoned')", name="status_valid"),
+    )
     quiz_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("quizzes.id", ondelete="CASCADE"), nullable=False, index=True)
     student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -61,7 +73,7 @@ class QuizAttempt(Base, UUIDPk, Timestamped):
 class QuizAnswer(Base, UUIDPk, Timestamped):
     __tablename__ = "quiz_answers"
     attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("quiz_attempts.id", ondelete="CASCADE"), nullable=False, index=True)
-    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("questions.id"), nullable=False)
+    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("questions.id"), nullable=False, index=True)
     selected_option_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     text_answer: Mapped[str | None] = mapped_column(Text)
     is_correct: Mapped[bool | None] = mapped_column(Boolean)
@@ -88,7 +100,19 @@ class Exam(Base, UUIDPk, Timestamped):
 
 class ExamAttempt(Base, UUIDPk, Timestamped):
     __tablename__ = "exam_attempts"
-    __table_args__ = (Index("ix_exam_attempts_student_exam_status", "student_id", "exam_id", "status"),)
+    __table_args__ = (
+        Index("ix_exam_attempts_student_exam_status", "student_id", "exam_id", "status"),
+        # The database is the last line of defence for scores: a service-layer
+        # bug must not be able to persist 140%%, a negative score, or more points
+        # earned than were available. (Kept as Integer rather than Numeric(5,2)
+        # — percentages are whole numbers throughout the grading code and the
+        # schemas/frontend; the range checks are what actually protect the data.)
+        CheckConstraint("score_percent IS NULL OR (score_percent >= 0 AND score_percent <= 100)", name="score_percent_range"),
+        CheckConstraint("points_earned IS NULL OR points_earned >= 0", name="points_earned_non_negative"),
+        CheckConstraint("points_possible IS NULL OR points_possible >= 0", name="points_possible_non_negative"),
+        CheckConstraint("points_earned IS NULL OR points_possible IS NULL OR points_earned <= points_possible", name="points_earned_within_possible"),
+        CheckConstraint("status IN ('in_progress', 'submitted', 'abandoned')", name="status_valid"),
+    )
     exam_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("exams.id", ondelete="CASCADE"), nullable=False, index=True)
     student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -102,7 +126,13 @@ class ExamAttempt(Base, UUIDPk, Timestamped):
     points_possible: Mapped[int | None] = mapped_column(Integer)
     passed: Mapped[bool | None] = mapped_column(Boolean)
     status: Mapped[str] = mapped_column(String(20), default="in_progress", nullable=False)
-    submission_client_token: Mapped[str | None] = mapped_column(String(128))
+    # Unique + indexed: this is the exam-submit idempotency key. Without the
+    # unique index two concurrent submits carrying the same token both pass the
+    # "already seen?" SELECT and both grade the attempt, which is precisely what
+    # the token exists to prevent. NULLs stay distinct in Postgres, so attempts
+    # submitted without a token are unaffected. The index also turns the lookup
+    # from a full scan of exam_attempts into a single probe.
+    submission_client_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
     flagged_events: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     allowed_ip: Mapped[str | None] = mapped_column(String(64))
     violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -111,7 +141,7 @@ class ExamAttempt(Base, UUIDPk, Timestamped):
 class ExamAnswer(Base, UUIDPk, Timestamped):
     __tablename__ = "exam_answers"
     attempt_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("exam_attempts.id", ondelete="CASCADE"), nullable=False, index=True)
-    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("questions.id"), nullable=False)
+    question_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("questions.id"), nullable=False, index=True)
     selected_option_ids: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     text_answer: Mapped[str | None] = mapped_column(Text)
     is_correct: Mapped[bool | None] = mapped_column(Boolean)

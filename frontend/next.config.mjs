@@ -1,9 +1,23 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import withSerwistInit from "@serwist/next";
 
+// next/image refuses to optimize a remote URL whose host isn't allow-listed
+// here, so any Supabase-hosted cover image or avatar would otherwise fail to
+// render. The Supabase storage host is derived from NEXT_PUBLIC_SUPABASE_URL
+// when set; the "**.supabase.co" fallback covers the standard hosted domains.
+const remotePatterns = [{ protocol: "https", hostname: "**.supabase.co" }];
+try {
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL) {
+    remotePatterns.push({ protocol: "https", hostname: new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname });
+  }
+} catch {
+  /* ignore a malformed URL — the wildcard fallback still applies */
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  images: { remotePatterns },
   async headers() {
     return [
       {
@@ -12,6 +26,11 @@ const nextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Assets Next.js serves are covered here too — the backend security
+          // headers only apply to API responses, not the Vercel-served app.
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+          { key: "Permissions-Policy", value: "geolocation=(), microphone=(), camera=()" },
+          { key: "X-DNS-Prefetch-Control", value: "on" },
         ],
       },
     ];

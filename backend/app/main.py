@@ -19,6 +19,8 @@ from app.websockets.chat import router as ws_chat_router
 
 settings = get_settings()
 
+_EXPOSE_API_DOCS = settings.APP_ENV in ("development", "staging", "test")
+
 if settings.SENTRY_DSN:
     import sentry_sdk
     from sentry_sdk.integrations.fastapi import FastApiIntegration
@@ -49,15 +51,22 @@ app = FastAPI(
     version=settings.SERVICE_VERSION,
     description="Production API for Survival School — MCQ-driven learning platform.",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
+    # Publishing the full OpenAPI schema in production hands an unauthenticated
+    # caller a complete map of every endpoint, request/response model and field
+    # — free attack-surface reconnaissance. Expose it only outside production.
+    docs_url="/api/docs" if _EXPOSE_API_DOCS else None,
+    redoc_url="/api/redoc" if _EXPOSE_API_DOCS else None,
+    openapi_url="/api/openapi.json" if _EXPOSE_API_DOCS else None,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    # This API authenticates with Bearer tokens in the Authorization header,
+    # which CORS sends regardless of this flag. Enabling credentials only widens
+    # the cookie/CSRF surface for no benefit — flip it back on if cookie auth
+    # is ever introduced.
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Request-Id", "X-Maintenance-Secret"],
 )

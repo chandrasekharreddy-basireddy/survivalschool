@@ -14,36 +14,30 @@ import { getPostLoginPath } from "@/lib/roles";
 function AuthShell({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto grid min-h-[calc(100dvh-var(--shell-h))] max-w-6xl items-center gap-8 px-4 py-12 lg:grid-cols-2 lg:gap-16">
-      <aside className="relative hidden overflow-hidden rounded-3xl border border-ink-700 bg-ink-900/60 p-10 lg:block">
-        <div className="pointer-events-none absolute -right-20 -top-20 h-60 w-60 rounded-full bg-brand-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 -left-16 h-56 w-56 rounded-full bg-teal/10 blur-3xl" />
-        <span className="game-badge chip-brand"><span className="status-dot" /> Survival School</span>
-        <h2 className="mt-6 text-3xl font-extrabold leading-tight tracking-tight text-fg">
-          Learn. Compete. <span className="text-gradient">Certify.</span>
-        </h2>
+      <aside className="hidden border-r border-ink-700 pr-16 lg:block">
+        <p className="text-sm font-medium text-fg-subtle">Survival School</p>
+        <h2 className="mt-3 max-w-xs">One account for your courses, exams, and certificates.</h2>
         <p className="mt-4 max-w-sm text-sm text-fg-muted">
-          Sign in to continue your courses, sit the weekend AI exams, and track your rank — the same door for students,
-          instructors, and admins.
+          Sign in to pick up where you left off. Students, instructors, and admins use the same sign-in — you&rsquo;ll land
+          on the right home for your role.
         </p>
-        <ul className="mt-8 space-y-3 text-sm text-fg-muted">
-          <ShellPoint>Server-authoritative exams and scoring</ShellPoint>
-          <ShellPoint>Verifiable, QR-backed certificates</ShellPoint>
-          <ShellPoint>Role-aware — routed to the right home on sign-in</ShellPoint>
-        </ul>
+        <dl className="mt-8 space-y-4 text-sm">
+          <ShellFact k="Exams" v="Graded on the server, the moment you submit" />
+          <ShellFact k="Certificates" v="Each carries a public verification link" />
+          <ShellFact k="Schedule" v="Weekend exams, Saturday & Sunday (IST)" />
+        </dl>
       </aside>
       <div className="w-full">{children}</div>
     </div>
   );
 }
 
-function ShellPoint({ children }: { children: ReactNode }) {
+function ShellFact({ k, v }: { k: string; v: string }) {
   return (
-    <li className="flex items-start gap-2.5">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} className="mt-0.5 h-4 w-4 shrink-0 text-teal" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M20 6 9 17l-5-5" />
-      </svg>
-      <span>{children}</span>
-    </li>
+    <div>
+      <dt className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{k}</dt>
+      <dd className="mt-0.5 text-fg-muted">{v}</dd>
+    </div>
   );
 }
 

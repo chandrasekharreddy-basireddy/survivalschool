@@ -16,8 +16,6 @@ import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
 import { NavBar } from "@/components/NavBar";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
-import { DotField } from "@/components/DotField";
-import { CustomCursor } from "@/components/CustomCursor";
 
 export const metadata: Metadata = {
   title: {
@@ -67,8 +65,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>
-              <DotField />
-              <CustomCursor />
               <NavBar />
               <AnalyticsTracker />
               <ServiceWorkerRegister />

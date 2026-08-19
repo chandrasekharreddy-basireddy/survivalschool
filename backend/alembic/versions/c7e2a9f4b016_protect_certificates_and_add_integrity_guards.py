@@ -62,6 +62,27 @@ def _fk_name(table: str, column: str, referred: str) -> str:
     return f"fk_{table}_{column}_{referred}"
 
 
+def _existing_fk_name(table: str, column: str, referred: str) -> str:
+    """Look up the FK's real name instead of assuming it matches
+    ``_fk_name()``. The initial_schema migration created these constraints
+    via a bare ``sa.ForeignKeyConstraint(...)`` that was never attached to
+    ``Base.metadata``, so it never picked up the app's naming_convention —
+    Postgres assigned its own default name instead (e.g.
+    ``certificates_course_id_fkey``). Existing production databases that
+    evolved incrementally happened to have a differently-named constraint
+    already in place, but a database rebuilt from scratch through the full
+    migration chain does not, which made the hardcoded ``_fk_name()`` guess
+    below fail with "constraint ... does not exist". Tests never caught
+    this because conftest.py builds the schema with
+    ``Base.metadata.create_all()``, which does apply the naming_convention.
+    """
+    inspector = sa.inspect(op.get_bind())
+    for fk in inspector.get_foreign_keys(table):
+        if fk["referred_table"] == referred and column in fk["constrained_columns"]:
+            return fk["name"]
+    raise RuntimeError(f"no FK found on {table}.{column} -> {referred}")
+
+
 def upgrade() -> None:
     # --- certificates: survive deletion of their course -------------------
     op.add_column("certificates", sa.Column("course_title", sa.String(length=200), nullable=True))
@@ -76,7 +97,7 @@ def upgrade() -> None:
         """
     )
     op.alter_column("certificates", "course_id", existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=True)
-    op.drop_constraint(_fk_name("certificates", "course_id", "courses"), "certificates", type_="foreignkey")
+    op.drop_constraint(_existing_fk_name("certificates", "course_id", "courses"), "certificates", type_="foreignkey")
     op.create_foreign_key(
         _fk_name("certificates", "course_id", "courses"),
         "certificates", "courses", ["course_id"], ["id"], ondelete="SET NULL",
@@ -84,7 +105,7 @@ def upgrade() -> None:
 
     # --- contest certificates: survive deletion of their contest ----------
     op.alter_column("contest_certificates", "contest_id", existing_type=sa.dialects.postgresql.UUID(as_uuid=True), nullable=True)
-    op.drop_constraint(_fk_name("contest_certificates", "contest_id", "contests"), "contest_certificates", type_="foreignkey")
+    op.drop_constraint(_existing_fk_name("contest_certificates", "contest_id", "contests"), "contest_certificates", type_="foreignkey")
     op.create_foreign_key(
         _fk_name("contest_certificates", "contest_id", "contests"),
         "contest_certificates", "contests", ["contest_id"], ["id"], ondelete="SET NULL",

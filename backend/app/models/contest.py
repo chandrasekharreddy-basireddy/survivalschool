@@ -3,7 +3,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,6 +58,14 @@ class ContestAttempt(Base, UUIDPk, Timestamped):
     __table_args__ = (
         UniqueConstraint("contest_id", "student_id", name="uq_contest_attempt_student"),
         Index("ix_contest_attempts_contest_status", "contest_id", "status"),
+        # Same database-level score/status guards the exam_attempts and
+        # quiz_attempts tables already have — contest_attempts was left out of
+        # the migration that added them despite having identical columns.
+        CheckConstraint("score_percent IS NULL OR (score_percent >= 0 AND score_percent <= 100)", name="score_percent_range"),
+        CheckConstraint("points_earned IS NULL OR points_earned >= 0", name="points_earned_non_negative"),
+        CheckConstraint("points_possible IS NULL OR points_possible >= 0", name="points_possible_non_negative"),
+        CheckConstraint("points_earned IS NULL OR points_possible IS NULL OR points_earned <= points_possible", name="points_earned_within_possible"),
+        CheckConstraint("status IN ('in_progress', 'submitted', 'abandoned')", name="status_valid"),
     )
 
     contest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contests.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -85,8 +104,14 @@ class ContestCertificate(Base, UUIDPk, Timestamped):
     __table_args__ = (UniqueConstraint("contest_id", "student_id", name="uq_contest_certificate_student"),)
 
     certificate_number: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
-    contest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contests.id", ondelete="CASCADE"), nullable=False)
-    student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # SET NULL, not CASCADE — deleting a contest must not destroy the
+    # certificates already awarded for it. contest_title/rank/score_percent
+    # below are snapshotted at issuance, so the credential stays fully
+    # renderable and verifiable without the contest row.
+    contest_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("contests.id", ondelete="SET NULL"), nullable=True)
+    # Indexed: "my contest certificates" filters on student_id alone, which the
+    # (contest_id, student_id) unique constraint can't serve as its leading column.
+    student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     contest_title: Mapped[str] = mapped_column(String(200), nullable=False)
     score_percent: Mapped[int] = mapped_column(Integer, nullable=False)

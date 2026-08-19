@@ -3,7 +3,17 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +29,7 @@ class Question(Base, UUIDPk, Timestamped):
     points: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     explanation: Mapped[str | None] = mapped_column(Text)
     short_answer_key: Mapped[str | None] = mapped_column(String(500))
-    options: Mapped[list["QuestionOption"]] = relationship(cascade="all, delete-orphan", order_by="QuestionOption.order_index")
+    options: Mapped[list[QuestionOption]] = relationship(cascade="all, delete-orphan", order_by="QuestionOption.order_index")
 
 
 class QuestionOption(Base, UUIDPk, Timestamped):

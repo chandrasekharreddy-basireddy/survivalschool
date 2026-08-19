@@ -4,30 +4,41 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AuthorizationError, NotFoundError
+from app.core.exceptions import AuthorizationError, NotFoundError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.social import ChatMember, ChatMessage, ChatRoom, MessageRead
 from app.models.user import User
+from app.services.social_graph_service import has_accepted_connection
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class RoomCreate(BaseModel):
-    name: str
-    room_type: str = "direct"
+    name: str = Field(min_length=1, max_length=200)
+    # "direct" is deliberately excluded here — a 1:1 room can only be created
+    # through POST /chat/dm/{user_id}, which enforces the follow-accepted
+    # gate. Without that, this endpoint would let any authenticated user
+    # message any other user by just naming them in member_ids.
+    room_type: str = Field(default="course", pattern=r"^(course|announcement)$")
     course_id: uuid.UUID | None = None
-    member_ids: list[uuid.UUID] = []
+    # Bounded: any authenticated user can create a room, so an unbounded
+    # member list lets one request fan out to arbitrarily many membership rows.
+    member_ids: list[uuid.UUID] = Field(default=[], max_length=500)
 
 
 class RoomOut(BaseModel):
     id: uuid.UUID
     name: str
     room_type: str
+    # Populated only for room_type == "direct" — the other participant, so
+    # the frontend can show a person's name instead of a generic room name.
+    other_user_id: uuid.UUID | None = None
+    other_user_name: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -56,7 +67,21 @@ async def my_rooms(user: User = Depends(get_current_user), db: AsyncSession = De
     result = await db.execute(
         select(ChatRoom).join(ChatMember, ChatMember.room_id == ChatRoom.id).where(ChatMember.user_id == user.id)
     )
-    return result.scalars().all()
+    rooms = result.scalars().all()
+
+    out = []
+    for room in rooms:
+        other_id, other_name = None, None
+        if room.room_type == "direct":
+            other_member = (await db.execute(
+                select(ChatMember).where(ChatMember.room_id == room.id, ChatMember.user_id != user.id)
+            )).scalar_one_or_none()
+            if other_member is not None:
+                other_user = await db.get(User, other_member.user_id)
+                if other_user is not None:
+                    other_id, other_name = other_user.id, other_user.full_name
+        out.append(RoomOut(id=room.id, name=room.name, room_type=room.room_type, other_user_id=other_id, other_user_name=other_name))
+    return out
 
 
 @router.post("/rooms", response_model=RoomOut, status_code=201)
@@ -70,6 +95,38 @@ async def create_room(payload: RoomCreate, user: User = Depends(get_current_user
     await db.commit()
     await db.refresh(room)
     return room
+
+
+@router.post("/dm/{other_user_id}", response_model=RoomOut, status_code=201)
+async def start_direct_message(other_user_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """The only way a direct room gets created — gated on an accepted follow
+    request existing between the two users (see social_graph_service.py).
+    Idempotent: if a direct room between exactly these two already exists,
+    it's reused instead of creating a duplicate."""
+    if other_user_id == user.id:
+        raise ValidationAppError("You can't message yourself.")
+    other_user = await db.get(User, other_user_id)
+    if other_user is None or other_user.deleted_at is not None:
+        raise NotFoundError("User not found.")
+    if not await has_accepted_connection(db, user.id, other_user_id):
+        raise AuthorizationError("You can only message someone who has accepted a follow request with you.")
+
+    my_room_ids = select(ChatMember.room_id).where(ChatMember.user_id == user.id)
+    existing = (await db.execute(
+        select(ChatRoom).join(ChatMember, ChatMember.room_id == ChatRoom.id).where(
+            ChatRoom.room_type == "direct", ChatRoom.id.in_(my_room_ids), ChatMember.user_id == other_user_id,
+        )
+    )).scalar_one_or_none()
+    if existing is not None:
+        return RoomOut(id=existing.id, name=existing.name, room_type=existing.room_type, other_user_id=other_user.id, other_user_name=other_user.full_name)
+
+    room = ChatRoom(name=other_user.full_name, room_type="direct", created_by=user.id)
+    db.add(room)
+    await db.flush()
+    db.add(ChatMember(room_id=room.id, user_id=user.id, role="member"))
+    db.add(ChatMember(room_id=room.id, user_id=other_user_id, role="member"))
+    await db.commit()
+    return RoomOut(id=room.id, name=room.name, room_type=room.room_type, other_user_id=other_user.id, other_user_name=other_user.full_name)
 
 
 @router.get("/rooms/{room_id}/messages", response_model=list[MessageOut])

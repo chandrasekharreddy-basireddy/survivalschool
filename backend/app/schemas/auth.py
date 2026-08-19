@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -115,3 +116,45 @@ class UserOut(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class InstructorApplicationCreate(BaseModel):
+    # All optional here because an already-authenticated caller doesn't need
+    # to supply them again — the endpoint fills email/full_name/password from
+    # the current user in that case. Required only for the unauthenticated
+    # "I don't have an account yet" path (enforced in the handler, not here,
+    # since which fields are required depends on auth state).
+    email: EmailStr | None = None
+    password: str | None = Field(default=None, min_length=10, max_length=128)
+    full_name: str | None = Field(default=None, min_length=2, max_length=150)
+    institution: str | None = Field(default=None, max_length=200)
+    reason: str = Field(min_length=20, max_length=2000)
+
+    @field_validator("password")
+    @classmethod
+    def _password_policy(cls, v: str | None) -> str | None:
+        if v is not None and not validate_password_policy(v):
+            raise ValueError(PASSWORD_POLICY_MESSAGE)
+        return v
+
+
+class InstructorApplicationOut(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    applicant_email: str
+    applicant_name: str
+    institution: str | None
+    reason: str
+    status: str
+    created_at: datetime
+    reviewed_at: datetime | None
+    review_note: str | None
+    # True unless a brand-new applicant's verification email genuinely failed
+    # to send. Always True when applying from an already-verified account.
+    email_delivery_ok: bool = True
+
+    model_config = {"from_attributes": True}
+
+
+class InstructorApplicationReview(BaseModel):
+    note: str | None = Field(default=None, max_length=1000)

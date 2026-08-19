@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -13,7 +13,15 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_verified_user
-from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question, Quiz, QuizAnswer, QuizAttempt
+from app.models.assessment import (
+    Exam,
+    ExamAnswer,
+    ExamAttempt,
+    Question,
+    Quiz,
+    QuizAnswer,
+    QuizAttempt,
+)
 from app.models.lms import Course
 from app.models.practice import PracticeAnswer, PracticeSession, QuestionBookmark
 from app.models.user import User
@@ -89,12 +97,23 @@ async def list_bookmarks(user: User = Depends(get_current_verified_user), db: As
     rows = (await db.execute(
         select(QuestionBookmark).where(QuestionBookmark.student_id == user.id).order_by(QuestionBookmark.created_at.desc())
     )).scalars().all()
+    if not rows:
+        return []
+
+    # Batch-fetch questions and their courses instead of two queries per
+    # bookmark — a student with a long bookmark list was issuing 2N queries
+    # to render this list.
+    question_ids = {b.question_id for b in rows}
+    questions_by_id = {q.id: q for q in (await db.execute(select(Question).where(Question.id.in_(question_ids)))).scalars().all()}
+    course_ids = {q.course_id for q in questions_by_id.values() if q.course_id is not None}
+    courses_by_id = {c.id: c for c in (await db.execute(select(Course).where(Course.id.in_(course_ids)))).scalars().all()} if course_ids else {}
+
     out = []
     for b in rows:
-        question = await db.get(Question, b.question_id)
+        question = questions_by_id.get(b.question_id)
         if question is None:
             continue
-        course = await db.get(Course, question.course_id) if question.course_id else None
+        course = courses_by_id.get(question.course_id) if question.course_id else None
         out.append(BookmarkOut(id=b.id, question_id=b.question_id, prompt=question.prompt, question_type=question.question_type,
                                 course_id=question.course_id, course_title=course.title if course else None,
                                 note=b.note, created_at=b.created_at))
@@ -203,12 +222,18 @@ async def submit_practice_session(
     if session.submitted_at is not None:
         return await _practice_result(db, session)
 
+    # Batch-fetch instead of one query per answer.
+    answer_qids = {ans.question_id for ans in payload.answers}
+    questions_by_id = {
+        q.id: q for q in (await db.execute(
+            select(Question).where(Question.id.in_(answer_qids)).options(selectinload(Question.options))
+        )).scalars().all()
+    } if answer_qids else {}
+
     points_earned, points_possible = 0, 0
     answer_outs: list[PracticeAnswerResultOut] = []
     for ans in payload.answers:
-        question = (await db.execute(
-            select(Question).where(Question.id == ans.question_id).options(selectinload(Question.options))
-        )).scalar_one_or_none()
+        question = questions_by_id.get(ans.question_id)
         if question is None:
             continue
         selected_ids = [str(i) for i in ans.selected_option_ids]
@@ -228,7 +253,7 @@ async def submit_practice_session(
     session.points_earned = points_earned
     session.points_possible = points_possible
     session.score_percent = score_percent
-    session.submitted_at = datetime.now(timezone.utc)
+    session.submitted_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(session)
 
@@ -239,11 +264,15 @@ async def submit_practice_session(
 
 async def _practice_result(db: AsyncSession, session: PracticeSession) -> PracticeResultOut:
     answers = (await db.execute(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id))).scalars().all()
+    answer_qids = {a.question_id for a in answers}
+    questions_by_id = {
+        q.id: q for q in (await db.execute(
+            select(Question).where(Question.id.in_(answer_qids)).options(selectinload(Question.options))
+        )).scalars().all()
+    } if answer_qids else {}
     answer_outs = []
     for a in answers:
-        question = (await db.execute(
-            select(Question).where(Question.id == a.question_id).options(selectinload(Question.options))
-        )).scalar_one_or_none()
+        question = questions_by_id.get(a.question_id)
         if question is None:
             continue
         answer_outs.append(PracticeAnswerResultOut(
@@ -276,9 +305,11 @@ async def my_practice_sessions(user: User = Depends(get_current_verified_user), 
     rows = (await db.execute(
         select(PracticeSession).where(PracticeSession.student_id == user.id).order_by(PracticeSession.started_at.desc())
     )).scalars().all()
+    course_ids = {s.course_id for s in rows if s.course_id is not None}
+    courses_by_id = {c.id: c for c in (await db.execute(select(Course).where(Course.id.in_(course_ids)))).scalars().all()} if course_ids else {}
     out = []
     for s in rows:
-        course = await db.get(Course, s.course_id) if s.course_id else None
+        course = courses_by_id.get(s.course_id) if s.course_id else None
         out.append(PracticeSessionHistoryOut(id=s.id, source=s.source, course_id=s.course_id,
                                               course_title=course.title if course else None,
                                               score_percent=s.score_percent, started_at=s.started_at, submitted_at=s.submitted_at))

@@ -18,11 +18,12 @@ settings = get_settings()
 # (they run inside the cluster network, never through the TLS-terminating
 # ingress), so redirecting them would make every probe fail and the pod would
 # be killed for "not being healthy" while actually serving traffic fine.
+# All health routes live under the API prefix (app/api/v1/health.py); there
+# are no bare /health or /live routes, so only the prefixed paths are listed.
 _HTTPS_REDIRECT_EXEMPT_PATHS = {
-    "/health",
-    "/live",
     f"{settings.API_V1_PREFIX}/health",
     f"{settings.API_V1_PREFIX}/live",
+    f"{settings.API_V1_PREFIX}/ready",
 }
 
 

@@ -172,6 +172,11 @@ async def seed_demo_data():
 
 async def main():
     await seed_rbac()
+    from app.seed_courses import seed_default_courses
+    async with AsyncSessionLocal() as db:
+        created = await seed_default_courses(db)
+    if created:
+        print(f"Seeded {created} default course(s).")
     if "--with-demo-data" in sys.argv:
         await seed_demo_data()
 

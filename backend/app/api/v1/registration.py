@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import UTC
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ async def registration_status(db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {
         "is_open": window.is_open,
-        "next_open_at": window.next_open_at.astimezone(timezone.utc).isoformat() if window.next_open_at else None,
+        "next_open_at": window.next_open_at.astimezone(UTC).isoformat() if window.next_open_at else None,
         "message": (
             "Registration is open today."
             if window.is_open

@@ -41,7 +41,7 @@ async def _build_out(db: AsyncSession, user: User, challenge: DailyChallenge) ->
         my_attempt = DailyChallengeAttemptOut(
             is_correct=attempt.is_correct,
             points_awarded=attempt.points_awarded,
-            selected_option_ids=[o for o in attempt.selected_option_ids],
+            selected_option_ids=list(attempt.selected_option_ids),
             correct_option_ids=correct_option_ids,
         )
 

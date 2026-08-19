@@ -15,6 +15,7 @@ interface Profile {
   avatar_url: string | null;
   timezone: string;
   locale: string;
+  section: string | null;
 }
 
 interface FileOut {
@@ -46,13 +47,14 @@ export default function ProfilePage() {
   const [stats, setStats] = useState<GamificationStats | null>(null);
   const [certs, setCerts] = useState<CertificateOut[] | null>(null);
   const [bio, setBio] = useState("");
+  const [section, setSection] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!user) return;
-    apiFetch<Profile>("/users/me/profile").then((p) => { setProfile(p); setBio(p.bio || ""); }).catch(() => {});
+    apiFetch<Profile>("/users/me/profile").then((p) => { setProfile(p); setBio(p.bio || ""); setSection(p.section || ""); }).catch(() => {});
     apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => {});
     apiFetch<CertificateOut[]>("/certificates/me").then(setCerts).catch(() => setCerts([]));
   }, [user]);
@@ -91,7 +93,7 @@ export default function ProfilePage() {
   const save = async () => {
     setSaving(true);
     try {
-      const updated = await apiFetch<Profile>("/users/me/profile", { method: "PATCH", body: JSON.stringify({ bio }) });
+      const updated = await apiFetch<Profile>("/users/me/profile", { method: "PATCH", body: JSON.stringify({ bio, section }) });
       setProfile(updated);
       toast.show("Profile updated.", "success");
     } catch (err) {
@@ -190,6 +192,15 @@ export default function ProfilePage() {
           onChange={(e) => setBio(e.target.value)}
           placeholder="Tell other students a bit about yourself…"
           maxLength={500}
+        />
+        <label className="label mt-4 block">Section</label>
+        <p className="mt-1 text-xs text-fg-subtle">Set this to see your campus timetable filtered to your section on the Timetable page.</p>
+        <input
+          className="input mt-1.5"
+          value={section}
+          onChange={(e) => setSection(e.target.value)}
+          placeholder="e.g. CSE-3B"
+          maxLength={60}
         />
         <button onClick={save} disabled={saving || !profile} className="btn-primary mt-3">
           {saving ? "Saving…" : "Save"}

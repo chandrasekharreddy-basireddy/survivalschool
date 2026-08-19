@@ -114,16 +114,24 @@ export async function apiFetch<T = unknown>(
   let resp = await doFetch();
 
   if (resp.status === 401 && auth) {
+    // A visitor who was never signed in has no refresh token to begin with —
+    // that's just an ordinary anonymous 401 (e.g. AuthProvider's own /auth/me
+    // probe on every page), not a session expiry, and must not force-navigate
+    // whatever public page they're on to /login. Only a *rejected* refresh
+    // token means a real session actually ended.
+    const hadRefreshToken = !!getStoredTokens().refresh;
     const newAccess = await tryRefresh();
     if (newAccess) {
       resp = await doFetch(newAccess);
-    } else {
+    } else if (hadRefreshToken) {
       // Refresh token is gone or rejected — the session is truly over. Send the
       // user to login rather than leaving them on a protected page whose data
       // fetches all 401.
       redirectToLogin();
       throw new ApiError("Your session has expired. Please log in again.", "session_expired", 401);
     }
+    // else: fall through to the generic !resp.ok handling below, which parses
+    // the body and throws a plain ApiError without touching navigation.
   }
 
   if (!resp.ok) {

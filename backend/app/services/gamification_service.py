@@ -4,7 +4,7 @@ and validated server-side.")."""
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -44,7 +44,7 @@ def _apply_todays_activity(streak: Streak, today) -> None:
     else:
         streak.current_streak_days = 1
     streak.longest_streak_days = max(streak.longest_streak_days, streak.current_streak_days)
-    streak.last_activity_date = datetime.now(timezone.utc)
+    streak.last_activity_date = datetime.now(UTC)
 
 
 async def record_daily_activity(db: AsyncSession, student_id: uuid.UUID) -> Streak:
@@ -60,7 +60,7 @@ async def record_daily_activity(db: AsyncSession, student_id: uuid.UUID) -> Stre
     yet) has a separate race — two concurrent first-ever activities for the
     same student both trying to INSERT — handled the same SAVEPOINT-then-
     catch-IntegrityError way the badge-award race is handled below."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
 
     result = await db.execute(select(Streak).where(Streak.student_id == student_id).with_for_update())
     streak = result.scalar_one_or_none()
@@ -73,7 +73,7 @@ async def record_daily_activity(db: AsyncSession, student_id: uuid.UUID) -> Stre
     try:
         async with db.begin_nested():
             streak = Streak(student_id=student_id, current_streak_days=1, longest_streak_days=1,
-                             last_activity_date=datetime.now(timezone.utc))
+                             last_activity_date=datetime.now(UTC))
             db.add(streak)
             await db.flush()
         return streak

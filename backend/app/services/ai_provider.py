@@ -38,7 +38,9 @@ class AIProvider(ABC):
     name: str = "base"
 
     @abstractmethod
-    async def chat(self, messages: list[dict], *, system_prompt: str | None = None) -> AIResponse:
+    async def chat(
+        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None
+    ) -> AIResponse:
         ...
 
     @abstractmethod
@@ -49,12 +51,16 @@ class AIProvider(ABC):
 class MockAIProvider(AIProvider):
     name = "mock"
 
-    async def chat(self, messages: list[dict], *, system_prompt: str | None = None) -> AIResponse:
+    async def chat(
+        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None
+    ) -> AIResponse:
         start = time.perf_counter()
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        image_note = " I can see you attached an image — connect a real Sarvam AI key to have it actually analyzed." if image_data_url else ""
         content = (
             f"(Mock AI tutor) Here's a starting point on \"{last_user[:120]}\": break the problem into "
-            "smaller steps, check the relevant lesson material, and try a practice question. "
+            "smaller steps, check the relevant lesson material, and try a practice question."
+            f"{image_note} "
             "Connect a real Sarvam AI key and set AI_PROVIDER=sarvam to replace this with a live response."
         )
         return AIResponse(content=content, provider=self.name, tokens_used=len(content.split()),
@@ -83,25 +89,57 @@ class SarvamAIProvider(AIProvider):
         self.api_key = settings.SARVAM_API_KEY
         self.base_url = settings.SARVAM_BASE_URL
         self.model = settings.SARVAM_CHAT_MODEL
+        self.vision_model = settings.SARVAM_VISION_MODEL
         self.timeout = settings.AI_REQUEST_TIMEOUT_SECONDS
 
-    async def chat(self, messages: list[dict], *, system_prompt: str | None = None) -> AIResponse:
+    async def chat(
+        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None
+    ) -> AIResponse:
         if not self.api_key:
             return AIResponse(content="", provider=self.name, tokens_used=None, latency_ms=0,
                                error="SARVAM_API_KEY is not configured.")
 
-        payload_messages = [{"role": "system", "content": system_prompt}, *messages] if system_prompt else messages
+        payload_messages = [{"role": "system", "content": system_prompt}, *messages] if system_prompt else list(messages)
+
+        # Image input is only documented on /v2/chat/completions with the
+        # gemma4 model (see SARVAM_VISION_MODEL's comment in config.py) — the
+        # flagship v1 model used for every other request has no documented
+        # vision support. Only the LAST message gets the multimodal content
+        # array; earlier turns stay plain text, matching how the rest of the
+        # conversation history is already plain strings.
+        endpoint = "/v1/chat/completions"
+        model = self.model
+        if image_data_url and payload_messages and payload_messages[-1]["role"] == "user":
+            endpoint = "/v2/chat/completions"
+            model = self.vision_model
+            last = payload_messages[-1]
+            payload_messages[-1] = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": last["content"]},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            }
+
+        headers = {"api-subscription-key": self.api_key, "Content-Type": "application/json"}
+        if endpoint == "/v2/chat/completions":
+            # v2 documents both api-subscription-key and a bearer
+            # Authorization header as required; v1 only ever needed the
+            # former, so this is added only on the v2 path rather than
+            # changed globally.
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         start = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 resp = await client.post(
-                    f"{self.base_url}/v1/chat/completions",
-                    headers={"api-subscription-key": self.api_key, "Content-Type": "application/json"},
-                    json={"model": self.model, "messages": payload_messages, "max_tokens": 2048},
+                    f"{self.base_url}{endpoint}",
+                    headers=headers,
+                    json={"model": model, "messages": payload_messages, "max_tokens": 2048},
                 )
                 if resp.status_code >= 400:
                     body = resp.text[:500]
-                    logger.error("sarvam_call_failed", status=resp.status_code, model=self.model, body=body)
+                    logger.error("sarvam_call_failed", status=resp.status_code, model=model, body=body)
                     return AIResponse(content="", provider=self.name, tokens_used=None,
                                        latency_ms=int((time.perf_counter() - start) * 1000),
                                        error=f"Sarvam {resp.status_code}: {body}")
@@ -109,18 +147,18 @@ class SarvamAIProvider(AIProvider):
                 try:
                     content = data["choices"][0]["message"]["content"]
                 except (KeyError, IndexError, TypeError) as exc:
-                    logger.error("sarvam_invalid_response", model=self.model, error=type(exc).__name__)
+                    logger.error("sarvam_invalid_response", model=model, error=type(exc).__name__)
                     return AIResponse(content="", provider=self.name, tokens_used=None,
                                        latency_ms=int((time.perf_counter() - start) * 1000),
                                        error="Sarvam returned a response without message content.")
                 if not isinstance(content, str) or not content.strip():
-                    logger.error("sarvam_empty_response", model=self.model)
+                    logger.error("sarvam_empty_response", model=model)
                     return AIResponse(content="", provider=self.name, tokens_used=None,
                                        latency_ms=int((time.perf_counter() - start) * 1000),
                                        error="Sarvam returned empty message content.")
                 tokens = data.get("usage", {}).get("total_tokens")
         except Exception as exc:
-            logger.error("sarvam_call_failed", model=self.model, error=str(exc))
+            logger.error("sarvam_call_failed", model=model, error=str(exc))
             return AIResponse(content="", provider=self.name, tokens_used=None,
                                latency_ms=int((time.perf_counter() - start) * 1000), error=str(exc))
 

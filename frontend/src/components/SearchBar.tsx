@@ -79,7 +79,7 @@ export function SearchBar() {
         />
       </div>
       {open && (query.trim().length >= 2) && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-lg border border-ink-700 bg-ink-900 shadow-soft dark:shadow-soft-dark">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-80 overflow-y-auto rounded-lg border border-ink-700 bg-ink-900 shadow-lg">
           {loading && <p className="px-4 py-3 text-sm text-fg-subtle">Searching…</p>}
           {!loading && results.length === 0 && <p className="px-4 py-3 text-sm text-fg-subtle">No matches for &ldquo;{query}&rdquo;.</p>}
           {!loading &&

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -35,7 +35,7 @@ _NO_REPEAT_WINDOW = 30
 
 
 async def get_or_create_todays_challenge(db: AsyncSession) -> DailyChallenge:
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     existing = (
         await db.execute(select(DailyChallenge).where(DailyChallenge.challenge_date == today))
     ).scalar_one_or_none()

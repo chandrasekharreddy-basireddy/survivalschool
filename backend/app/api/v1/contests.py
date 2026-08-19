@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
@@ -36,7 +36,11 @@ from app.services.cache_service import (
     cache_set_json,
     cache_set_versioned,
 )
-from app.services.contest_certificate_service import generate_pdf_bytes, generate_qr_png_bytes, verification_url
+from app.services.contest_certificate_service import (
+    generate_pdf_bytes,
+    generate_qr_png_bytes,
+    verification_url,
+)
 from app.services.contest_service import finalize_contest
 from app.services.scoring_service import grade_answer, summarize_attempt
 
@@ -65,7 +69,7 @@ def _contest_certificate_out(cert: ContestCertificate) -> ContestCertificateOut:
 
 
 def _contest_certificate_is_expired(cert: ContestCertificate) -> bool:
-    return cert.expires_at is not None and cert.expires_at < datetime.now(timezone.utc)
+    return cert.expires_at is not None and cert.expires_at < datetime.now(UTC)
 
 
 @router.get("", response_model=list[ContestOut])
@@ -95,7 +99,7 @@ async def upcoming_contests(db: AsyncSession = Depends(get_db)):
     cached = await cache_get_versioned("contests_list", "upcoming")
     if cached is not None:
         return cached
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     contests = (await db.execute(
         select(Contest).where(Contest.status.in_(["scheduled", "open"]), Contest.ends_at > now)
         .order_by(Contest.starts_at.asc()).limit(5)
@@ -163,7 +167,7 @@ async def start_contest_attempt(contest_id: uuid.UUID, user: User = Depends(get_
     contest = await db.get(Contest, contest_id)
     if contest is None or contest.status != "open":
         raise NotFoundError("Contest not found or not currently open.")
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if now < contest.starts_at:
         raise ConflictError("This contest hasn't started yet.")
     if now > contest.ends_at:
@@ -203,7 +207,7 @@ async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, 
         raise NotFoundError("Attempt not found.")
     if attempt.status != "in_progress":
         return ContestResultOut.model_validate(attempt)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     late = now > attempt.server_deadline_at
     # Batch-fetch the questions rather than querying per answer inside the loop:
     # during a timed contest every submit lands in the same narrow window, so a
@@ -249,7 +253,7 @@ async def my_contest_certificates(user: User = Depends(get_current_verified_user
 async def verify_contest_certificate(certificate_number: str, db: AsyncSession = Depends(get_db)):
     cert = (await db.execute(select(ContestCertificate).where(ContestCertificate.certificate_number == certificate_number))).scalar_one_or_none()
     if cert is None:
-        return ContestCertificatePublicOut(valid=False, certificate_number=None, contest_id=uuid.UUID(int=0), contest_title="", rank=0, score_percent=0, issued_at=datetime.now(timezone.utc), invalid_reason="not_found")
+        return ContestCertificatePublicOut(valid=False, certificate_number=None, contest_id=uuid.UUID(int=0), contest_title="", rank=0, score_percent=0, issued_at=datetime.now(UTC), invalid_reason="not_found")
     if cert.revoked_at is not None:
         reason = "revoked"
     elif _contest_certificate_is_expired(cert):
@@ -297,7 +301,7 @@ async def revoke_contest_certificate(
     if cert is None:
         raise NotFoundError("Contest certificate not found.")
     if cert.revoked_at is None:
-        cert.revoked_at = datetime.now(timezone.utc)
+        cert.revoked_at = datetime.now(UTC)
         await record_audit_event(db, actor_id=admin.id, action="contest_certificate.revoke", resource_type="contest_certificate", resource_id=str(cert.id))
         await db.commit()
     return ContestCertificateRevokeOut(certificate_number=cert.certificate_number, revoked_at=cert.revoked_at)
@@ -308,7 +312,7 @@ async def manual_finalize_contest(contest_id: uuid.UUID, user: User = Depends(re
     contest = await db.get(Contest, contest_id)
     if contest is None:
         raise NotFoundError("Contest not found.")
-    if datetime.now(timezone.utc) < contest.ends_at:
+    if datetime.now(UTC) < contest.ends_at:
         raise ConflictError("This contest's window hasn't closed yet.")
     contest = await finalize_contest(db, contest)
     return _contest_out(contest)

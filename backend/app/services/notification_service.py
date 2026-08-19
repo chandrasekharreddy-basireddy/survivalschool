@@ -6,6 +6,8 @@ disabled if they are required for account security."
 """
 from __future__ import annotations
 
+import contextlib
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,10 +72,9 @@ async def create_notification(
         # Real Web Push delivery (see push_service.py) — silently a no-op if
         # the user has no active subscriptions or VAPID isn't configured.
         # Never allowed to fail the request that triggered the notification.
-        try:
+        # Defensive: push_service already catches per-subscription errors.
+        with contextlib.suppress(Exception):
             await send_to_user(db, user_id=user.id, title=title, body=body or title, url=link_url)
-        except Exception:  # pragma: no cover - defensive, push_service already catches per-subscription errors
-            pass
 
     return notification
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
-from datetime import timezone
+from datetime import UTC
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +14,11 @@ from app.api.v1.router import api_router
 from app.config import get_settings
 from app.core.exceptions import AppError, app_error_handler, unhandled_exception_handler
 from app.core.logging import configure_logging
-from app.core.middleware import HTTPSRedirectMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.middleware import (
+    HTTPSRedirectMiddleware,
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+)
 from app.database import AsyncSessionLocal
 from app.services.registration_service import refresh_window
 from app.websockets.chat import router as ws_chat_router
@@ -45,6 +49,13 @@ async def lifespan(app: FastAPI):
     settings.validate_for_production()
     from app.seed import seed_rbac
     await seed_rbac()
+    from app.database import AsyncSessionLocal
+    from app.seed_courses import seed_default_courses
+    async with AsyncSessionLocal() as db:
+        created = await seed_default_courses(db)
+    if created:
+        import structlog
+        structlog.get_logger("survivalschool.startup").info("default_courses_seeded", count=created)
 
     # Drive the weekend-exam / contest scheduler from inside the web process
     # when no standalone worker is deployed. Guarded by a Redis leader lock in
@@ -118,7 +129,7 @@ async def registration_window_guard(request, call_next):
                 },
             )
         if not window.is_open:
-            next_open = window.next_open_at.astimezone(timezone.utc).isoformat() if window.next_open_at else None
+            next_open = window.next_open_at.astimezone(UTC).isoformat() if window.next_open_at else None
             return JSONResponse(
                 status_code=403,
                 content={
@@ -139,4 +150,11 @@ Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json"
 
 @app.get("/")
 async def root():
-    return {"service": settings.APP_NAME, "status": "running", "docs": "/api/docs", "health": "/health"}
+    return {
+        "service": settings.APP_NAME,
+        "status": "running",
+        # Advertise the real paths — these are all mounted under the API
+        # prefix; a bare /health has never existed.
+        "docs": "/api/docs" if _EXPOSE_API_DOCS else None,
+        "health": f"{settings.API_V1_PREFIX}/health",
+    }

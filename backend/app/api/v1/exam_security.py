@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
@@ -17,11 +17,19 @@ from app.models.user import User
 from app.schemas.assessment import IntegrityEventIn
 from app.services.analytics_service import track_event
 from app.services.audit_service import record_audit_event
-from app.services.gamification_service import POINTS_EXAM_PASS, award_points, evaluate_and_award_badges
+from app.services.gamification_service import (
+    POINTS_EXAM_PASS,
+    award_points,
+    evaluate_and_award_badges,
+)
 from app.services.rate_limit_service import enforce_rate_limit
 from app.services.scoring_service import grade_answer, summarize_attempt
 
 router = APIRouter(prefix="/exams", tags=["exam-security"])
+
+# Bounds flagged_events growth — a spammy or buggy client calling this
+# endpoint repeatedly can't grow an attempt's event log without limit.
+MAX_FLAGGED_EVENTS_PER_ATTEMPT = 200
 
 
 async def _force_finalize_attempt(db: AsyncSession, attempt: ExamAttempt, user: User, exam: Exam, now: datetime) -> None:
@@ -67,7 +75,7 @@ async def secure_start_exam_attempt(exam_id: uuid.UUID, request: Request, user: 
     if exam is None or not exam.is_published:
         raise NotFoundError("Exam not found.")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if exam.available_from and now < exam.available_from:
         raise ConflictError("This exam is not open yet.")
     if exam.available_until and now > exam.available_until:
@@ -110,10 +118,11 @@ async def secure_integrity_event(attempt_id: uuid.UUID, payload: IntegrityEventI
         raise NotFoundError("Exam not found.")
 
     attempt.violation_count = min(attempt.violation_count + 1, 1000)
-    attempt.flagged_events = (attempt.flagged_events or []) + [{"type": payload.event_type, "at": datetime.now(timezone.utc).isoformat()}]
+    if len(attempt.flagged_events or []) < MAX_FLAGGED_EVENTS_PER_ATTEMPT:
+        attempt.flagged_events = (attempt.flagged_events or []) + [{"type": payload.event_type, "at": datetime.now(UTC).isoformat()}]
     auto_submitted = False
     if exam.integrity_monitoring_enabled and attempt.violation_count >= exam.max_integrity_violations:
-        await _force_finalize_attempt(db, attempt, user, exam, datetime.now(timezone.utc))
+        await _force_finalize_attempt(db, attempt, user, exam, datetime.now(UTC))
         auto_submitted = True
     await db.commit()
     return {"logged": True, "violation_count": attempt.violation_count, "auto_submitted": auto_submitted}

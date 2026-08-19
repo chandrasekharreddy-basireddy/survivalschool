@@ -17,7 +17,11 @@ class Certificate(Base, UUIDPk, Timestamped):
 
     certificate_number: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
     student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False)
+    # SET NULL, not CASCADE: deleting a course must not destroy credentials
+    # already awarded for it. Everything the certificate displays (including
+    # course_title below) is snapshotted at issuance, so it stays renderable
+    # and publicly verifiable even once the course row is gone.
+    course_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="SET NULL"), nullable=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pdf_file_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id"))
@@ -27,6 +31,7 @@ class Certificate(Base, UUIDPk, Timestamped):
     # certificate is earned rather than joining live, so a certificate's
     # displayed content never silently changes after the fact (e.g. if the
     # instructor is later reassigned or the course's skill list edited).
+    course_title: Mapped[str | None] = mapped_column(String(200))
     grade: Mapped[str | None] = mapped_column(String(10))
     score_percent: Mapped[int | None] = mapped_column(Integer)
     skills_json: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)

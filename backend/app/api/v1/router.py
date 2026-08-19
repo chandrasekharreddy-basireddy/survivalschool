@@ -9,9 +9,11 @@ from app.api.v1 import (
     analytics,
     attendance,
     auth,
+    campus_timetable,
     certificates,
     challenges,
     chat,
+    classroom,
     contests,
     courses,
     discussions,
@@ -19,6 +21,7 @@ from app.api.v1 import (
     exam_security,
     exams,
     files,
+    follows,
     gamification,
     health,
     lessons,
@@ -37,6 +40,7 @@ api_router.include_router(auth.router)
 api_router.include_router(registration.router)
 api_router.include_router(users.router)
 api_router.include_router(courses.router)
+api_router.include_router(classroom.router)
 api_router.include_router(lessons.router)
 api_router.include_router(quizzes.router)
 api_router.include_router(quizzes.questions_router)
@@ -48,10 +52,12 @@ api_router.include_router(files.router)
 api_router.include_router(gamification.router)
 api_router.include_router(notifications.router)
 api_router.include_router(chat.router)
+api_router.include_router(follows.router)
 api_router.include_router(ai.router)
 api_router.include_router(analytics.router)
 api_router.include_router(admin.router)
 api_router.include_router(timetable.router)
+api_router.include_router(campus_timetable.router)
 api_router.include_router(discussions.router)
 api_router.include_router(practice.router)
 api_router.include_router(search.router)

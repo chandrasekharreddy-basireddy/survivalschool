@@ -39,6 +39,6 @@ class AttendanceRecord(Base, UUIDPk, Timestamped):
     session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("attendance_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
     student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), default="present", nullable=False)  # present|absent|excused
-    method: Mapped[str] = mapped_column(String(20), default="code", nullable=False)  # code|manual
+    method: Mapped[str] = mapped_column(String(20), default="code", nullable=False)  # code|manual|import
     checked_in_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     marked_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))

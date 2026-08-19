@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
-from app.core.exceptions import AuthenticationError, AuthorizationError
+from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError
 from app.database import get_db
+from app.models.lms import Course
 from app.models.user import Role, User
 from app.models.user import Session as SessionModel
 from app.security.tokens import decode_access_token
@@ -28,10 +29,10 @@ async def get_current_user(
     token = authorization.split(" ", 1)[1].strip()
     try:
         payload = decode_access_token(token)
-    except jwt.ExpiredSignatureError:
-        raise AuthenticationError("Access token expired.", code="token_expired")
-    except jwt.InvalidTokenError:
-        raise AuthenticationError("Invalid access token.")
+    except jwt.ExpiredSignatureError as exc:
+        raise AuthenticationError("Access token expired.", code="token_expired") from exc
+    except jwt.InvalidTokenError as exc:
+        raise AuthenticationError("Invalid access token.") from exc
 
     if payload.get("type") != "access":
         raise AuthenticationError("Invalid token type.")
@@ -133,3 +134,30 @@ def get_client_ip(request: Request) -> str | None:
             # an ALB, etc.) is expected to have set correctly.
             return forwarded.split(",")[0].strip()
     return request.client.host if request.client else None
+
+
+async def require_course_ownership(db: AsyncSession, user: User, course_id: uuid.UUID) -> Course:
+    """Shared ownership gate for course-scoped write endpoints (creating or
+    publishing an exam/quiz/question/lesson/section/schedule under a course,
+    etc.).
+
+    Having e.g. the exam.manage permission — granted broadly to the whole
+    INSTRUCTOR role — is not enough on its own: without this check, ANY
+    instructor could create or publish content under ANY OTHER instructor's
+    course, a real cross-tenant IDOR (this exact bug class was already found
+    and fixed once for courses.py's own update/publish endpoints; this
+    generalizes that fix so every other course-scoped router shares it
+    instead of re-implementing — or missing — the same check).
+
+    course.instructor_id is nullable (an instructor's account can be
+    GDPR-deleted while their courses remain, via ON DELETE SET NULL) — an
+    ownerless course can only be managed by system.manage, never "matched"
+    by coincidence against a None comparison.
+    """
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise NotFoundError("Course not found.")
+    is_owner = course.instructor_id is not None and course.instructor_id == user.id
+    if not is_owner and not user.has_permission("system.manage"):
+        raise AuthorizationError("You can only manage your own courses.")
+    return course

@@ -3,16 +3,36 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from datetime import UTC
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, NotFoundError
+from app.core.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    ConflictError,
+    NotFoundError,
+)
 from app.database import get_db
-from app.dependencies import get_current_user, get_current_user_optional, get_current_verified_user, require_permission
-from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question, Quiz, QuizAnswer, QuizAttempt
+from app.dependencies import (
+    get_current_user,
+    get_current_user_optional,
+    get_current_verified_user,
+    require_course_ownership,
+    require_permission,
+)
+from app.models.assessment import (
+    Exam,
+    ExamAnswer,
+    ExamAttempt,
+    Question,
+    Quiz,
+    QuizAnswer,
+    QuizAttempt,
+)
 from app.models.lms import Course, CourseProgress, CourseSection, Enrollment, Lesson
 from app.models.user import User
 from app.schemas.analytics_extra import CourseAnalyticsOverviewOut, QuestionAnalyticsOut
@@ -196,22 +216,6 @@ async def list_course_exams(course_id: uuid.UUID, published_only: bool = Query(T
     return result.scalars().all()
 
 
-async def _require_course_ownership(db: AsyncSession, user: User, course_id: uuid.UUID) -> Course:
-    """Shared ownership gate for course.update-permission-holding endpoints.
-    Having the courses.update permission (granted broadly to the whole
-    INSTRUCTOR role) previously let ANY instructor edit/publish/unpublish
-    ANY OTHER instructor's course — a real cross-tenant IDOR, not just a
-    theoretical one, since publish/unpublish was already wired up in the
-    frontend. Mirrors the same course.instructor_id ownership check already
-    used for analytics access and bulk question import."""
-    course = await db.get(Course, course_id)
-    if course is None:
-        raise NotFoundError("Course not found.")
-    if course.instructor_id != user.id and not user.has_permission("system.manage"):
-        raise AuthorizationError("You can only manage your own courses.")
-    return course
-
-
 @router.patch("/{course_id}", response_model=CourseOut)
 async def update_course(
     course_id: uuid.UUID,
@@ -219,7 +223,7 @@ async def update_course(
     user: User = Depends(require_permission("courses.update")),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await _require_course_ownership(db, user, course_id)
+    course = await require_course_ownership(db, user, course_id)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(course, field, value)
     await record_audit_event(db, actor_id=user.id, action="course.update", resource_type="course", resource_id=str(course_id))
@@ -235,7 +239,7 @@ async def publish_course(
     user: User = Depends(require_permission("courses.update")),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await _require_course_ownership(db, user, course_id)
+    course = await require_course_ownership(db, user, course_id)
     course.is_published = True
     await record_audit_event(db, actor_id=user.id, action="course.publish", resource_type="course", resource_id=str(course_id))
     await db.commit()
@@ -250,7 +254,7 @@ async def unpublish_course(
     user: User = Depends(require_permission("courses.update")),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await _require_course_ownership(db, user, course_id)
+    course = await require_course_ownership(db, user, course_id)
     course.is_published = False
     await db.commit()
     await db.refresh(course)
@@ -264,11 +268,11 @@ async def delete_course(
     user: User = Depends(require_permission("courses.delete")),
     db: AsyncSession = Depends(get_db),
 ):
-    from datetime import datetime, timezone
+    from datetime import datetime
     course = await db.get(Course, course_id)
     if course is None:
         raise NotFoundError("Course not found.")
-    course.deleted_at = datetime.now(timezone.utc)
+    course.deleted_at = datetime.now(UTC)
     await record_audit_event(db, actor_id=user.id, action="course.delete", resource_type="course", resource_id=str(course_id))
     await db.commit()
     await bump_cache_version("courses_list")
@@ -282,9 +286,9 @@ async def create_section(
     user: User = Depends(require_permission("lessons.manage", "courses.update")),
     db: AsyncSession = Depends(get_db),
 ):
-    course = await db.get(Course, course_id)
-    if course is None:
-        raise NotFoundError("Course not found.")
+    # lessons.manage/courses.update are granted to every INSTRUCTOR — without
+    # this, any instructor could add sections to any other instructor's course.
+    await require_course_ownership(db, user, course_id)
     section = CourseSection(course_id=course_id, title=payload.title, order_index=payload.order_index)
     db.add(section)
     await db.commit()

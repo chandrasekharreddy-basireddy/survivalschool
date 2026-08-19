@@ -54,12 +54,12 @@ async def enforce_rate_limit(key: str, *, limit: int, window_seconds: int, fail_
             )
     except RateLimitedError:
         raise
-    except Exception:
+    except Exception as exc:
         if fail_closed:
             logger.warning("rate_limit_fail_closed", key=key)
             raise RateLimitedError(
                 "Unable to verify rate limit. Please try again later.",
                 details={"limit": limit, "window_seconds": window_seconds},
-            )
+            ) from exc
         logger.warning("rate_limit_degraded_open", key=key)
         return

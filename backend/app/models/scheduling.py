@@ -12,8 +12,20 @@ from app.models.base import Timestamped, UUIDPk
 
 
 class RegistrationWindow(Base, UUIDPk, Timestamped):
-    __tablename__ = "registration_windows"
+    """Global singleton describing when student registration is open.
 
+    `singleton` exists purely to enforce single-row-ness at the database
+    level: it's always True and carries a unique constraint, so a second row
+    physically cannot be inserted. Without it, get_or_create_window()'s
+    SELECT-then-INSERT is a plain race — and it's reachable from an
+    unauthenticated, unthrottled endpoint (GET /auth/registration-status),
+    so two concurrent first-hits after a fresh deploy could each insert their
+    own "singleton" with nothing to detect the duplication afterwards.
+    """
+    __tablename__ = "registration_windows"
+    __table_args__ = (UniqueConstraint("singleton", name="uq_registration_window_singleton"),)
+
+    singleton: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_open: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     next_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     override_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

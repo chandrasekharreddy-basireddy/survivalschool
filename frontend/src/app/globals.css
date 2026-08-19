@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
-/* Tailwind v4 doesn't auto-load tailwind.config.ts, so the design tokens live
-   here. Colors are declared once as space-separated RGB triples and mapped into
+/* Tailwind v4 config lives here, not in a tailwind.config.ts — v4 doesn't
+   auto-load that file, and the one this project used to carry was dead code
+   (its custom colors silently resolved to nothing wherever they were used).
+   Colors are declared once as space-separated RGB triples and mapped into
    Tailwind's color system with `@theme inline` — "inline" keeps the utilities
    pointing at the live CSS variable, so flipping `.dark` on <html> repaints the
    whole app (utilities and component classes alike) with no per-page edits.
@@ -108,7 +110,10 @@
   body {
     margin: 0;
     min-width: 320px;
+    min-height: 100dvh;
     overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
     background: rgb(var(--bg-0));
     color: rgb(var(--fg-0));
     font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
@@ -138,7 +143,11 @@
   }
 
   main {
-    min-height: calc(100dvh - var(--shell-h));
+    /* Sticky-footer layout: body is a flex column, main grows to fill any
+       leftover viewport height so the footer sits at the bottom on short
+       pages instead of floating mid-screen, and falls below the fold
+       naturally once real content is taller than the viewport. */
+    flex: 1 0 auto;
     overflow-x: clip;
   }
   main h1 {
@@ -386,6 +395,49 @@
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
+  }
+  /* Small neutral type/category tag — used for search-result kinds. Squarer
+     and quieter than .game-badge, which is a rounded status pill. */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgb(var(--line));
+    border-radius: 0.3rem;
+    padding: 0.15rem 0.4rem;
+    background: rgb(var(--bg-2));
+    color: rgb(var(--fg-2));
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  /* Plain bordered surface, no elevation — for panels that sit inside an
+     already-framed area and only need separation, not lift. */
+  .sharp-surface {
+    border: 1px solid rgb(var(--line));
+    border-radius: var(--radius);
+  }
+  /* Readable rhythm for AI-generated markdown explanations. */
+  .markdown-body > * + * {
+    margin-top: 0.75rem;
+  }
+  .markdown-body ul,
+  .markdown-body ol {
+    padding-left: 1.25rem;
+    list-style: revert;
+  }
+  .markdown-body li + li {
+    margin-top: 0.25rem;
+  }
+  .markdown-body code {
+    padding: 0.1rem 0.3rem;
+    border-radius: 0.25rem;
+    background: rgb(var(--bg-2));
+    font-size: 0.9em;
+  }
+  .markdown-body strong {
+    color: rgb(var(--fg-0));
+    font-weight: 650;
   }
   .chip-brand {
     border-color: rgb(var(--brand) / 0.35);

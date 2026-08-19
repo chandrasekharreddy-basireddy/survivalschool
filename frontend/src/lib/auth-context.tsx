@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { apiFetch, clearTokens, storeTokens } from "./api";
+import { apiFetch, ApiError, clearTokens, storeTokens } from "./api";
 import { unsubscribeFromPush } from "./push";
 
 export interface CurrentUser {
@@ -51,7 +51,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (res.mfa_required && res.mfa_token) {
       return { mfaRequired: true, mfaToken: res.mfa_token };
     }
-    storeTokens(res.access_token!, res.refresh_token!);
+    // Fail loudly instead of asserting non-null: a response that is neither an
+    // MFA challenge nor a real token pair used to store the literal string
+    // "undefined" into localStorage, producing confusing 401s later instead of
+    // an error at the point the problem actually occurred.
+    if (!res.access_token || !res.refresh_token) {
+      throw new ApiError("Sign-in did not return valid credentials.", "invalid_login_response", 500);
+    }
+    storeTokens(res.access_token, res.refresh_token);
     const me = await apiFetch<CurrentUser>("/auth/me");
     setUser(me);
     return { mfaRequired: false, user: me };

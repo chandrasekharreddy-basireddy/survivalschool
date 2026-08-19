@@ -28,6 +28,12 @@ class AIMessage(Base, UUIDPk, Timestamped):
     )
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # user|assistant|system
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Set only on a user message that attached an image (see POST
+    # /ai/conversations/{id}/messages/image) — lets the frontend re-render
+    # what was uploaded when a conversation is reloaded. The image itself is
+    # never re-sent to the model on later turns, only on the turn it was
+    # attached to, matching how ai_provider.py builds the multimodal payload.
+    image_file_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
     provider: Mapped[str] = mapped_column(String(30), default="mock", nullable=False)
     tokens_used: Mapped[int | None] = mapped_column(Integer)
     latency_ms: Mapped[int | None] = mapped_column(Integer)

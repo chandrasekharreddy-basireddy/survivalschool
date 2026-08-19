@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -14,7 +14,12 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.social import Notification, NotificationPreference
 from app.models.user import User
-from app.services.push_service import push_configured, remove_subscription, save_subscription, send_to_user
+from app.services.push_service import (
+    push_configured,
+    remove_subscription,
+    save_subscription,
+    send_to_user,
+)
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 settings = get_settings()
@@ -93,7 +98,7 @@ async def mark_read(notification_id: uuid.UUID, user: User = Depends(get_current
     notif = await db.get(Notification, notification_id)
     if notif is None or notif.user_id != user.id:
         raise NotFoundError("Notification not found.")
-    notif.read_at = datetime.now(timezone.utc)
+    notif.read_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(notif)
     return notif

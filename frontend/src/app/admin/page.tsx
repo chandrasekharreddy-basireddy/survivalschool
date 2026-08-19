@@ -60,6 +60,8 @@ export default function AdminDashboardPage() {
         <h1 className="text-2xl font-bold text-fg">Admin console</h1>
         <div className="flex gap-4 text-sm">
           <Link href="/admin/users" className="text-brand-600 dark:text-brand-400 hover:underline">Users</Link>
+          <Link href="/admin/instructor-applications" className="text-brand-600 dark:text-brand-400 hover:underline">Instructor applications</Link>
+          <Link href="/admin/campus-timetable" className="text-brand-600 dark:text-brand-400 hover:underline">Campus timetable</Link>
           <Link href="/admin/audit-logs" className="text-brand-600 dark:text-brand-400 hover:underline">Audit logs</Link>
           <Link href="/admin/certificates" className="text-brand-600 dark:text-brand-400 hover:underline">Certificates</Link>
         </div>

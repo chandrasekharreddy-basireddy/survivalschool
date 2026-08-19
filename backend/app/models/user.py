@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -28,7 +29,7 @@ class Role(Base, UUIDPk, Timestamped):
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(255))
 
-    permissions: Mapped[list["Permission"]] = relationship(
+    permissions: Mapped[list[Permission]] = relationship(
         secondary="role_permissions", back_populates="roles"
     )
 
@@ -41,7 +42,7 @@ class Permission(Base, UUIDPk, Timestamped):
     code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(255))
 
-    roles: Mapped[list["Role"]] = relationship(secondary="role_permissions", back_populates="permissions")
+    roles: Mapped[list[Role]] = relationship(secondary="role_permissions", back_populates="permissions")
 
 
 class RolePermission(Base):
@@ -80,7 +81,7 @@ class User(Base, UUIDPk, Timestamped):
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     totp_backup_codes: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)  # SHA-256 hashes only
 
-    roles: Mapped[list["Role"]] = relationship(secondary="user_roles")
+    roles: Mapped[list[Role]] = relationship(secondary="user_roles")
     # passive_deletes=True: trust the DB's own ON DELETE CASCADE on
     # profiles.user_id (verified via pg_constraint — see
     # app/services/gdpr_service.py's module docstring) rather than letting
@@ -91,7 +92,7 @@ class User(Base, UUIDPk, Timestamped):
     # one-to-one), which fails outright since profiles.user_id is NOT NULL
     # — breaking real account deletion for any user who has ever loaded
     # their profile (e.g. via GET /users/me/profile).
-    profile: Mapped["Profile | None"] = relationship(back_populates="user", uselist=False, passive_deletes=True)
+    profile: Mapped[Profile | None] = relationship(back_populates="user", uselist=False, passive_deletes=True)
 
     def has_permission(self, code: str) -> bool:
         return any(p.code == code for r in self.roles for p in r.permissions)
@@ -121,8 +122,13 @@ class Profile(Base, UUIDPk, Timestamped):
     bio: Mapped[str | None] = mapped_column(String(1000))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
     locale: Mapped[str] = mapped_column(String(10), default="en", nullable=False)
+    # Free-text campus section/roll group (e.g. "CSE-3B") — set once by the
+    # student so GET /timetable/campus/me can filter the university-wide
+    # schedule down to just their section without guessing from anything
+    # else on the account.
+    section: Mapped[str | None] = mapped_column(String(60))
 
-    user: Mapped["User"] = relationship(back_populates="profile")
+    user: Mapped[User] = relationship(back_populates="profile")
 
 
 class EmailVerification(Base, UUIDPk, Timestamped):
@@ -181,3 +187,34 @@ class Session(Base, UUIDPk, Timestamped):
     ip_address: Mapped[str | None] = mapped_column(String(64))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class InstructorApplication(Base, UUIDPk, Timestamped):
+    """Deliberately NOT self-service role assignment: applying creates this
+    row in `pending` state, and only an admin approving it (which grants the
+    INSTRUCTOR role through the normal, already-audited
+    POST /users/{id}/roles/{role} path) actually changes what the applicant
+    can do. Letting registration directly grant INSTRUCTOR would reopen the
+    same class of cross-tenant privilege-escalation bug already closed for
+    course ownership elsewhere in this codebase.
+
+    Also deliberately NOT gated by the Thursday student registration window
+    (see registration_service.py) — that window controls admission to the
+    weekly student exam cohort specifically; it has nothing to do with
+    instructors, who don't sit in that cohort.
+    """
+    __tablename__ = "instructor_applications"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    institution: Mapped[str | None] = mapped_column(String(200))
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending|approved|rejected
+    reviewed_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(String(1000))
+
+    user: Mapped[User] = relationship(foreign_keys=[user_id])

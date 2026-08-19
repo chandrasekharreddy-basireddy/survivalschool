@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
@@ -64,7 +64,7 @@ class RevokeCertificateOut(BaseModel):
 
 
 def _is_expired(cert: Certificate) -> bool:
-    return cert.expires_at is not None and cert.expires_at < datetime.now(timezone.utc)
+    return cert.expires_at is not None and cert.expires_at < datetime.now(UTC)
 
 
 @router.get("/me", response_model=list[CertificateOut])
@@ -161,7 +161,7 @@ async def revoke_certificate(
     if cert is None:
         raise NotFoundError("Certificate not found.")
     if cert.revoked_at is None:
-        cert.revoked_at = datetime.now(timezone.utc)
+        cert.revoked_at = datetime.now(UTC)
         await record_audit_event(db, actor_id=admin.id, action="certificate.revoke", resource_type="certificate", resource_id=str(cert.id))
         await db.commit()
     return RevokeCertificateOut(certificate_number=cert.certificate_number, revoked_at=cert.revoked_at.isoformat())

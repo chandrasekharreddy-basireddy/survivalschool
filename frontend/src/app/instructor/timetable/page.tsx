@@ -9,6 +9,8 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 
 interface Course { id: string; title: string }
 interface RosterRow { student_id: string; student_name: string; status: string; method: string }
+interface ImportSkip { row_number: number; identifier: string; reason: string }
+interface ImportResult { created_count: number; updated_count: number; skipped: ImportSkip[] }
 interface TimetableEntry {
   id: string;
   course_id: string;
@@ -104,6 +106,49 @@ export default function InstructorTimetablePage() {
     if (!session) return;
     const roll = await apiFetch<RosterRow[]>(`/attendance/sessions/${session.sessionId}`).catch(() => []);
     setRoster((prev) => ({ ...prev, [entryId]: roll }));
+  };
+
+  const [importOpenFor, setImportOpenFor] = useState<string | null>(null);
+  const [importDate, setImportDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResults, setImportResults] = useState<Record<string, ImportResult>>({});
+
+  const runImport = async (entryId: string) => {
+    if (!importFile) {
+      toast.show("Choose a CSV or XLSX file first.", "error");
+      return;
+    }
+    setImporting(true);
+    try {
+      const body = new FormData();
+      body.append("timetable_entry_id", entryId);
+      body.append("session_date", importDate);
+      body.append("file", importFile);
+      const result = await apiFetch<{
+        session: { id: string; check_in_code: string; code_expires_at: string };
+        created_count: number; updated_count: number; skipped: ImportSkip[];
+      }>("/attendance/sessions/import", { method: "POST", body });
+
+      setImportResults((prev) => ({ ...prev, [entryId]: result }));
+      setAttendance((prev) => ({
+        ...prev,
+        [entryId]: { sessionId: result.session.id, code: result.session.check_in_code, codeExpiresAt: result.session.code_expires_at },
+      }));
+      const roll = await apiFetch<RosterRow[]>(`/attendance/sessions/${result.session.id}`).catch(() => []);
+      setRoster((prev) => ({ ...prev, [entryId]: roll }));
+
+      const skippedCount = result.skipped.length;
+      toast.show(
+        `Imported: ${result.created_count} added, ${result.updated_count} updated${skippedCount ? `, ${skippedCount} skipped` : ""}.`,
+        skippedCount ? "info" : "success"
+      );
+      setImportFile(null);
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't import that file.", "error");
+    } finally {
+      setImporting(false);
+    }
   };
 
   const markStatus = async (entryId: string, studentId: string, status: string) => {
@@ -271,9 +316,55 @@ export default function InstructorTimetablePage() {
                   <button onClick={() => openAttendance(e.id)} className="btn-secondary !px-3 !py-1.5 text-xs">
                     {attendance[e.id] ? "Reopen attendance" : "Open attendance"}
                   </button>
+                  <button
+                    onClick={() => { setImportOpenFor(importOpenFor === e.id ? null : e.id); setImportFile(null); }}
+                    className="btn-secondary !px-3 !py-1.5 text-xs"
+                  >
+                    Import roster
+                  </button>
                   <button onClick={() => startEdit(e)} className="btn-secondary !px-3 !py-1.5 text-xs">Edit</button>
                   <button onClick={() => remove(e.id)} className="btn-secondary !px-3 !py-1.5 text-xs">Remove</button>
                 </div>
+              </div>
+            )}
+            {importOpenFor === e.id && (
+              <div className="mt-3 rounded-lg border border-ink-700 bg-ink-900/40 p-3">
+                <p className="text-xs text-fg-subtle">
+                  Upload a CSV or XLSX with an <span className="font-medium text-fg">email</span> column (and an
+                  optional <span className="font-medium text-fg">status</span> column — present/absent/excused,
+                  defaults to present). Rows are matched against students already enrolled in this course.
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    className="input !w-auto !py-1.5 text-xs"
+                    value={importDate}
+                    onChange={(ev) => setImportDate(ev.target.value)}
+                  />
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx"
+                    className="text-xs text-fg-muted file:mr-2 file:rounded-md file:border-0 file:bg-ink-800 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-fg hover:file:bg-ink-700"
+                    onChange={(ev) => setImportFile(ev.target.files?.[0] ?? null)}
+                  />
+                  <button
+                    onClick={() => runImport(e.id)}
+                    disabled={importing || !importFile}
+                    className="btn-primary !px-3 !py-1.5 text-xs"
+                  >
+                    {importing ? "Importing…" : "Upload"}
+                  </button>
+                </div>
+                {importResults[e.id] && importResults[e.id].skipped.length > 0 && (
+                  <div className="mt-2 rounded border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-800 dark:text-amber-300">
+                    <p className="font-medium">Skipped rows:</p>
+                    <ul className="mt-1 space-y-0.5">
+                      {importResults[e.id].skipped.map((s, idx) => (
+                        <li key={idx}>Row {s.row_number} ({s.identifier || "no email"}): {s.reason}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
             {attendance[e.id] && (

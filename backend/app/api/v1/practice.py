@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -13,7 +13,15 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_verified_user
-from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question, Quiz, QuizAnswer, QuizAttempt
+from app.models.assessment import (
+    Exam,
+    ExamAnswer,
+    ExamAttempt,
+    Question,
+    Quiz,
+    QuizAnswer,
+    QuizAttempt,
+)
 from app.models.lms import Course
 from app.models.practice import PracticeAnswer, PracticeSession, QuestionBookmark
 from app.models.user import User
@@ -245,7 +253,7 @@ async def submit_practice_session(
     session.points_earned = points_earned
     session.points_possible = points_possible
     session.score_percent = score_percent
-    session.submitted_at = datetime.now(timezone.utc)
+    session.submitted_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(session)
 

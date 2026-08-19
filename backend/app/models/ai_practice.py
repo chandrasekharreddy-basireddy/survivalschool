@@ -32,7 +32,7 @@ class AIMockSession(Base, UUIDPk, Timestamped):
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     score_percent: Mapped[int | None] = mapped_column(Integer)
 
-    questions: Mapped[list["AIGeneratedQuestion"]] = relationship(
+    questions: Mapped[list[AIGeneratedQuestion]] = relationship(
         back_populates="session", cascade="all, delete-orphan", order_by="AIGeneratedQuestion.order_index"
     )
 
@@ -44,8 +44,8 @@ class AIGeneratedQuestion(Base, UUIDPk, Timestamped):
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    session: Mapped["AIMockSession"] = relationship(back_populates="questions")
-    options: Mapped[list["AIGeneratedQuestionOption"]] = relationship(cascade="all, delete-orphan", order_by="AIGeneratedQuestionOption.order_index")
+    session: Mapped[AIMockSession] = relationship(back_populates="questions")
+    options: Mapped[list[AIGeneratedQuestionOption]] = relationship(cascade="all, delete-orphan", order_by="AIGeneratedQuestionOption.order_index")
 
 
 class AIGeneratedQuestionOption(Base, UUIDPk, Timestamped):

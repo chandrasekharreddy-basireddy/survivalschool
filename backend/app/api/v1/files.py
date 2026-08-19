@@ -11,7 +11,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.exceptions import AuthorizationError, NotFoundError, ServiceUnavailableError, ValidationAppError
+from app.core.exceptions import (
+    AuthorizationError,
+    NotFoundError,
+    ServiceUnavailableError,
+    ValidationAppError,
+)
 from app.database import get_db
 from app.dependencies import get_current_user_optional, require_permission
 from app.models.system import FileObject
@@ -52,7 +57,12 @@ class FileOut(BaseModel):
 
 
 def _file_url(file_id: uuid.UUID) -> str:
-    return f"{settings.API_V1_PREFIX}/files/{file_id}"
+    # Deliberately WITHOUT API_V1_PREFIX — every frontend caller builds the
+    # final URL as `${API_BASE}${this value}`, and API_BASE already ends in
+    # /api/v1 (see frontend/src/lib/api.ts). Including the prefix here too
+    # used to double it up into a 404 (.../api/v1/api/v1/files/{id}), which
+    # silently broke every avatar image on the site.
+    return f"/files/{file_id}"
 
 
 @router.post("", response_model=FileOut, status_code=201)

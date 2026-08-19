@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import ConflictError, NotFoundError
 from app.core.runtime import PROCESS_STARTED_AT
 from app.database import check_db_health, get_db
 from app.dependencies import require_permission
@@ -20,10 +20,11 @@ from app.models.assessment import ExamAttempt, QuizAttempt
 from app.models.certificate import Certificate
 from app.models.lms import Course, Enrollment
 from app.models.system import AuditLog
-from app.models.user import User
+from app.models.user import InstructorApplication, Role, User
 from app.redis_client import check_redis_health
-from app.schemas.auth import UserOut
+from app.schemas.auth import InstructorApplicationOut, InstructorApplicationReview, UserOut
 from app.services.audit_service import record_audit_event
+from app.services.n8n_service import emit_event
 from app.services.powerbi_service import sync_daily_engagement
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -257,3 +258,105 @@ async def maintenance_reset_accounts(
         status="ok",
         detail="All user accounts (and everything referencing them) were deleted. Roles/permissions/badges were left intact.",
     )
+
+
+def _application_out(app_row: InstructorApplication) -> InstructorApplicationOut:
+    return InstructorApplicationOut(
+        id=app_row.id, user_id=app_row.user_id, applicant_email=app_row.user.email,
+        applicant_name=app_row.user.full_name, institution=app_row.institution, reason=app_row.reason,
+        status=app_row.status, created_at=app_row.created_at, reviewed_at=app_row.reviewed_at,
+        review_note=app_row.review_note,
+    )
+
+
+@router.get("/instructor-applications", response_model=list[InstructorApplicationOut])
+async def list_instructor_applications(
+    status_filter: str = Query(default="pending", alias="status", pattern="^(pending|approved|rejected|all)$"),
+    admin: User = Depends(require_permission("users.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(InstructorApplication).options(selectinload(InstructorApplication.user)).order_by(
+        InstructorApplication.created_at.desc()
+    )
+    if status_filter != "all":
+        query = query.where(InstructorApplication.status == status_filter)
+    rows = (await db.execute(query)).scalars().all()
+    return [_application_out(a) for a in rows]
+
+
+@router.post("/instructor-applications/{application_id}/approve", response_model=InstructorApplicationOut)
+async def approve_instructor_application(
+    application_id: uuid.UUID,
+    payload: InstructorApplicationReview,
+    admin: User = Depends(require_permission("users.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Approving grants INSTRUCTOR through the same path as
+    POST /users/{id}/roles/{role} — this endpoint never appends the role
+    itself without going through that audited, reviewed transition."""
+    application = (await db.execute(
+        select(InstructorApplication)
+        .where(InstructorApplication.id == application_id)
+        .options(selectinload(InstructorApplication.user).selectinload(User.roles))
+    )).scalar_one_or_none()
+    if application is None:
+        raise NotFoundError("Instructor application not found.")
+    if application.status != "pending":
+        raise ConflictError(f"This application was already {application.status}.")
+
+    instructor_role = (await db.execute(select(Role).where(Role.name == "INSTRUCTOR"))).scalar_one_or_none()
+    if instructor_role is None:
+        raise NotFoundError("INSTRUCTOR role is not seeded. Run database seed script.")
+    if instructor_role not in application.user.roles:
+        application.user.roles.append(instructor_role)
+
+    application.status = "approved"
+    application.reviewed_by_id = admin.id
+    application.reviewed_at = datetime.now(UTC)
+    application.review_note = payload.note
+
+    await record_audit_event(
+        db, actor_id=admin.id, action="instructor_application.approved", resource_type="instructor_application",
+        resource_id=str(application.id), metadata={"applicant_user_id": str(application.user_id)},
+    )
+    await db.commit()
+    await db.refresh(application)
+
+    await emit_event(
+        "instructor.application_approved",
+        {"email": application.user.email, "full_name": application.user.full_name},
+    )
+
+    return _application_out(application)
+
+
+@router.post("/instructor-applications/{application_id}/reject", response_model=InstructorApplicationOut)
+async def reject_instructor_application(
+    application_id: uuid.UUID,
+    payload: InstructorApplicationReview,
+    admin: User = Depends(require_permission("users.update")),
+    db: AsyncSession = Depends(get_db),
+):
+    application = (await db.execute(
+        select(InstructorApplication)
+        .where(InstructorApplication.id == application_id)
+        .options(selectinload(InstructorApplication.user))
+    )).scalar_one_or_none()
+    if application is None:
+        raise NotFoundError("Instructor application not found.")
+    if application.status != "pending":
+        raise ConflictError(f"This application was already {application.status}.")
+
+    application.status = "rejected"
+    application.reviewed_by_id = admin.id
+    application.reviewed_at = datetime.now(UTC)
+    application.review_note = payload.note
+
+    await record_audit_event(
+        db, actor_id=admin.id, action="instructor_application.rejected", resource_type="instructor_application",
+        resource_id=str(application.id), metadata={"applicant_user_id": str(application.user_id)},
+    )
+    await db.commit()
+    await db.refresh(application)
+
+    return _application_out(application)

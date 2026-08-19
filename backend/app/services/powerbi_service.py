@@ -21,7 +21,7 @@ grant, the four env vars) and the exact dataset/table schema pushed here.
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import httpx
 import structlog
@@ -175,7 +175,7 @@ async def compute_daily_engagement(db: AsyncSession, *, day: date) -> dict:
     """Aggregates one calendar day (UTC) of platform activity into the row
     shape pushed to Power BI. Pure aggregation — no PII, no per-student rows.
     """
-    start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+    start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
     end = start + timedelta(days=1)
 
     active_students = (
@@ -260,7 +260,7 @@ async def sync_daily_engagement(db: AsyncSession, *, day: date | None = None) ->
         logger.info("powerbi_not_configured", action="sync_daily_engagement_skipped")
         return {"status": "skipped", "reason": "powerbi_not_configured"}
 
-    target_day = day or (datetime.now(timezone.utc).date() - timedelta(days=1))
+    target_day = day or (datetime.now(UTC).date() - timedelta(days=1))
     row = await compute_daily_engagement(db, day=target_day)
 
     dataset_id = await ensure_dataset()

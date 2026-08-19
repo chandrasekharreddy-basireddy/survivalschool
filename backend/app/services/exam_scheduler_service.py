@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.assessment import Exam, ExamAttempt, ExamAnswer, Question, QuestionOption
+from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question, QuestionOption
 from app.models.lms import Course
 from app.models.scheduling import ScheduledExamConfig
 from app.models.user import User
@@ -92,7 +92,7 @@ async def ensure_weekend_schedules(db: AsyncSession) -> int:
 
 
 async def create_due_scheduled_exams(db: AsyncSession, now: datetime | None = None) -> list[Exam]:
-    current = (now or datetime.now(timezone.utc)).astimezone(IST)
+    current = (now or datetime.now(UTC)).astimezone(IST)
     configs = (await db.execute(select(ScheduledExamConfig).where(ScheduledExamConfig.is_active.is_(True)))).scalars().all()
     created: list[Exam] = []
     provider = get_ai_provider()
@@ -139,7 +139,7 @@ async def create_due_scheduled_exams(db: AsyncSession, now: datetime | None = No
                         db.add(QuestionOption(question_id=question.id, text=text, is_correct=is_correct, order_index=idx))
                     question_ids.append(str(question.id))
 
-                starts_at = slot.astimezone(timezone.utc)
+                starts_at = slot.astimezone(UTC)
                 ends_at = starts_at + timedelta(minutes=config.duration_minutes)
                 exam = Exam(
                     course_id=course.id,
@@ -173,7 +173,7 @@ async def create_due_scheduled_exams(db: AsyncSession, now: datetime | None = No
 
 
 async def finalize_expired_scheduled_exams(db: AsyncSession, now: datetime | None = None) -> int:
-    current = now or datetime.now(timezone.utc)
+    current = now or datetime.now(UTC)
     attempts = (await db.execute(
         select(ExamAttempt)
         .join(Exam, Exam.id == ExamAttempt.exam_id)
@@ -220,7 +220,7 @@ async def finalize_expired_scheduled_exams(db: AsyncSession, now: datetime | Non
 async def issue_scheduled_exam_certificates(db: AsyncSession) -> int:
     exams = (await db.execute(select(Exam).where(Exam.is_ai_scheduled.is_(True), Exam.auto_certificate_top_n > 0))).scalars().all()
     issued = 0
-    current = datetime.now(timezone.utc)
+    current = datetime.now(UTC)
     for exam in exams:
         if exam.available_until is None or exam.available_until > current:
             continue

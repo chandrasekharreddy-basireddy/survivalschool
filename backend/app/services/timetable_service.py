@@ -8,7 +8,7 @@ also keeps the dependency/vulnerability surface smaller.
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +75,7 @@ def generate_ics(entries: list[TimetableEntry], *, calendar_name: str, course_ti
     per timetable entry, bounded by that entry's own term dates via RRULE
     UNTIL. A real calendar client (Google Calendar, Outlook, Apple Calendar)
     can import this directly."""
-    now_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    now_stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",

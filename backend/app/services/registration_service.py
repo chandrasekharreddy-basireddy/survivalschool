@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -13,7 +13,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 
 def next_thursday_ist(now: datetime | None = None) -> datetime:
-    current = (now or datetime.now(timezone.utc)).astimezone(IST)
+    current = (now or datetime.now(UTC)).astimezone(IST)
     days_ahead = (3 - current.weekday()) % 7
     if days_ahead == 0 and current.time() >= time(23, 59, 59):
         days_ahead = 7
@@ -22,7 +22,7 @@ def next_thursday_ist(now: datetime | None = None) -> datetime:
 
 
 def registration_is_open(now: datetime | None = None, override_until: datetime | None = None) -> bool:
-    current = (now or datetime.now(timezone.utc)).astimezone(IST)
+    current = (now or datetime.now(UTC)).astimezone(IST)
     return (override_until is not None and current < override_until.astimezone(IST)) or current.weekday() == 3
 
 
@@ -60,7 +60,7 @@ async def refresh_window(db: AsyncSession) -> RegistrationWindow:
     true no-op UPDATE-wise.
     """
     window = await get_or_create_window(db)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     next_open = next_thursday_ist(now)
     is_open = registration_is_open(now, window.override_until)
     if window.next_open_at != next_open:

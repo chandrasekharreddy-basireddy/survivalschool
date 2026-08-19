@@ -15,7 +15,6 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # Fixed, non-secret placeholder used only when APP_ENV is development/test.
 # validate_for_production() rejects it, so it can never reach production.
 DEV_JWT_SECRET = "insecure-development-only-jwt-secret-do-not-use-in-production"
@@ -122,6 +121,11 @@ class Settings(BaseSettings):
     # API -- sending it returns 400 Bad Request. sarvam-105b is the current
     # flagship chat model. See https://docs.sarvam.ai/api/api-guides-tutorials/chat-completion/overview
     SARVAM_CHAT_MODEL: str = "sarvam-105b"
+    # Image input only works through the newer /v2/chat/completions endpoint
+    # (still beta as of Aug 2026), and only on this specific open-source
+    # model — sarvam-105b on /v1 has no documented vision support. See
+    # https://docs.sarvam.ai/api-reference/open-source/chat-completions
+    SARVAM_VISION_MODEL: str = "gemma4"
     AI_DAILY_MESSAGE_LIMIT: int = 100
     AI_REQUEST_TIMEOUT_SECONDS: int = 30
 
@@ -200,7 +204,7 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
-    def _require_stable_jwt_secret(self) -> "Settings":
+    def _require_stable_jwt_secret(self) -> Settings:
         if not self.JWT_SECRET:
             if self.APP_ENV in ("development", "test"):
                 object.__setattr__(self, "JWT_SECRET", DEV_JWT_SECRET)

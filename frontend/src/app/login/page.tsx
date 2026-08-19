@@ -191,6 +191,9 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-sm text-fg-muted">
           New here? <Link href="/register" className="font-medium text-brand-600 underline dark:text-brand-400">Create an account</Link>
         </p>
+        <p className="mt-2 text-center text-sm text-fg-muted">
+          Want to teach? <Link href="/register/instructor" className="font-medium text-brand-600 underline dark:text-brand-400">Apply here</Link>
+        </p>
       </div>
     </AuthShell>
   );

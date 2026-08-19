@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import jwt as pyjwt
 import structlog
@@ -11,13 +11,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
-from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError, ValidationAppError
+from app.core.exceptions import (
+    AuthenticationError,
+    ConflictError,
+    NotFoundError,
+    ValidationAppError,
+)
 from app.database import get_db
-from app.dependencies import get_client_ip, get_current_user, get_current_verified_user
-from app.models.user import EmailVerification, PasswordReset, RefreshToken, Role, User
+from app.dependencies import (
+    get_client_ip,
+    get_current_user,
+    get_current_user_optional,
+    get_current_verified_user,
+)
+from app.models.user import (
+    EmailVerification,
+    InstructorApplication,
+    PasswordReset,
+    RefreshToken,
+    Role,
+    User,
+)
 from app.models.user import Session as SessionModel
 from app.schemas.auth import (
     ForgotPasswordRequest,
+    InstructorApplicationCreate,
+    InstructorApplicationOut,
     LoginRequest,
     MessageResponse,
     MFAChallengeOut,
@@ -151,6 +170,89 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
                     email_delivery_ok=email_delivery_ok)
 
 
+@router.post("/instructor-applications", response_model=InstructorApplicationOut, status_code=201)
+async def apply_as_instructor(
+    payload: InstructorApplicationCreate,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """Apply to teach on the platform. Deliberately NOT gated by the Thursday
+    student registration window — that window controls admission to the
+    weekly exam cohort, which instructors aren't part of — and deliberately
+    does NOT grant the INSTRUCTOR role directly. It only records a pending
+    application; an admin reviews it via the admin endpoints below and, on
+    approval, grants the role through the existing audited role-assignment
+    path. Works two ways: an already-signed-in user applies with just a
+    reason, or a brand-new applicant supplies email/password/full_name and an
+    account is created for them (unverified, same as normal registration)."""
+    await enforce_rate_limit(
+        f"instructor-apply:{get_client_ip(request)}", limit=settings.RATE_LIMIT_REGISTER_PER_HOUR, window_seconds=3600
+    )
+
+    email_delivery_ok = True
+    if user is None:
+        if not payload.email or not payload.password or not payload.full_name:
+            raise ValidationAppError(
+                "email, password, and full_name are required when applying without an existing account."
+            )
+        existing = await db.execute(select(User).where(User.email == payload.email.lower()))
+        if existing.scalar_one_or_none() is not None:
+            raise ConflictError(
+                "An account with this email already exists. Sign in, then apply from your account."
+            )
+        student_role = (await db.execute(select(Role).where(Role.name == "STUDENT"))).scalar_one_or_none()
+        if student_role is None:
+            raise ValidationAppError("STUDENT role is not seeded. Run database seed script.")
+
+        user = User(
+            email=payload.email.lower(), password_hash=hash_password(payload.password),
+            full_name=payload.full_name, is_email_verified=False,
+        )
+        user.roles.append(student_role)
+        db.add(user)
+        await db.flush()
+
+        raw_token, token_hash, expires_at = new_email_verification_token()
+        db.add(EmailVerification(user_id=user.id, token_hash=token_hash, expires_at=expires_at))
+        verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
+        email_delivery_ok = await send_email(
+            user.email, f"Verify your {settings.APP_NAME} account", "verify_email",
+            full_name=user.full_name, verify_url=verify_url, ttl_hours=settings.EMAIL_VERIFICATION_TTL_HOURS,
+        )
+
+    existing_application = (await db.execute(
+        select(InstructorApplication).where(
+            InstructorApplication.user_id == user.id, InstructorApplication.status == "pending"
+        )
+    )).scalar_one_or_none()
+    if existing_application is not None:
+        raise ConflictError("You already have a pending instructor application.")
+
+    application = InstructorApplication(
+        user_id=user.id, institution=payload.institution, reason=payload.reason,
+    )
+    db.add(application)
+    await record_audit_event(
+        db, actor_id=user.id, action="instructor_application.submitted",
+        resource_type="instructor_application", ip_address=get_client_ip(request),
+    )
+    await db.commit()
+    await db.refresh(application)
+
+    background_tasks.add_task(emit_event, "instructor.application_submitted", {
+        "email": user.email, "full_name": user.full_name, "institution": payload.institution,
+    })
+
+    return InstructorApplicationOut(
+        id=application.id, user_id=user.id, applicant_email=user.email, applicant_name=user.full_name,
+        institution=application.institution, reason=application.reason, status=application.status,
+        created_at=application.created_at, reviewed_at=application.reviewed_at,
+        review_note=application.review_note, email_delivery_ok=email_delivery_ok,
+    )
+
+
 @router.post("/verify-email", response_model=MessageResponse)
 async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
     token_hash = hash_token(payload.token)
@@ -161,7 +263,7 @@ async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(g
         raise NotFoundError("Verification token is invalid.", code="invalid_token")
     if record.used_at is not None:
         return MessageResponse(message="Email already verified.")
-    if record.expires_at < datetime.now(timezone.utc):
+    if record.expires_at < datetime.now(UTC):
         raise ValidationAppError("Verification token has expired. Request a new one.", code="token_expired")
 
     user = await db.get(User, record.user_id)
@@ -169,7 +271,7 @@ async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(g
         raise NotFoundError("Account not found.")
 
     user.is_email_verified = True
-    record.used_at = datetime.now(timezone.utc)
+    record.used_at = datetime.now(UTC)
     await record_audit_event(db, actor_id=user.id, action="user.verify_email", resource_type="user", resource_id=str(user.id))
     await db.commit()
 
@@ -232,7 +334,7 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
         verify_password_dummy()
         raise generic_error
 
-    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
+    if user.locked_until and user.locked_until > datetime.now(UTC):
         raise AuthenticationError(
             "Account is temporarily locked due to repeated failed sign-in attempts.",
             code="account_locked",
@@ -242,7 +344,7 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
         user.failed_login_attempts += 1
         if user.failed_login_attempts >= settings.MAX_FAILED_LOGIN_ATTEMPTS:
             from datetime import timedelta
-            user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCOUNT_LOCK_MINUTES)
+            user.locked_until = datetime.now(UTC) + timedelta(minutes=settings.ACCOUNT_LOCK_MINUTES)
             await record_audit_event(db, actor_id=user.id, action="user.account_locked", resource_type="user",
                                       resource_id=str(user.id), result="failure", ip_address=get_client_ip(request))
         await db.commit()
@@ -253,7 +355,7 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
 
     user.failed_login_attempts = 0
     user.locked_until = None
-    user.last_login_at = datetime.now(timezone.utc)
+    user.last_login_at = datetime.now(UTC)
 
     if user.totp_enabled:
         # Password was correct, but real tokens are withheld until the
@@ -299,8 +401,8 @@ async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, db: 
 
     try:
         mfa_payload = decode_mfa_pending_token(payload.mfa_token)
-    except pyjwt.PyJWTError:
-        raise AuthenticationError("Your sign-in session expired — please log in again.", code="mfa_session_expired")
+    except pyjwt.PyJWTError as exc:
+        raise AuthenticationError("Your sign-in session expired — please log in again.", code="mfa_session_expired") from exc
 
     user = await _load_user_with_roles(db, uuid.UUID(mfa_payload["sub"]))
     if user is None or not user.totp_enabled or not user.is_active or user.deleted_at is not None:
@@ -416,12 +518,12 @@ async def refresh_token(payload: RefreshRequest, request: Request, db: AsyncSess
         # revoke the entire session defensively.
         session_row = await db.get(SessionModel, record.session_id)
         if session_row:
-            session_row.revoked_at = datetime.now(timezone.utc)
+            session_row.revoked_at = datetime.now(UTC)
         await record_audit_event(db, actor_id=record.user_id, action="auth.refresh_reuse_detected",
                                   resource_type="session", resource_id=str(record.session_id), result="failure")
         await db.commit()
         raise AuthenticationError("Refresh token has been revoked. Please log in again.", code="token_reuse_detected")
-    if record.expires_at < datetime.now(timezone.utc):
+    if record.expires_at < datetime.now(UTC):
         raise AuthenticationError("Refresh token expired. Please log in again.")
 
     user = await _load_user_with_roles(db, record.user_id)
@@ -429,7 +531,7 @@ async def refresh_token(payload: RefreshRequest, request: Request, db: AsyncSess
         raise AuthenticationError("Account is not active.")
 
     # Rotate: revoke old, issue new (prevents replay).
-    record.revoked_at = datetime.now(timezone.utc)
+    record.revoked_at = datetime.now(UTC)
     access_token = create_access_token(user.id, [r.name for r in user.roles], record.session_id)
     raw_refresh, new_hash, new_expires = new_refresh_token_pair()
     new_record = RefreshToken(user_id=user.id, token_hash=new_hash, session_id=record.session_id, expires_at=new_expires)
@@ -439,7 +541,7 @@ async def refresh_token(payload: RefreshRequest, request: Request, db: AsyncSess
 
     session_row = await db.get(SessionModel, record.session_id)
     if session_row:
-        session_row.last_seen_at = datetime.now(timezone.utc)
+        session_row.last_seen_at = datetime.now(UTC)
 
     await db.commit()
     return TokenResponse(access_token=access_token, refresh_token=raw_refresh, expires_in=settings.ACCESS_TOKEN_TTL_MINUTES * 60)
@@ -451,10 +553,10 @@ async def logout(payload: RefreshRequest, user: User = Depends(get_current_user)
     result = await db.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash, RefreshToken.user_id == user.id))
     record = result.scalar_one_or_none()
     if record:
-        record.revoked_at = datetime.now(timezone.utc)
+        record.revoked_at = datetime.now(UTC)
         session_row = await db.get(SessionModel, record.session_id)
         if session_row:
-            session_row.revoked_at = datetime.now(timezone.utc)
+            session_row.revoked_at = datetime.now(UTC)
     await record_audit_event(db, actor_id=user.id, action="user.logout", resource_type="user", resource_id=str(user.id))
     await db.commit()
     return MessageResponse(message="Logged out.")
@@ -462,7 +564,7 @@ async def logout(payload: RefreshRequest, user: User = Depends(get_current_user)
 
 @router.post("/logout-all", response_model=MessageResponse)
 async def logout_all(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     sessions = (await db.execute(select(SessionModel).where(SessionModel.user_id == user.id, SessionModel.revoked_at.is_(None)))).scalars().all()
     for s in sessions:
         s.revoked_at = now
@@ -512,7 +614,7 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
         raise NotFoundError("Reset token is invalid.", code="invalid_token")
     if record.used_at is not None:
         raise ValidationAppError("This reset link has already been used.", code="token_used")
-    if record.expires_at < datetime.now(timezone.utc):
+    if record.expires_at < datetime.now(UTC):
         raise ValidationAppError("Reset token has expired. Request a new one.", code="token_expired")
 
     user = await db.get(User, record.user_id)
@@ -520,10 +622,10 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
         raise NotFoundError("Account not found.")
 
     user.password_hash = hash_password(payload.new_password)
-    record.used_at = datetime.now(timezone.utc)
+    record.used_at = datetime.now(UTC)
 
     # Defense in depth: a password reset revokes every existing session/refresh token.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for s in (await db.execute(select(SessionModel).where(SessionModel.user_id == user.id, SessionModel.revoked_at.is_(None)))).scalars().all():
         s.revoked_at = now
     for t in (await db.execute(select(RefreshToken).where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)))).scalars().all():

@@ -3,13 +3,19 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from datetime import UTC
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, NotFoundError
+from app.core.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    ConflictError,
+    NotFoundError,
+)
 from app.database import get_db
 from app.dependencies import (
     get_current_user,
@@ -18,7 +24,15 @@ from app.dependencies import (
     require_course_ownership,
     require_permission,
 )
-from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question, Quiz, QuizAnswer, QuizAttempt
+from app.models.assessment import (
+    Exam,
+    ExamAnswer,
+    ExamAttempt,
+    Question,
+    Quiz,
+    QuizAnswer,
+    QuizAttempt,
+)
 from app.models.lms import Course, CourseProgress, CourseSection, Enrollment, Lesson
 from app.models.user import User
 from app.schemas.analytics_extra import CourseAnalyticsOverviewOut, QuestionAnalyticsOut
@@ -254,11 +268,11 @@ async def delete_course(
     user: User = Depends(require_permission("courses.delete")),
     db: AsyncSession = Depends(get_db),
 ):
-    from datetime import datetime, timezone
+    from datetime import datetime
     course = await db.get(Course, course_id)
     if course is None:
         raise NotFoundError("Course not found.")
-    course.deleted_at = datetime.now(timezone.utc)
+    course.deleted_at = datetime.now(UTC)
     await record_audit_event(db, actor_id=user.id, action="course.delete", resource_type="course", resource_id=str(course_id))
     await db.commit()
     await bump_cache_version("courses_list")

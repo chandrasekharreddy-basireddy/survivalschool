@@ -42,6 +42,20 @@ class ManualMarkIn(BaseModel):
     status: str  # present|absent|excused
 
 
+class AttendanceImportSkip(BaseModel):
+    row_number: int
+    identifier: str
+    reason: str
+
+
+class AttendanceImportOut(BaseModel):
+    session: AttendanceSessionOut
+    matched_count: int
+    created_count: int
+    updated_count: int
+    skipped: list[AttendanceImportSkip]
+
+
 class AttendanceSummaryOut(BaseModel):
     course_id: uuid.UUID
     course_title: str

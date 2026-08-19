@@ -37,10 +37,12 @@ export function NavBar() {
     ["/practice", "Practice", !!user],
     ["/leaderboard", "Ranks", !!user],
     ["/chat", "Chat", !!user],
+    ["/follows", "Connections", !!user],
     ["/ai-practice", "AI Practice", !!user],
     ["/ai-assistant", "AI Tutor", !!user],
     ["/instructor/courses", "Instructor", canTeach],
     ["/admin", "Admin", canAdmin],
+    ["/register/instructor", "Apply to teach", !!user && !canTeach],
   ] as const;
 
   const isActive = (href: string) => pathname === href || (href !== "/" && pathname.startsWith(href + "/"));

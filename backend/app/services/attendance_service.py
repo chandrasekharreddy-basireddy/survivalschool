@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -32,7 +32,7 @@ async def open_attendance_session(db: AsyncSession, entry: TimetableEntry, opene
     existing = (await db.execute(
         select(AttendanceSession).where(AttendanceSession.timetable_entry_id == entry.id, AttendanceSession.session_date == today)
     )).scalar_one_or_none()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if existing is not None:
         existing.check_in_code = _generate_code()
         existing.code_expires_at = now + timedelta(minutes=CODE_VALIDITY_MINUTES)
@@ -59,8 +59,42 @@ async def open_attendance_session(db: AsyncSession, entry: TimetableEntry, opene
     return session
 
 
+async def open_or_get_session_for_date(db: AsyncSession, entry: TimetableEntry, session_date: date, opened_by_id) -> AttendanceSession:
+    """Like open_attendance_session, but for bulk CSV/XLSX import — an
+    instructor digitizing attendance they took on paper needs to target any
+    past date that was actually a scheduled session, not just today. Doesn't
+    generate/rotate a check-in code since imported sessions aren't meant for
+    live student self-check-in."""
+    if session_date.weekday() != entry.day_of_week:
+        raise ValidationAppError("That date isn't this class's scheduled day of the week.")
+    if not (entry.term_start_date <= session_date <= entry.term_end_date):
+        raise ValidationAppError("That date falls outside this class's term.")
+
+    existing = (await db.execute(
+        select(AttendanceSession).where(AttendanceSession.timetable_entry_id == entry.id, AttendanceSession.session_date == session_date)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    now = datetime.now(UTC)
+    session = AttendanceSession(
+        timetable_entry_id=entry.id, session_date=session_date, opened_by=opened_by_id,
+        check_in_code=_generate_code(), code_expires_at=now + timedelta(minutes=CODE_VALIDITY_MINUTES),
+        closed_at=now,  # imported sessions are already "done" — no live check-in window
+    )
+    try:
+        async with db.begin_nested():
+            db.add(session)
+            await db.flush()
+    except IntegrityError:
+        session = (await db.execute(
+            select(AttendanceSession).where(AttendanceSession.timetable_entry_id == entry.id, AttendanceSession.session_date == session_date)
+        )).scalar_one()
+    return session
+
+
 async def get_valid_session_by_code(db: AsyncSession, code: str) -> AttendanceSession:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     session = (await db.execute(
         select(AttendanceSession).where(AttendanceSession.check_in_code == code.upper(), AttendanceSession.closed_at.is_(None))
     )).scalar_one_or_none()

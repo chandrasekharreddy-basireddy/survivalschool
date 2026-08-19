@@ -30,9 +30,7 @@ def validate_password_policy(password: str) -> bool:
         return False
     if not re.search(r"\d", password):
         return False
-    if not re.search(r"[^A-Za-z0-9]", password):
-        return False
-    return True
+    return bool(re.search(r"[^A-Za-z0-9]", password))
 
 
 def hash_password(password: str) -> str:

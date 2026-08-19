@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
@@ -28,7 +28,11 @@ from app.schemas.assessment import (
 )
 from app.services.analytics_service import track_event
 from app.services.audit_service import record_audit_event
-from app.services.gamification_service import POINTS_EXAM_PASS, award_points, evaluate_and_award_badges
+from app.services.gamification_service import (
+    POINTS_EXAM_PASS,
+    award_points,
+    evaluate_and_award_badges,
+)
 from app.services.n8n_service import emit_event
 from app.services.scoring_service import grade_answer, summarize_attempt
 
@@ -182,7 +186,7 @@ async def autosave_answer(attempt_id: uuid.UUID, payload: AnswerSubmit, user: Us
         raise NotFoundError("Attempt not found.")
     if attempt.status != "in_progress":
         raise ConflictError("This attempt is no longer active.")
-    if datetime.now(timezone.utc) > attempt.server_deadline_at:
+    if datetime.now(UTC) > attempt.server_deadline_at:
         raise ConflictError("Time is up for this attempt. Submit to finalize.")
 
     existing = (await db.execute(
@@ -193,8 +197,8 @@ async def autosave_answer(attempt_id: uuid.UUID, payload: AnswerSubmit, user: Us
         db.add(existing)
     existing.selected_option_ids = [str(i) for i in payload.selected_option_ids]
     existing.text_answer = payload.text_answer
-    existing.autosaved_at = datetime.now(timezone.utc)
-    attempt.autosaved_at = datetime.now(timezone.utc)
+    existing.autosaved_at = datetime.now(UTC)
+    attempt.autosaved_at = datetime.now(UTC)
     await db.commit()
     return {"saved": True, "autosaved_at": existing.autosaved_at.isoformat()}
 
@@ -221,7 +225,7 @@ async def submit_exam_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, use
         return attempt
 
     exam = await db.get(Exam, attempt.exam_id)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     late = now > attempt.server_deadline_at
 
     # Merge autosaved answers with whatever came in the final submit payload —

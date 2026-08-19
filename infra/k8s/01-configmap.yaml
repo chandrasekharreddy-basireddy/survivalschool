@@ -37,7 +37,10 @@ data:
 
   AI_PROVIDER: "sarvam"
   SARVAM_BASE_URL: "https://api.sarvam.ai"
-  SARVAM_CHAT_MODEL: "sarvam-m"
+  # sarvam-m was deprecated and removed from Sarvam's Chat Completions API —
+  # sending it returns 400. sarvam-105b is the current flagship chat model
+  # (matches the default in app/config.py).
+  SARVAM_CHAT_MODEL: "sarvam-105b"
   AI_DAILY_MESSAGE_LIMIT: "100"
 
   N8N_WEBHOOK_BASE_URL: "https://vishalreddy18.app.n8n.cloud"
@@ -46,7 +49,14 @@ data:
   STORAGE_LOCAL_PATH: "/data/uploads"
 
   LOG_LEVEL: "INFO"
-  SERVICE_VERSION: "0.1.0"
+  SERVICE_VERSION: "1.0.0"
+
+  # This manifest set deploys a dedicated worker (07-worker.yaml), which runs
+  # the same scheduler tick behind the same Redis leader lock. Leaving the
+  # in-process scheduler on as well is safe (the lock guarantees only one
+  # runs a given tick) but pointless here — turn it off so the backend pods
+  # stay request-serving only.
+  RUN_INPROCESS_SCHEDULER: "false"
 
   # Field names must match app/config.py Settings exactly — unknown keys are
   # silently ignored (extra="ignore"), so a typo here fails silently, not loudly.

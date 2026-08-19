@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -95,7 +95,7 @@ async def complete_lesson(
         db.add(existing)
     if not existing.is_completed:
         existing.is_completed = True
-        existing.completed_at = datetime.now(timezone.utc)
+        existing.completed_at = datetime.now(UTC)
         await award_points(db, user.id, POINTS_LESSON_COMPLETE, reason="lesson_complete", reference_id=lesson_id)
         await evaluate_and_award_badges(db, user.id, "lesson_complete", {"is_first_lesson": is_first_lesson})
         streak = await record_daily_activity(db, user.id)
@@ -111,7 +111,7 @@ async def complete_lesson(
         )).scalar_one_or_none()
         if enrollment and enrollment.status != "completed":
             enrollment.status = "completed"
-            enrollment.completed_at = datetime.now(timezone.utc)
+            enrollment.completed_at = datetime.now(UTC)
             course_just_completed = True
 
     await track_event(db, event_type="lesson_completed", user_id=user.id, metadata={"lesson_id": str(lesson_id)})

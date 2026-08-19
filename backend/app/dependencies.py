@@ -29,10 +29,10 @@ async def get_current_user(
     token = authorization.split(" ", 1)[1].strip()
     try:
         payload = decode_access_token(token)
-    except jwt.ExpiredSignatureError:
-        raise AuthenticationError("Access token expired.", code="token_expired")
-    except jwt.InvalidTokenError:
-        raise AuthenticationError("Invalid access token.")
+    except jwt.ExpiredSignatureError as exc:
+        raise AuthenticationError("Access token expired.", code="token_expired") from exc
+    except jwt.InvalidTokenError as exc:
+        raise AuthenticationError("Invalid access token.") from exc
 
     if payload.get("type") != "access":
         raise AuthenticationError("Invalid token type.")

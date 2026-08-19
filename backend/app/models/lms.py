@@ -52,7 +52,7 @@ class Course(Base, UUIDPk, Timestamped):
     skills: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     specialization: Mapped[str | None] = mapped_column(String(200))
 
-    sections: Mapped[list["CourseSection"]] = relationship(
+    sections: Mapped[list[CourseSection]] = relationship(
         back_populates="course", order_by="CourseSection.order_index", cascade="all, delete-orphan"
     )
 
@@ -66,8 +66,8 @@ class CourseSection(Base, UUIDPk, Timestamped):
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     order_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
-    course: Mapped["Course"] = relationship(back_populates="sections")
-    lessons: Mapped[list["Lesson"]] = relationship(
+    course: Mapped[Course] = relationship(back_populates="sections")
+    lessons: Mapped[list[Lesson]] = relationship(
         back_populates="section", order_by="Lesson.order_index", cascade="all, delete-orphan"
     )
 
@@ -85,8 +85,8 @@ class Lesson(Base, UUIDPk, Timestamped):
     order_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     duration_minutes: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
 
-    section: Mapped["CourseSection"] = relationship(back_populates="lessons")
-    resources: Mapped[list["LessonResource"]] = relationship(cascade="all, delete-orphan")
+    section: Mapped[CourseSection] = relationship(back_populates="lessons")
+    resources: Mapped[list[LessonResource]] = relationship(cascade="all, delete-orphan")
 
 
 class LessonResource(Base, UUIDPk, Timestamped):

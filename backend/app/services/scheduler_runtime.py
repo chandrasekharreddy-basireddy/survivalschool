@@ -21,6 +21,7 @@ ran on its own independent timer with zero Redis interaction.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import secrets
 
 import structlog
@@ -73,6 +74,12 @@ return 0
 _HOUSEKEEPING_INTERVALS = {
     "cleanup_expired_tokens": 3600,
     "recompute_leaderboard_snapshot": 300,
+    # This is a floor on how often we even check, not the actual sync
+    # interval — sync_campus_timetable_if_due reads
+    # CampusTimetableSource.poll_interval_minutes itself and no-ops until
+    # that's elapsed. 300s just keeps a short configured interval (the
+    # schema's minimum is 5 minutes) reasonably responsive.
+    "sync_campus_timetable_if_due": 300,
 }
 _last_housekeeping_run: dict[str, float] = {}
 
@@ -88,11 +95,13 @@ async def _run_housekeeping() -> None:
     aggregate and dead auth tokens accumulate forever. Imported lazily to
     avoid a circular import (worker imports run_locked_tick from this module).
     """
+    from app.services.campus_timetable_service import sync_campus_timetable_if_due
     from app.workers.worker import cleanup_expired_tokens, recompute_leaderboard_snapshot
 
     jobs = {
         "cleanup_expired_tokens": cleanup_expired_tokens,
         "recompute_leaderboard_snapshot": recompute_leaderboard_snapshot,
+        "sync_campus_timetable_if_due": sync_campus_timetable_if_due,
     }
     now = asyncio.get_running_loop().time()
     for name, job in jobs.items():
@@ -135,10 +144,8 @@ async def _heartbeat(token: str, stop: asyncio.Event) -> None:
     client = get_redis()
     renew = client.register_script(_RENEW_LUA)
     while not stop.is_set():
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=_HEARTBEAT_INTERVAL_SECONDS)
-        except TimeoutError:
-            pass
         if stop.is_set():
             return
         try:
@@ -172,10 +179,8 @@ async def run_locked_tick() -> bool:
     finally:
         stop_heartbeat.set()
         heartbeat_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await heartbeat_task
-        except (asyncio.CancelledError, Exception):
-            pass
         try:
             client = get_redis()
             release = client.register_script(_RELEASE_LUA)
@@ -195,8 +200,6 @@ async def scheduler_loop(stop: asyncio.Event) -> None:
             raise
         except Exception:
             logger.warning("scheduler_tick_failed", exc_info=True)
-        try:
+        with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=TICK_SECONDS)
-        except TimeoutError:
-            pass
     logger.info("scheduler_loop_stopped")

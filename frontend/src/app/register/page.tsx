@@ -136,6 +136,13 @@ export default function RegisterPage() {
               Browse courses
             </Link>
           </div>
+          <p className="mt-6 text-sm text-fg-muted">
+            Applying to teach?{" "}
+            <Link href="/register/instructor" className="font-medium text-brand-600 underline dark:text-brand-400">
+              This window doesn&apos;t apply to you
+            </Link>
+            .
+          </p>
         </div>
       </div>
     );
@@ -207,6 +214,12 @@ export default function RegisterPage() {
         Already have an account?{" "}
         <Link href="/login" className="font-medium text-brand-600 underline dark:text-brand-400">
           Sign in
+        </Link>
+      </p>
+      <p className="mt-2 text-center text-sm text-fg-muted">
+        Want to teach here instead?{" "}
+        <Link href="/register/instructor" className="font-medium text-brand-600 underline dark:text-brand-400">
+          Apply to teach
         </Link>
       </p>
     </div>

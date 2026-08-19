@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -12,7 +12,12 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_verified_user
-from app.models.ai_practice import AIGeneratedQuestion, AIGeneratedQuestionOption, AIMockAnswer, AIMockSession
+from app.models.ai_practice import (
+    AIGeneratedQuestion,
+    AIGeneratedQuestionOption,
+    AIMockAnswer,
+    AIMockSession,
+)
 from app.models.user import User
 from app.schemas.ai_practice import (
     AIMockAnswerResultOut,
@@ -124,7 +129,7 @@ async def submit_ai_mock_session(session_id: uuid.UUID, payload: AIMockSubmit, u
         ))
 
     score_percent = round((correct_count / len(questions_by_id)) * 100) if questions_by_id else 0
-    session.submitted_at = datetime.now(timezone.utc)
+    session.submitted_at = datetime.now(UTC)
     session.score_percent = score_percent
     await db.commit()
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import html
 import io
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import qrcode
 
@@ -28,7 +28,7 @@ def generate_qr_png_bytes(certificate_number: str) -> bytes:
 def certificate_expiry() -> datetime | None:
     if settings.CERTIFICATE_VALIDITY_DAYS is None:
         return None
-    return datetime.now(timezone.utc) + timedelta(days=settings.CERTIFICATE_VALIDITY_DAYS)
+    return datetime.now(UTC) + timedelta(days=settings.CERTIFICATE_VALIDITY_DAYS)
 
 
 def _render_html(cert: ContestCertificate, student: User) -> str:

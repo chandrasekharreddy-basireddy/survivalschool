@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import json
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
-from typing import Literal
 
 from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError
 from app.database import get_db
@@ -78,6 +77,7 @@ class ProfileOut(BaseModel):
     avatar_url: str | None
     timezone: str
     locale: str
+    section: str | None
 
     model_config = {"from_attributes": True}
 
@@ -87,6 +87,7 @@ class ProfilePatch(BaseModel):
     avatar_url: str | None = None
     timezone: str | None = None
     locale: str | None = None
+    section: str | None = None
 
 
 async def _get_or_create_profile(db: AsyncSession, user: User) -> Profile:
@@ -121,6 +122,8 @@ async def update_my_profile(
         profile.timezone = body.timezone
     if body.locale is not None:
         profile.locale = body.locale
+    if body.section is not None:
+        profile.section = body.section
     await db.commit()
     await db.refresh(profile)
     return profile

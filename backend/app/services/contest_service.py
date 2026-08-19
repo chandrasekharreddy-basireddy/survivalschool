@@ -23,7 +23,7 @@ from __future__ import annotations
 import random
 import secrets
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import structlog
@@ -210,7 +210,7 @@ async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
             )
 
     contest.status = "closed"
-    contest.finalized_at = datetime.now(timezone.utc)
+    contest.finalized_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(contest)
     await bump_cache_version("contests_list")
@@ -220,7 +220,7 @@ async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
 
 
 async def check_and_finalize_contests(db: AsyncSession) -> list[Contest]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     pending = (await db.execute(select(Contest).where(Contest.status != "closed", Contest.ends_at < now))).scalars().all()
     finalized = []
     for contest in pending:

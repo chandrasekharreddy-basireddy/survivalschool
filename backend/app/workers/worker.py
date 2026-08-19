@@ -10,7 +10,7 @@ noted as a scaling follow-up in docs/ARCHITECTURE.md.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import delete, func, select
@@ -35,7 +35,7 @@ async def cleanup_expired_tokens() -> None:
     """Hard-deletes long-expired, already-used-or-dead auth tokens/sessions —
     keeps the tables small and removes any residual sensitive material past
     its useful life (spec section 50: data retention)."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    cutoff = datetime.now(UTC) - timedelta(days=30)
     async with AsyncSessionLocal() as db:
         for model in (EmailVerification, PasswordReset):
             await db.execute(delete(model).where(model.expires_at < cutoff))
@@ -68,7 +68,7 @@ async def send_inactivity_reminders() -> None:
     (spec section 20) but runs natively too, so the reminder still fires even
     if the n8n automation layer is down (spec section 48: n8n failing must
     never break core functionality)."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff = datetime.now(UTC) - timedelta(days=7)
     async with AsyncSessionLocal() as db:
         stalled = (await db.execute(
             select(CourseProgress).where(

@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 
@@ -28,7 +28,7 @@ def generate_opaque_token() -> str:
 
 
 def create_access_token(user_id: uuid.UUID, roles: list[str], session_id: uuid.UUID) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "roles": roles,
@@ -53,7 +53,7 @@ def create_mfa_pending_token(user_id: uuid.UUID) -> str:
     check (dependencies.py) rejects it outright if anyone tries to use it as
     a bearer token anywhere else — the same token-type-confusion defense
     already used for the access/refresh split."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "type": "mfa_pending",
@@ -74,17 +74,17 @@ def decode_mfa_pending_token(token: str) -> dict:
 def new_refresh_token_pair() -> tuple[str, str, datetime]:
     """Returns (raw_token, token_hash, expires_at). Only token_hash is stored."""
     raw = generate_opaque_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_TTL_DAYS)
+    expires_at = datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_TTL_DAYS)
     return raw, hash_token(raw), expires_at
 
 
 def new_email_verification_token() -> tuple[str, str, datetime]:
     raw = generate_opaque_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.EMAIL_VERIFICATION_TTL_HOURS)
+    expires_at = datetime.now(UTC) + timedelta(hours=settings.EMAIL_VERIFICATION_TTL_HOURS)
     return raw, hash_token(raw), expires_at
 
 
 def new_password_reset_token() -> tuple[str, str, datetime]:
     raw = generate_opaque_token()
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.PASSWORD_RESET_TTL_MINUTES)
+    expires_at = datetime.now(UTC) + timedelta(minutes=settings.PASSWORD_RESET_TTL_MINUTES)
     return raw, hash_token(raw), expires_at

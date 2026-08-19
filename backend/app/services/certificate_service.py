@@ -4,7 +4,7 @@ import base64
 import html
 import io
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import qrcode
 from sqlalchemy import select
@@ -68,7 +68,7 @@ def _generate_certificate_number() -> str:
 def certificate_expiry() -> datetime | None:
     if settings.CERTIFICATE_VALIDITY_DAYS is None:
         return None
-    return datetime.now(timezone.utc) + timedelta(days=settings.CERTIFICATE_VALIDITY_DAYS)
+    return datetime.now(UTC) + timedelta(days=settings.CERTIFICATE_VALIDITY_DAYS)
 
 
 async def issue_certificate(db: AsyncSession, student: User, course: Course) -> Certificate:

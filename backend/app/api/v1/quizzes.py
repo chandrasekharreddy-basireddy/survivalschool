@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy import select
@@ -27,7 +27,11 @@ from app.schemas.assessment import (
 from app.schemas.question_import import ImportPreviewOut, ImportRowOut
 from app.services.analytics_service import track_event
 from app.services.audit_service import record_audit_event
-from app.services.gamification_service import POINTS_QUIZ_PASS, award_points, evaluate_and_award_badges
+from app.services.gamification_service import (
+    POINTS_QUIZ_PASS,
+    award_points,
+    evaluate_and_award_badges,
+)
 from app.services.n8n_service import emit_event
 from app.services.question_import_service import commit_rows, parse_csv, parse_xlsx
 from app.services.scoring_service import grade_answer, summarize_attempt
@@ -262,7 +266,7 @@ async def submit_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, user: Us
     attempt.score_percent = score_percent
     attempt.passed = passed
     attempt.status = "submitted"
-    attempt.submitted_at = datetime.now(timezone.utc)
+    attempt.submitted_at = datetime.now(UTC)
 
     if passed:
         await award_points(db, user.id, POINTS_QUIZ_PASS, reason="quiz_pass", reference_id=quiz.id)

@@ -122,9 +122,14 @@ export default function CourseDetailPage() {
       <p className="mt-2 text-fg-muted">{course.description}</p>
 
       {user ? (
-        <button onClick={enroll} disabled={enrolling || enrolled} className="btn-primary mt-6">
-          {enrolled ? "Enrolled ✓" : enrolling ? "Enrolling…" : "Enroll in this course"}
-        </button>
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <button onClick={enroll} disabled={enrolling || enrolled} className="btn-primary">
+            {enrolled ? "Enrolled ✓" : enrolling ? "Enrolling…" : "Enroll in this course"}
+          </button>
+          <Link href={`/courses/${course.slug}/classroom`} className="btn-secondary">
+            Open classroom
+          </Link>
+        </div>
       ) : (
         <p className="mt-6 text-sm text-fg-subtle">Sign in to enroll and track progress.</p>
       )}

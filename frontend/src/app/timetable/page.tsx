@@ -21,6 +21,20 @@ interface TimetableEntry {
   session_type: string;
 }
 
+interface CampusEntry {
+  id: string;
+  section: string;
+  course_name: string;
+  course_code: string | null;
+  class_date: string;
+  start_time: string;
+  end_time: string;
+  room: string | null;
+  teacher_name: string | null;
+  is_elective: boolean;
+  is_cancelled: boolean;
+}
+
 function fmtTime(t: string): string {
   const [h, m] = t.split(":");
   const hour = parseInt(h, 10);
@@ -64,6 +78,7 @@ export default function TimetablePage() {
 
       <CheckInBox />
       <AttendanceSummary />
+      <CampusTimetableSection />
 
       {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
 
@@ -191,6 +206,76 @@ function AttendanceSummary() {
             <span className={`font-semibold ${s.attendance_percent >= 75 ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
               {s.attendance_percent}% ({s.present_count}/{s.total_sessions})
             </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function fmtDate(d: string): string {
+  return new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function CampusTimetableSection() {
+  const [entries, setEntries] = useState<CampusEntry[] | null>(null);
+  const [needsSection, setNeedsSection] = useState(false);
+
+  useEffect(() => {
+    apiFetch<CampusEntry[]>("/timetable/campus/me")
+      .then(setEntries)
+      .catch((err) => {
+        if (err instanceof ApiError && err.code === "validation_error") {
+          setNeedsSection(true);
+        }
+        setEntries([]);
+      });
+  }, []);
+
+  if (needsSection) {
+    return (
+      <div className="card mt-6 !p-4 text-sm text-fg-muted">
+        Set your section in your <a href="/profile" className="font-medium text-brand-600 underline dark:text-brand-400">profile</a> to
+        see your university-wide campus timetable here.
+      </div>
+    );
+  }
+
+  if (!entries || entries.length === 0) return null;
+
+  const byDate = new Map<string, CampusEntry[]>();
+  for (const e of entries) {
+    if (!byDate.has(e.class_date)) byDate.set(e.class_date, []);
+    byDate.get(e.class_date)!.push(e);
+  }
+
+  return (
+    <div className="mt-8">
+      <h2 className="text-sm font-semibold text-fg">Campus timetable</h2>
+      <p className="mt-1 text-xs text-fg-muted">Your university&apos;s class schedule for your section, kept in sync by your institution.</p>
+      <div className="mt-3 space-y-3">
+        {[...byDate.entries()].map(([date, dayEntries]) => (
+          <div key={date} className="card !p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{fmtDate(date)}</p>
+            <div className="mt-2 space-y-2">
+              {dayEntries
+                .slice()
+                .sort((a, b) => a.start_time.localeCompare(b.start_time))
+                .map((e) => (
+                  <div key={e.id} className={`rounded-lg border p-3 ${e.is_cancelled ? "border-red-500/30 bg-red-500/5" : "border-ink-700 bg-ink-950"}`}>
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-fg">
+                        {e.course_name} {e.course_code && <span className="text-fg-subtle">({e.course_code})</span>}
+                      </p>
+                      {e.is_cancelled && <span className="text-xs font-semibold text-red-700 dark:text-red-400">Cancelled</span>}
+                    </div>
+                    <p className="mt-1 text-xs text-fg-muted">{fmtTime(e.start_time)} – {fmtTime(e.end_time)}</p>
+                    <p className="mt-1 text-xs text-fg-subtle">
+                      {e.room || "TBD"}{e.teacher_name ? ` · ${e.teacher_name}` : ""}{e.is_elective ? " · Elective" : ""}
+                    </p>
+                  </div>
+                ))}
+            </div>
           </div>
         ))}
       </div>

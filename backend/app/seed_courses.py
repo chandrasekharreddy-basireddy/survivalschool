@@ -22,10 +22,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms import Course, CourseSection, Lesson
+
+# Arbitrary fixed key for the advisory lock in seed_default_courses(). Any
+# int64 works as long as it's not reused for an unrelated lock elsewhere.
+_SEED_LOCK_KEY = 8_217_460_311_902
 
 
 @dataclass
@@ -907,6 +911,17 @@ async def seed_default_courses(db: AsyncSession) -> int:
 
     Returns the number of courses newly created.
     """
+    # Gunicorn boots multiple workers in parallel and each calls this on
+    # startup. Without a lock, two workers can both read the same
+    # "not yet seeded" snapshot and both try to INSERT the same slug — the
+    # loser crashes with a UniqueViolationError, which fails that worker's
+    # startup and (since a worker that fails to boot kills the gunicorn
+    # master) took down the *whole* app on the deploy that wiped the
+    # database. pg_advisory_xact_lock serializes the seeders: the second
+    # worker blocks here until the first commits, then its own query below
+    # sees the just-committed rows and has nothing left to do.
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _SEED_LOCK_KEY})
+
     existing_slugs = set(
         (await db.execute(select(Course.slug))).scalars().all()
     )

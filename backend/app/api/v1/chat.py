@@ -5,7 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AuthorizationError, NotFoundError, ValidationAppError
@@ -68,18 +68,30 @@ async def my_rooms(user: User = Depends(get_current_user), db: AsyncSession = De
         select(ChatRoom).join(ChatMember, ChatMember.room_id == ChatRoom.id).where(ChatMember.user_id == user.id)
     )
     rooms = result.scalars().all()
+    direct_room_ids = [room.id for room in rooms if room.room_type == "direct"]
+
+    # Batched instead of one ChatMember query + one db.get(User) per direct
+    # room: this endpoint backs the chat sidebar, loaded on every visit, so
+    # an N-room inbox previously meant up to 2N extra round trips.
+    other_name_by_room: dict[uuid.UUID, tuple[uuid.UUID, str]] = {}
+    if direct_room_ids:
+        other_members = (await db.execute(
+            select(ChatMember.room_id, ChatMember.user_id).where(
+                ChatMember.room_id.in_(direct_room_ids), ChatMember.user_id != user.id,
+            )
+        )).all()
+        other_user_ids = {row.user_id for row in other_members}
+        names_by_id = {
+            u.id: u.full_name
+            for u in (await db.execute(select(User).where(User.id.in_(other_user_ids)))).scalars().all()
+        } if other_user_ids else {}
+        for room_id, other_user_id in other_members:
+            if other_user_id in names_by_id:
+                other_name_by_room[room_id] = (other_user_id, names_by_id[other_user_id])
 
     out = []
     for room in rooms:
-        other_id, other_name = None, None
-        if room.room_type == "direct":
-            other_member = (await db.execute(
-                select(ChatMember).where(ChatMember.room_id == room.id, ChatMember.user_id != user.id)
-            )).scalar_one_or_none()
-            if other_member is not None:
-                other_user = await db.get(User, other_member.user_id)
-                if other_user is not None:
-                    other_id, other_name = other_user.id, other_user.full_name
+        other_id, other_name = other_name_by_room.get(room.id, (None, None))
         out.append(RoomOut(id=room.id, name=room.name, room_type=room.room_type, other_user_id=other_id, other_user_name=other_name))
     return out
 
@@ -110,6 +122,17 @@ async def start_direct_message(other_user_id: uuid.UUID, user: User = Depends(ge
         raise NotFoundError("User not found.")
     if not await has_accepted_connection(db, user.id, other_user_id):
         raise AuthorizationError("You can only message someone who has accepted a follow request with you.")
+
+    # The find-or-create below is a check-then-insert with no DB-level
+    # uniqueness on (user pair, room_type='direct'). Without a lock, both
+    # users hitting "Message" for each other at nearly the same moment
+    # (realistic right after a follow-accept notification fires for both)
+    # can each pass the "no existing room" check before either commits,
+    # creating two separate direct rooms for the same pair. Order the two
+    # user ids before hashing so the lock key is the same regardless of who
+    # calls this endpoint first.
+    pair_key = "|".join(sorted([str(user.id), str(other_user_id)]))
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"chat_dm:{pair_key}"})
 
     my_room_ids = select(ChatMember.room_id).where(ChatMember.user_id == user.id)
     existing = (await db.execute(

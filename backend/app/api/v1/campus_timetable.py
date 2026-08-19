@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.core.db_utils import escape_like
 from app.core.exceptions import ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_user, require_permission
@@ -60,7 +61,7 @@ async def list_campus_entries(
 ):
     stmt = select(CampusTimetableEntry)
     if section:
-        stmt = stmt.where(CampusTimetableEntry.section.ilike(section))
+        stmt = stmt.where(CampusTimetableEntry.section.ilike(escape_like(section)))
     if date_from:
         stmt = stmt.where(CampusTimetableEntry.class_date >= date_from)
     if date_to:
@@ -82,7 +83,7 @@ async def my_campus_entries(
     if profile is None or not profile.section:
         raise ValidationAppError("Set your section in your profile first (PATCH /users/me/profile) to see your personal schedule.")
     stmt = select(CampusTimetableEntry).where(
-        CampusTimetableEntry.section.ilike(profile.section), CampusTimetableEntry.is_cancelled.is_(False)
+        CampusTimetableEntry.section.ilike(escape_like(profile.section)), CampusTimetableEntry.is_cancelled.is_(False)
     )
     if date_from:
         stmt = stmt.where(CampusTimetableEntry.class_date >= date_from)

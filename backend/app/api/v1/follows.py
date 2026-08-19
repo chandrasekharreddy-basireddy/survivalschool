@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db_utils import escape_like
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -19,6 +20,7 @@ from app.schemas.social_graph import (
     FollowRequestOut,
     PersonSearchResultOut,
 )
+from app.services.social_graph_service import has_accepted_connection
 
 router = APIRouter(prefix="/follows", tags=["follows"])
 
@@ -76,10 +78,12 @@ async def send_follow_request(
     if target is None or target.deleted_at is not None:
         raise NotFoundError("User not found.")
 
-    reverse = (await db.execute(
-        select(FollowRequest).where(FollowRequest.requester_id == payload.target_id, FollowRequest.target_id == user.id)
-    )).scalar_one_or_none()
-    if reverse is not None and reverse.status == "accepted":
+    # has_accepted_connection() checks both directions in one query, so this
+    # single call replaces what used to be two separate inline
+    # status=="accepted" checks (one on the reverse-direction row, one on
+    # the forward-direction row below) — the exact "single gate" helper
+    # chat.py already relies on for the same question.
+    if await has_accepted_connection(db, user.id, payload.target_id):
         raise ConflictError("You're already connected with this person.")
 
     existing = (await db.execute(
@@ -87,8 +91,6 @@ async def send_follow_request(
     )).scalar_one_or_none()
     if existing is not None and existing.status == "pending":
         raise ConflictError("You already sent a follow request to this person.")
-    if existing is not None and existing.status == "accepted":
-        raise ConflictError("You're already connected with this person.")
 
     if existing is not None:
         # Was declined — re-requesting resets the same row rather than erroring,
@@ -179,6 +181,10 @@ async def cancel_follow_request(
 
 @router.get("/connections", response_model=list[ConnectionOut])
 async def list_connections(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # Deliberately not has_accepted_connection() here: that helper answers
+    # "is this one specific pair connected?" — this endpoint needs to
+    # enumerate every accepted row for the current user, a different query
+    # shape entirely.
     rows = (await db.execute(
         select(FollowRequest).where(
             FollowRequest.status == "accepted",
@@ -205,6 +211,8 @@ async def remove_connection(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Deliberately not has_accepted_connection() here: that helper only
+    # returns a bool, and this endpoint needs the actual row to delete.
     row = (await db.execute(
         select(FollowRequest).where(
             FollowRequest.status == "accepted",
@@ -231,7 +239,7 @@ async def search_people(
     """Authenticated-only (not public) — deliberately returns name/avatar,
     never email, to keep this from being a plain account-lookup-by-email
     tool for anyone who signs up."""
-    like = f"%{q}%"
+    like = f"%{escape_like(q)}%"
     candidates = (await db.execute(
         select(User).where(User.id != user.id, User.deleted_at.is_(None), User.full_name.ilike(like))
         .order_by(User.full_name).limit(limit)
@@ -240,6 +248,9 @@ async def search_people(
         return []
     candidate_ids = [c.id for c in candidates]
 
+    # Deliberately not N calls to has_accepted_connection() here: that would
+    # be one query per search result. This single batched query over all
+    # candidate_ids does the equivalent check for every result at once.
     relevant_requests = (await db.execute(
         select(FollowRequest).where(
             or_(

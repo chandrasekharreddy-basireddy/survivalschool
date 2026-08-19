@@ -42,10 +42,15 @@ export function Footer() {
         {LINK_GROUPS.map((group) => (
           <div key={group.title}>
             <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{group.title}</p>
-            <ul className="mt-3 space-y-2 text-sm">
+            {/* inline-flex + min-height keeps each link a comfortable tap
+                target on touch screens; text-only links were ~17px tall. */}
+            <ul className="mt-1 text-sm">
               {group.links.map((l) => (
                 <li key={l.href}>
-                  <Link href={l.href} className="text-fg-muted hover:text-fg">
+                  <Link
+                    href={l.href}
+                    className="inline-flex min-h-11 items-center text-fg-muted hover:text-fg"
+                  >
                     {l.label}
                   </Link>
                 </li>

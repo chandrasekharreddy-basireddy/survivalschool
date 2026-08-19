@@ -7,6 +7,8 @@ import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { ChatSocket, ChatEvent } from "@/lib/ws";
 import { formatRelative } from "@/lib/format";
+import { initials } from "@/lib/avatar";
+import { useChatRooms, type RoomOut } from "../layout";
 
 interface MessageOut {
   id: string;
@@ -16,17 +18,12 @@ interface MessageOut {
   created_at: string;
   is_deleted: boolean;
 }
-interface RoomOut { id: string; name: string; room_type: string; other_user_id: string | null; other_user_name: string | null }
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
-}
 
 export default function ChatRoomPage() {
   const params = useParams<{ roomId: string }>();
   const { user, loading } = useAuth();
   const toast = useToast();
+  const rooms = useChatRooms();
   const [room, setRoom] = useState<RoomOut | null>(null);
   const [messages, setMessages] = useState<MessageOut[]>([]);
   const [input, setInput] = useState("");
@@ -44,8 +41,12 @@ export default function ChatRoomPage() {
   }, [user]);
 
   useEffect(() => {
+    if (!rooms) return;
+    setRoom(rooms.find((r) => r.id === params.roomId) || null);
+  }, [rooms, params.roomId]);
+
+  useEffect(() => {
     if (!user) return;
-    apiFetch<RoomOut[]>("/chat/rooms").then((list) => setRoom(list.find((r) => r.id === params.roomId) || null)).catch(() => {});
     apiFetch<MessageOut[]>(`/chat/rooms/${params.roomId}/messages?limit=100`).then(setMessages).catch(() => setMessages([]));
 
     const token = getAccessToken();

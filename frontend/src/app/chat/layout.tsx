@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
+import { initials } from "@/lib/avatar";
 
-interface RoomOut {
+export interface RoomOut {
   id: string;
   name: string;
   room_type: string;
@@ -14,9 +15,14 @@ interface RoomOut {
   other_user_name: string | null;
 }
 
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] || "") + (parts[1]?.[0] || "")).toUpperCase() || "?";
+// The layout owns the one /chat/rooms fetch for the whole /chat/* subtree;
+// child pages (e.g. the room page) read from this instead of independently
+// re-fetching the full list just to find their own room in it — that used
+// to double both the request count and the backend work on every room visit.
+const ChatRoomsContext = createContext<RoomOut[] | null>(null);
+
+export function useChatRooms(): RoomOut[] | null {
+  return useContext(ChatRoomsContext);
 }
 
 export default function ChatLayout({ children }: { children: React.ReactNode }) {
@@ -82,7 +88,9 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
           })}
         </div>
       </aside>
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <ChatRoomsContext.Provider value={rooms}>{children}</ChatRoomsContext.Provider>
+      </div>
     </div>
   );
 }

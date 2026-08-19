@@ -414,6 +414,9 @@ async def my_submission(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await _get_course_or_404(db, course_id)
+    if not await _is_enrolled(db, course_id, user.id):
+        raise AuthorizationError("You're not enrolled in this course.")
     assignment = await db.get(Assignment, assignment_id)
     if assignment is None or assignment.course_id != course_id:
         raise NotFoundError("Assignment not found.")

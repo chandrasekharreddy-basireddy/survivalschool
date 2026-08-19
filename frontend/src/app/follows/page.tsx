@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatRelative } from "@/lib/format";
+import { initials } from "@/lib/avatar";
 
 interface FollowRequestOut {
   id: string; requester_id: string; requester_name: string; target_id: string; target_name: string;
@@ -21,7 +22,7 @@ function Avatar({ name, url }: { name: string; url: string | null }) {
   if (url) return <img src={url} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />;
   return (
     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink-800 text-sm font-semibold text-fg-muted">
-      {name.slice(0, 1).toUpperCase()}
+      {initials(name)}
     </span>
   );
 }

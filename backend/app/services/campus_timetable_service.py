@@ -26,6 +26,7 @@ from app.database import AsyncSessionLocal
 from app.models.campus_timetable import CampusTimetableEntry, CampusTimetableSource
 from app.services.n8n_service import emit_event
 from app.services.spreadsheet_import import (
+    _parse_csv,
     find_column,
     parse_flexible_date,
     parse_flexible_time,
@@ -75,12 +76,12 @@ def parse_campus_rows(filename: str, content: bytes) -> list[ParsedCampusRow]:
     return _rows_from_dicts(raw_rows)
 
 
-def parse_campus_csv_text(text: str) -> list[ParsedCampusRow]:
-    import csv
-    import io
-
-    reader = csv.DictReader(io.StringIO(text))
-    raw_rows = [{(k or "").strip().lower(): (v or "").strip() for k, v in raw.items() if k} for raw in reader]
+def parse_campus_csv_bytes(content: bytes) -> list[ParsedCampusRow]:
+    # Reuses spreadsheet_import._parse_csv's utf-8-sig/latin-1 fallback so a
+    # published Google Sheets CSV export with a BOM or non-UTF8 characters
+    # parses the same way here as it does through the manual-upload path
+    # (parse_campus_rows -> parse_tabular_file -> the same _parse_csv).
+    raw_rows = _parse_csv(content)
     return _rows_from_dicts(raw_rows)
 
 
@@ -125,13 +126,24 @@ def _rows_from_dicts(raw_rows: list[dict[str, str]]) -> list[ParsedCampusRow]:
     return parsed
 
 
-def _row_key(row: ParsedCampusRow) -> str:
+def _row_key(row: ParsedCampusRow, source: str) -> str:
     # school + section, never section alone — per y-bow/SaiU-Timetable's own
     # README ("group identity is school + section"): section numbers repeat
     # across schools (e.g. both an "SCDS Section 3" and an "SOAI Section 3"
     # can exist), so section alone isn't a stable identity and would let two
     # unrelated schools' rows collide onto the same row_key.
+    #
+    # source is also part of the identity: row_key has a single global
+    # UniqueConstraint (not composite with source), and apply_campus_rows()
+    # only ever compares incoming rows against existing rows from the *same*
+    # source. Without source in the hash, an "upload" row and a "live_sync"
+    # row for the identical class/date/time would produce the same key, be
+    # invisible to each other's existing-row lookup, and collide on INSERT
+    # with an uncaught IntegrityError — exactly the case the class docstring
+    # ("entries from different sources are tracked separately") promises
+    # doesn't happen.
     identity = "|".join([
+        source,
         (row.school or "").strip().lower(),
         (row.section or "").strip().lower(),
         (row.course_code or row.course_name or "").strip().lower(),
@@ -176,7 +188,7 @@ async def apply_campus_rows(db: AsyncSession, rows: list[ParsedCampusRow], sourc
     if error_rows or not valid_rows:
         return result
 
-    incoming_by_key = {_row_key(r): r for r in valid_rows}
+    incoming_by_key = {_row_key(r, source): r for r in valid_rows}
     min_date = min(r.class_date for r in valid_rows)
     max_date = max(r.class_date for r in valid_rows)
 
@@ -281,7 +293,7 @@ async def fetch_and_apply_live_sync(db: AsyncSession, csv_url: str) -> SyncResul
         if resp.is_redirect:
             raise UnsafeUrlError("That URL redirects, which isn't allowed for the live-sync source.")
         resp.raise_for_status()
-    rows = parse_campus_csv_text(resp.text)
+    rows = parse_campus_csv_bytes(resp.content)
     return await apply_campus_rows(db, rows, source="live_sync")
 
 

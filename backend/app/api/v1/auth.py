@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import jwt as pyjwt
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -181,7 +181,7 @@ async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(g
 
 
 @router.post("/resend-verification", response_model=MessageResponse)
-async def resend_verification(payload: ResendVerificationRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def resend_verification(payload: ResendVerificationRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"resend-verify:{payload.email.lower()}", limit=settings.RATE_LIMIT_RESEND_VERIFY_PER_HOUR, window_seconds=3600)
 
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
@@ -195,8 +195,17 @@ async def resend_verification(payload: ResendVerificationRequest, request: Reque
     db.add(EmailVerification(user_id=user.id, token_hash=token_hash, expires_at=expires_at))
     await db.commit()
 
+    # Sending is deferred to a background task, after the response is on the
+    # wire: login already had a timing defense (verify_password_dummy) against
+    # an attacker inferring account existence from response latency, but this
+    # endpoint had none — it awaited a real HTTPS call to the email provider
+    # (tens-hundreds of ms) only on the "account exists" path, while the
+    # "doesn't exist" path returned almost instantly. Deferring the send makes
+    # both paths return in comparable time regardless of the account's
+    # existence.
     verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-    await send_email(
+    background_tasks.add_task(
+        send_email,
         user.email, f"Verify your {settings.APP_NAME} account", "verify_email",
         full_name=user.full_name, verify_url=verify_url, ttl_hours=settings.EMAIL_VERIFICATION_TTL_HOURS,
     )
@@ -304,11 +313,19 @@ async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, db: 
         # Fall back to a one-time backup code — normalize the same way
         # they were generated (upper-case hex, see totp_service.generate_
         # backup_codes) before hashing and comparing.
+        #
+        # Re-read the user row under a lock before checking/consuming the
+        # code: without it, two concurrent requests presenting the SAME
+        # backup code can both see it in the list before either commits its
+        # removal, and both get a valid session from a single-use code.
+        # with_for_update makes the second request wait for the first to
+        # commit, at which point the code is already gone from the list.
         normalized = payload.code.strip().upper().replace(" ", "")
         code_hash = hash_token(normalized)
-        if code_hash in (user.totp_backup_codes or []):
+        locked_user = await db.get(User, user.id, with_for_update=True)
+        if locked_user is not None and code_hash in (locked_user.totp_backup_codes or []):
             verified = True
-            user.totp_backup_codes = [c for c in user.totp_backup_codes if c != code_hash]
+            locked_user.totp_backup_codes = [c for c in locked_user.totp_backup_codes if c != code_hash]
 
     if not verified:
         await record_audit_event(db, actor_id=user.id, action="user.login_mfa_failed", resource_type="user",
@@ -458,7 +475,7 @@ async def logout_all(user: User = Depends(get_current_user), db: AsyncSession = 
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(payload: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def forgot_password(payload: ForgotPasswordRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"forgot-pw:{payload.email.lower()}", limit=settings.RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR, window_seconds=3600)
     generic = MessageResponse(message="If that account exists, a password reset email has been sent.")
 
@@ -472,8 +489,13 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request, db: 
     await record_audit_event(db, actor_id=user.id, action="user.password_reset_requested", resource_type="user", resource_id=str(user.id))
     await db.commit()
 
+    # See the matching comment on resend_verification: deferring the send to
+    # a background task closes the timing side-channel between "account
+    # exists" (used to await a real email-provider HTTPS call here) and
+    # "doesn't exist" (returned immediately).
     reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
-    await send_email(
+    background_tasks.add_task(
+        send_email,
         user.email, "Reset your password", "password_reset",
         full_name=user.full_name, reset_url=reset_url, ttl_minutes=settings.PASSWORD_RESET_TTL_MINUTES,
     )

@@ -10,9 +10,13 @@ Design constraints, deliberate:
   polls every 5 minutes and simply skips creating a contest whose occurrence
   key already exists (see check_and_create_scheduled_contests below).
 - Finalization (ranking + top-N certificates + points) only ever runs once
-  per contest, guarded by `finalized_at` and the same SAVEPOINT+IntegrityError
-  pattern used by certificate_service/gamification_service elsewhere in this
-  codebase, in case two worker ticks somehow overlap.
+  per contest: finalize_contest() re-fetches the Contest row with
+  with_for_update before checking finalized_at, so two overlapping callers
+  (the scheduler's own polling tick racing an admin's manual finalize) can't
+  both pass the check. Certificate inserts get an additional, independent
+  backstop from a SAVEPOINT+IntegrityError pattern around the unique
+  constraint, since a certificate could otherwise already exist from a
+  previous partial run.
 """
 from __future__ import annotations
 
@@ -148,8 +152,21 @@ def _generate_contest_certificate_number() -> str:
 
 
 async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
-    if contest.finalized_at is not None:
-        return contest
+    # Re-fetch with a row lock before the idempotency check: the caller may
+    # have loaded `contest` via a plain SELECT (e.g. the scheduler's own
+    # listing query, or the admin manual-finalize endpoint), and without a
+    # lock here, two callers racing the same just-ended contest (a manual
+    # admin trigger landing at the same moment as the next scheduler tick)
+    # can both read finalized_at as None and both award every participant's
+    # points twice — the certificate insert is separately protected by a
+    # unique constraint, but the points-award loop below has no such
+    # backstop. with_for_update makes the second caller block until the
+    # first commits, at which point its own finalized_at check (right below)
+    # correctly short-circuits it.
+    locked = await db.get(Contest, contest.id, with_for_update=True)
+    if locked is None or locked.finalized_at is not None:
+        return locked or contest
+    contest = locked
     attempts = (await db.execute(
         select(ContestAttempt)
         .where(ContestAttempt.contest_id == contest.id, ContestAttempt.status == "submitted")

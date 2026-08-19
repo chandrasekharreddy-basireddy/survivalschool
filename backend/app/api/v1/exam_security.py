@@ -23,6 +23,10 @@ from app.services.scoring_service import grade_answer, summarize_attempt
 
 router = APIRouter(prefix="/exams", tags=["exam-security"])
 
+# Bounds flagged_events growth — a spammy or buggy client calling this
+# endpoint repeatedly can't grow an attempt's event log without limit.
+MAX_FLAGGED_EVENTS_PER_ATTEMPT = 200
+
 
 async def _force_finalize_attempt(db: AsyncSession, attempt: ExamAttempt, user: User, exam: Exam, now: datetime) -> None:
     rows = (await db.execute(select(ExamAnswer).where(ExamAnswer.attempt_id == attempt.id))).scalars().all()
@@ -110,7 +114,8 @@ async def secure_integrity_event(attempt_id: uuid.UUID, payload: IntegrityEventI
         raise NotFoundError("Exam not found.")
 
     attempt.violation_count = min(attempt.violation_count + 1, 1000)
-    attempt.flagged_events = (attempt.flagged_events or []) + [{"type": payload.event_type, "at": datetime.now(timezone.utc).isoformat()}]
+    if len(attempt.flagged_events or []) < MAX_FLAGGED_EVENTS_PER_ATTEMPT:
+        attempt.flagged_events = (attempt.flagged_events or []) + [{"type": payload.event_type, "at": datetime.now(timezone.utc).isoformat()}]
     auto_submitted = False
     if exam.integrity_monitoring_enabled and attempt.violation_count >= exam.max_integrity_violations:
         await _force_finalize_attempt(db, attempt, user, exam, datetime.now(timezone.utc))

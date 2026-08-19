@@ -22,16 +22,10 @@ from app.models.gamification import LeaderboardSnapshot, PointsLedger
 from app.models.lms import CourseProgress
 from app.models.user import EmailVerification, PasswordReset, RefreshToken
 from app.models.user import Session as SessionModel
-from app.services.contest_service import check_and_create_scheduled_contests, check_and_finalize_contests
 from app.services.email_service import send_email
-from app.services.exam_scheduler_service import (
-    create_due_scheduled_exams,
-    ensure_weekend_schedules,
-    finalize_expired_scheduled_exams,
-    issue_scheduled_exam_certificates,
-)
 from app.services.n8n_service import emit_event
 from app.services.powerbi_service import sync_daily_engagement
+from app.services.scheduler_runtime import run_locked_tick
 
 logger = structlog.get_logger("survivalschool.worker")
 settings = get_settings()
@@ -102,38 +96,23 @@ async def send_inactivity_reminders() -> None:
     logger.info("inactivity_reminders_sent", count=len(stalled))
 
 
-async def run_contest_scheduler() -> None:
-    """Creates any weekly (Sat/Sun morning+evening IST) or monthly contest
-    occurrence whose scheduled start has arrived, and finalizes (ranks +
-    awards top-3 certificates for) any contest whose window has closed.
-    Both halves are idempotent — see app/services/contest_service.py."""
-    async with AsyncSessionLocal() as db:
-        created = await check_and_create_scheduled_contests(db)
-        finalized = await check_and_finalize_contests(db)
-    if created:
-        logger.info("contests_created", count=len(created), titles=[c.title for c in created])
-    if finalized:
-        logger.info("contests_finalized", count=len(finalized), titles=[c.title for c in finalized])
+async def run_scheduler_tick() -> None:
+    """Runs the shared weekend-exam + contest scheduling tick (see
+    app/services/scheduler_runtime.py) behind its Redis leader lock.
 
-
-async def run_exam_scheduler() -> None:
-    """Creates any scheduled weekend AI exam (Sat/Sun IST morning+evening)
-    whose time slot has arrived, auto-submits expired attempts, and issues
-    certificates for the top-N scorers. All three phases are idempotent —
-    see app/services/exam_scheduler_service.py."""
-    async with AsyncSessionLocal() as db:
-        ensured = await ensure_weekend_schedules(db)
-        created = await create_due_scheduled_exams(db)
-        finalized = await finalize_expired_scheduled_exams(db)
-        issued = await issue_scheduled_exam_certificates(db)
-    if ensured:
-        logger.info("weekend_schedules_ensured", count=ensured)
-    if created:
-        logger.info("scheduled_exams_created", count=len(created), titles=[e.title for e in created])
-    if finalized:
-        logger.info("scheduled_exams_finalized", count=finalized)
-    if issued:
-        logger.info("scheduled_exam_certificates_issued", count=issued)
+    This is the SAME lock, and the SAME tick logic, that the in-process
+    scheduler (app/services/scheduler_runtime.py, driven from the web app's
+    lifespan) uses. Previously this worker called the exam/contest service
+    functions directly on its own independent timer with no Redis
+    coordination at all — the two schedulers' claimed mutual exclusion was a
+    docstring promise the code didn't keep. If a standalone worker replica is
+    ever deployed alongside the default single-web-service topology (or
+    scaled to multiple worker replicas), run_locked_tick() ensures only one
+    of them — worker or web — actually runs a given tick.
+    """
+    ran = await run_locked_tick()
+    if not ran:
+        logger.debug("scheduler_tick_skipped_not_leader")
 
 
 async def run_powerbi_sync() -> None:
@@ -147,11 +126,15 @@ async def run_powerbi_sync() -> None:
 
 
 JOBS = [
-    (cleanup_expired_tokens, 3600),
-    (recompute_leaderboard_snapshot, 300),
     (send_inactivity_reminders, 86400),
-    (run_contest_scheduler, 300),  # every 5 minutes — see docstring above
-    (run_exam_scheduler, 300),  # every 5 minutes — weekend AI exams (Sat/Sun IST)
+    # Same 60s cadence as scheduler_runtime.TICK_SECONDS, since both compete
+    # for the same lock and only one of them will actually run any given tick.
+    # cleanup_expired_tokens and recompute_leaderboard_snapshot are NOT listed
+    # separately here — they now run inside that locked tick
+    # (scheduler_runtime._run_housekeeping, on their own 1h/5min intervals) so
+    # they also happen on deployments that run no worker at all. Listing them
+    # here too would double-run them outside the lock.
+    (run_scheduler_tick, 60),
     (run_powerbi_sync, 86400),  # once daily — pushes yesterday's aggregate stats
 ]
 

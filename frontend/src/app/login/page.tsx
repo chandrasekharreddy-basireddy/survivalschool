@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -43,7 +43,7 @@ function ShellFact({ k, v }: { k: string; v: string }) {
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, verifyMfa } = useAuth();
+  const { user, loading, login, verifyMfa } = useAuth();
   const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,6 +52,12 @@ export default function LoginPage() {
   const [resending, setResending] = useState(false);
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
+
+  // A visitor who is already signed in shouldn't see a login form — send them
+  // straight to their role's home instead of making them re-authenticate.
+  useEffect(() => {
+    if (!loading && user) router.replace(getPostLoginPath(user));
+  }, [loading, user, router]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,6 +108,10 @@ export default function LoginPage() {
       setResending(false);
     }
   };
+
+  if (loading || user) {
+    return <div className="page-frame text-fg-muted">Loading…</div>;
+  }
 
   if (mfaToken) {
     return (

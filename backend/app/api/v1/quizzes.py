@@ -9,11 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError, ValidationAppError
+from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
-from app.dependencies import get_current_verified_user, require_permission
+from app.dependencies import get_current_verified_user, require_course_ownership, require_permission
 from app.models.assessment import Question, QuestionOption, Quiz, QuizAnswer, QuizAttempt
-from app.models.lms import Course
 from app.models.user import User
 from app.schemas.assessment import (
     AttemptHistoryOut,
@@ -37,21 +36,15 @@ router = APIRouter(prefix="/quizzes", tags=["quizzes"])
 questions_router = APIRouter(prefix="/questions", tags=["question-bank"])
 
 
-async def _require_course_ownership_for_import(db: AsyncSession, user: User, course_id: uuid.UUID) -> Course:
-    course = await db.get(Course, course_id)
-    if course is None:
-        raise NotFoundError("Course not found.")
-    if course.instructor_id != user.id and not user.has_permission("system.manage"):
-        raise AuthorizationError("You can only import questions into your own courses.")
-    return course
-
-
 @questions_router.post("", response_model=QuestionOut, status_code=201)
 async def create_question(
     payload: QuestionCreate,
     user: User = Depends(require_permission("quiz.create", "exam.manage")),
     db: AsyncSession = Depends(get_db),
 ):
+    # quiz.create/exam.manage are granted to every INSTRUCTOR — without this,
+    # any instructor could add questions to any other instructor's course.
+    await require_course_ownership(db, user, payload.course_id)
     if payload.question_type in ("single", "true_false") and sum(1 for o in payload.options if o.is_correct) != 1:
         raise ValidationAppError("single/true_false questions must have exactly one correct option.")
     if payload.question_type == "multiple" and sum(1 for o in payload.options if o.is_correct) < 1:
@@ -83,7 +76,7 @@ async def bulk_import_questions(
     only writes anything if every row in the file is valid; otherwise nothing
     is inserted and the same per-row errors are returned so the instructor
     can fix the file and re-upload."""
-    await _require_course_ownership_for_import(db, user, course_id)
+    await require_course_ownership(db, user, course_id)
 
     raw = await file.read()
     filename = (file.filename or "").lower()
@@ -116,6 +109,9 @@ async def create_quiz(
     user: User = Depends(require_permission("quiz.manage")),
     db: AsyncSession = Depends(get_db),
 ):
+    # quiz.manage is granted to every INSTRUCTOR — without this, any
+    # instructor could create a quiz under any other instructor's course.
+    await require_course_ownership(db, user, payload.course_id)
     quiz = Quiz(
         course_id=payload.course_id, title=payload.title, time_limit_seconds=payload.time_limit_seconds,
         max_attempts=payload.max_attempts, randomize_questions=payload.randomize_questions,
@@ -140,6 +136,7 @@ async def publish_quiz(quiz_id: uuid.UUID, user: User = Depends(require_permissi
     quiz = await db.get(Quiz, quiz_id)
     if quiz is None:
         raise NotFoundError("Quiz not found.")
+    await require_course_ownership(db, user, quiz.course_id)
     quiz.is_published = True
     await db.commit()
     await db.refresh(quiz)
@@ -235,10 +232,19 @@ async def submit_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, user: Us
     quiz = await db.get(Quiz, attempt.quiz_id)
     points_earned, points_possible = 0, 0
 
+    # Batch-fetch instead of one query per answer — a 50-question quiz
+    # submitted by a full cohort at once was doing 50 sequential DB round
+    # trips on the hot submission path (same fix already applied to the
+    # exam/contest submit endpoints).
+    answer_qids = {ans.question_id for ans in payload.answers}
+    questions_by_id = {
+        q.id: q for q in (await db.execute(
+            select(Question).where(Question.id.in_(answer_qids)).options(selectinload(Question.options))
+        )).scalars().all()
+    } if answer_qids else {}
+
     for ans in payload.answers:
-        question = (await db.execute(
-            select(Question).where(Question.id == ans.question_id).options(selectinload(Question.options))
-        )).scalar_one_or_none()
+        question = questions_by_id.get(ans.question_id)
         if question is None:
             continue
         is_correct, points = grade_answer(question, [str(i) for i in ans.selected_option_ids], ans.text_answer)

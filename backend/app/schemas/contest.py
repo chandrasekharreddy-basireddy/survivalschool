@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.assessment import AnswerSubmit
 
@@ -24,13 +24,13 @@ class ContestOut(BaseModel):
 
 
 class ContestCreate(BaseModel):
-    title: str
-    description: str = ""
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=20000)
     starts_at: datetime
     ends_at: datetime
-    duration_seconds: int = 1800
-    question_ids: list[uuid.UUID]
-    top_n_awarded: int = 3
+    duration_seconds: int = Field(default=1800, ge=30, le=86400)
+    question_ids: list[uuid.UUID] = Field(max_length=500)
+    top_n_awarded: int = Field(default=3, ge=0, le=100)
 
 
 class ContestAttemptStartOut(BaseModel):

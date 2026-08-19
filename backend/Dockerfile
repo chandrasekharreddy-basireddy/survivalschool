@@ -36,7 +36,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8000
 
+# /api/v1/live, not /health — every health route is mounted under the API
+# prefix (app/api/v1/health.py via api_router), so a bare /health 404s and
+# would mark this container permanently unhealthy. Matches the path used by
+# docker-compose and the k8s liveness probe.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD curl -f http://localhost:8000/api/v1/live || exit 1
 
 CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "60", "--access-logfile", "-"]

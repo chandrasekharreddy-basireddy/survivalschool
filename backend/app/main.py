@@ -139,4 +139,11 @@ Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json"
 
 @app.get("/")
 async def root():
-    return {"service": settings.APP_NAME, "status": "running", "docs": "/api/docs", "health": "/health"}
+    return {
+        "service": settings.APP_NAME,
+        "status": "running",
+        # Advertise the real paths — these are all mounted under the API
+        # prefix; a bare /health has never existed.
+        "docs": "/api/docs" if _EXPOSE_API_DOCS else None,
+        "health": f"{settings.API_V1_PREFIX}/health",
+    }

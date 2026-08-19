@@ -79,22 +79,37 @@ export default function NotificationsPage() {
       ) : (
         <ul className="mt-6 space-y-2">
           {items.map((n) => {
-            const content = (
-              <div
-                className={`card cursor-pointer transition ${n.read_at ? "opacity-60" : "border-brand-500/40"}`}
-                onClick={() => !n.read_at && markRead(n.id)}
-              >
+            const inner = (
+              <>
                 <div className="flex items-start justify-between gap-3">
                   <p className="text-sm font-medium text-fg">{n.title}</p>
-                  {!n.read_at && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-500" />}
+                  {!n.read_at && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-500" aria-label="Unread" />}
                 </div>
                 <p className="mt-1 text-xs text-fg-subtle">{n.body}</p>
                 <p className="mt-2 text-[11px] text-fg-subtle">{formatRelative(n.created_at)}</p>
-              </div>
+              </>
             );
+            const cardClass = `card p-4 transition ${n.read_at ? "opacity-60" : "border-brand-500/40"}`;
             return (
               <li key={n.id}>
-                {n.link_url ? <Link href={n.link_url}>{content}</Link> : content}
+                {n.link_url ? (
+                  <Link href={n.link_url} className={`block ${cardClass}`}>
+                    {inner}
+                  </Link>
+                ) : (
+                  // A real button, not a clickable div: the previous markup
+                  // couldn't be reached or activated by keyboard or a screen
+                  // reader at all.
+                  <button
+                    type="button"
+                    onClick={() => !n.read_at && markRead(n.id)}
+                    disabled={!!n.read_at}
+                    aria-label={n.read_at ? `${n.title} (read)` : `Mark "${n.title}" as read`}
+                    className={`w-full text-left ${cardClass} ${n.read_at ? "" : "cursor-pointer"}`}
+                  >
+                    {inner}
+                  </button>
+                )}
               </li>
             );
           })}

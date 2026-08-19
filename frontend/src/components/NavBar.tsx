@@ -50,7 +50,7 @@ export function NavBar() {
     }`;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-ink-700/80 bg-ink-950/80 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 border-b border-ink-700/80 bg-ink-950">
       <nav className="mx-auto flex min-h-14 max-w-7xl items-center gap-2 px-3 sm:px-5 lg:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2.5 text-sm font-bold tracking-tight text-fg">
           <LogoMark />
@@ -77,7 +77,7 @@ export function NavBar() {
         </div>
       </nav>
       {mobileOpen && (
-        <div className="border-t border-ink-700 bg-ink-950/95 px-3 py-3 backdrop-blur-xl sm:px-5 lg:hidden">
+        <div className="border-t border-ink-700 bg-ink-950 px-3 py-3 sm:px-5 lg:hidden">
           <div className="mb-3"><SearchBar /></div>
           <div className="grid grid-cols-2 gap-1 text-sm text-fg-muted">
             {links.map(([href, label, visible]) => visible ? <Link key={href} href={href} onClick={closeMobile} className={linkClass(href)}>{label}</Link> : null)}

@@ -44,6 +44,11 @@ async def open_session(payload: OpenAttendanceSessionIn, user: User = Depends(re
     await _require_course_ownership(db, user, entry.course_id)
     session = await open_attendance_session(db, entry, user.id)
     await record_audit_event(db, actor_id=user.id, action="attendance.session_opened", resource_type="attendance_session", resource_id=str(session.id))
+    # record_audit_event only flushes; without this commit the audit row is
+    # rolled back when the request's session closes (get_db doesn't commit on
+    # teardown), so every attendance.session_opened event was being silently
+    # discarded. open_attendance_session already committed the session itself.
+    await db.commit()
     return session
 
 
@@ -115,23 +120,50 @@ async def my_attendance(user: User = Depends(get_current_verified_user), db: Asy
     course_ids = (await db.execute(
         select(Enrollment.course_id).where(Enrollment.student_id == user.id, Enrollment.status == "active")
     )).scalars().all()
+    if not course_ids:
+        return []
+
+    # Batch every step instead of up to 4 queries per enrolled course: one
+    # query each for courses, timetable entries (grouped by course),
+    # attendance sessions (grouped by entry), and this student's present
+    # records — rather than N x 4 sequential round trips.
+    courses_by_id = {c.id: c for c in (await db.execute(select(Course).where(Course.id.in_(course_ids)))).scalars().all()}
+
+    entries = (await db.execute(select(TimetableEntry.id, TimetableEntry.course_id).where(TimetableEntry.course_id.in_(course_ids)))).all()
+    entry_id_to_course = {entry_id: course_id for entry_id, course_id in entries}
+    all_entry_ids = list(entry_id_to_course.keys())
+
+    sessions = (await db.execute(
+        select(AttendanceSession.id, AttendanceSession.timetable_entry_id).where(AttendanceSession.timetable_entry_id.in_(all_entry_ids))
+    )).all() if all_entry_ids else []
+    session_ids_by_course: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for session_id, timetable_entry_id in sessions:
+        course_id = entry_id_to_course.get(timetable_entry_id)
+        if course_id is not None:
+            session_ids_by_course.setdefault(course_id, []).append(session_id)
+    all_session_ids = [s.id for s in sessions]
+
+    present_session_ids: set[uuid.UUID] = set()
+    if all_session_ids:
+        present_session_ids = set((await db.execute(
+            select(AttendanceRecord.session_id).where(
+                AttendanceRecord.session_id.in_(all_session_ids),
+                AttendanceRecord.student_id == user.id,
+                AttendanceRecord.status == "present",
+            )
+        )).scalars().all())
 
     summaries = []
     for course_id in course_ids:
-        course = await db.get(Course, course_id)
+        course = courses_by_id.get(course_id)
         if course is None:
             continue
-        entry_ids = (await db.execute(select(TimetableEntry.id).where(TimetableEntry.course_id == course_id))).scalars().all()
-        if not entry_ids:
+        session_ids = session_ids_by_course.get(course_id, [])
+        if not session_ids:
             continue
-        total = (await db.execute(select(AttendanceSession.id).where(AttendanceSession.timetable_entry_id.in_(entry_ids)))).scalars().all()
-        if not total:
-            continue
-        present = (await db.execute(
-            select(AttendanceRecord.id).where(AttendanceRecord.session_id.in_(total), AttendanceRecord.student_id == user.id, AttendanceRecord.status == "present")
-        )).scalars().all()
+        present_count = sum(1 for sid in session_ids if sid in present_session_ids)
         summaries.append(AttendanceSummaryOut(
-            course_id=course_id, course_title=course.title, total_sessions=len(total),
-            present_count=len(present), attendance_percent=round((len(present) / len(total)) * 100),
+            course_id=course_id, course_title=course.title, total_sessions=len(session_ids),
+            present_count=present_count, attendance_percent=round((present_count / len(session_ids)) * 100),
         ))
     return summaries

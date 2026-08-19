@@ -6,8 +6,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import NotFoundError
 from app.database import get_db
-from app.dependencies import require_permission
+from app.dependencies import require_course_ownership, require_permission
 from app.models.scheduling import ScheduledExamConfig
 from app.models.user import User
 
@@ -35,12 +36,24 @@ class ScheduledExamConfigOut(ScheduledExamConfigIn):
 
 @router.get("/schedules", response_model=list[ScheduledExamConfigOut])
 async def list_schedules(user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(select(ScheduledExamConfig).order_by(ScheduledExamConfig.day_of_week, ScheduledExamConfig.time_slot))).scalars().all()
+    stmt = select(ScheduledExamConfig).order_by(ScheduledExamConfig.day_of_week, ScheduledExamConfig.time_slot)
+    # exam.manage is granted to every INSTRUCTOR — without this filter, any
+    # instructor could see every other instructor's weekend-exam schedules
+    # (including which courses they run and at what times).
+    if not user.has_permission("system.manage"):
+        from app.models.lms import Course
+
+        stmt = stmt.join(Course, Course.id == ScheduledExamConfig.course_id).where(Course.instructor_id == user.id)
+    rows = (await db.execute(stmt)).scalars().all()
     return rows
 
 
 @router.post("/schedules", response_model=ScheduledExamConfigOut, status_code=201)
 async def create_schedule(payload: ScheduledExamConfigIn, user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
+    # exam.manage is granted to every INSTRUCTOR — without this, any
+    # instructor could wire up weekend AI exams for any other instructor's
+    # course.
+    await require_course_ownership(db, user, payload.course_id)
     config = ScheduledExamConfig(**payload.model_dump())
     db.add(config)
     await db.commit()
@@ -52,8 +65,14 @@ async def create_schedule(payload: ScheduledExamConfigIn, user: User = Depends(r
 async def update_schedule(schedule_id: uuid.UUID, payload: ScheduledExamConfigIn, user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
     config = await db.get(ScheduledExamConfig, schedule_id)
     if config is None:
-        from app.core.exceptions import NotFoundError
         raise NotFoundError("Scheduled exam configuration not found.")
+    # Must own the course the schedule currently belongs to...
+    await require_course_ownership(db, user, config.course_id)
+    # ...and, since the payload can repoint course_id entirely, also own the
+    # target course if it's being changed (otherwise an instructor could
+    # reassign their own schedule row onto someone else's course).
+    if payload.course_id != config.course_id:
+        await require_course_ownership(db, user, payload.course_id)
     for key, value in payload.model_dump().items():
         setattr(config, key, value)
     await db.commit()

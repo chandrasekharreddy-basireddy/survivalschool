@@ -31,7 +31,11 @@ class Course(Base, UUIDPk, Timestamped):
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     # Indexed: the instructor dashboard and the exam flagged-attempts endpoint
     # both filter courses by instructor, which was a sequential scan.
-    instructor_id: Mapped[uuid.UUID] = mapped_column(
+    # Optional in the type too, matching nullable=True + ON DELETE SET NULL:
+    # a GDPR-erased instructor leaves their courses ownerless, and every
+    # ownership check must treat that as "nobody owns this" (only
+    # system.manage can act on it) rather than trusting a non-null hint.
+    instructor_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     prerequisite_course_id: Mapped[uuid.UUID | None] = mapped_column(

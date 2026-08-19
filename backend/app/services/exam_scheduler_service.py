@@ -4,7 +4,9 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import structlog
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -15,6 +17,8 @@ from app.models.user import User
 from app.services.ai_provider import get_ai_provider
 from app.services.certificate_service import issue_certificate
 from app.services.scoring_service import grade_answer, summarize_attempt
+
+logger = structlog.get_logger("survivalschool.exam_scheduler")
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -72,7 +76,18 @@ async def ensure_weekend_schedules(db: AsyncSession) -> int:
                 ))
                 created += 1
     if created:
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Another process (the standalone worker, if it's ever deployed
+            # alongside this in-process scheduler, or a second gunicorn
+            # worker racing the same tick) inserted the same
+            # (day_of_week, time_slot, course_id) row first — the unique
+            # constraint on ScheduledExamConfig caught it. Nothing lost: the
+            # gap is filled either way, so just roll back this attempt.
+            await db.rollback()
+            logger.info("weekend_schedule_creation_raced", attempted=created)
+            return 0
     return created
 
 
@@ -99,37 +114,58 @@ async def create_due_scheduled_exams(db: AsyncSession, now: datetime | None = No
         course = await db.get(Course, config.course_id)
         if course is None:
             continue
-        generated = await provider.generate_questions(course.title, config.question_count)
-        question_ids: list[str] = []
-        for item in generated:
-            question = Question(course_id=course.id, prompt=item.prompt, question_type="single", points=1)
-            db.add(question)
-            await db.flush()
-            for idx, (text, is_correct) in enumerate(item.options):
-                db.add(QuestionOption(question_id=question.id, text=text, is_correct=is_correct, order_index=idx))
-            question_ids.append(str(question.id))
+        # Re-check the course is still live: it may have been unpublished or
+        # soft-deleted after this schedule was created (ensure_weekend_schedules
+        # only filters at config-creation time). Without this, an unpublished
+        # course could still get a fresh weekend exam auto-created and
+        # auto-published every week forever.
+        if not course.is_published or course.deleted_at is not None:
+            continue
 
-        starts_at = slot.astimezone(timezone.utc)
-        ends_at = starts_at + timedelta(minutes=config.duration_minutes)
-        exam = Exam(
-            course_id=course.id,
-            title=f"{config.title_prefix}: {course.title}",
-            time_limit_seconds=config.duration_minutes * 60,
-            max_attempts=1,
-            pass_score_percent=70,
-            is_published=True,
-            available_from=starts_at,
-            available_until=ends_at,
-            question_ids=question_ids,
-            fullscreen_required=True,
-            integrity_monitoring_enabled=True,
-            max_integrity_violations=3,
-            is_ai_scheduled=True,
-            auto_certificate_top_n=config.auto_certificate_top_n,
-        )
-        db.add(exam)
-        await db.flush()
-        config.last_occurrence_key = key
+        # Each config's work runs inside its own SAVEPOINT: a flaky AI call or
+        # a malformed generated question for ONE config must not discard the
+        # exams already generated (flushed but not yet committed) for every
+        # other due config in this same tick — begin_nested() lets us roll
+        # back just this config's partial work and continue the loop.
+        try:
+            async with db.begin_nested():
+                generated = await provider.generate_questions(course.title, config.question_count)
+                question_ids: list[str] = []
+                for item in generated:
+                    question = Question(course_id=course.id, prompt=item.prompt, question_type="single", points=1)
+                    db.add(question)
+                    await db.flush()
+                    for idx, (text, is_correct) in enumerate(item.options):
+                        db.add(QuestionOption(question_id=question.id, text=text, is_correct=is_correct, order_index=idx))
+                    question_ids.append(str(question.id))
+
+                starts_at = slot.astimezone(timezone.utc)
+                ends_at = starts_at + timedelta(minutes=config.duration_minutes)
+                exam = Exam(
+                    course_id=course.id,
+                    title=f"{config.title_prefix}: {course.title}",
+                    time_limit_seconds=config.duration_minutes * 60,
+                    max_attempts=1,
+                    pass_score_percent=70,
+                    is_published=True,
+                    available_from=starts_at,
+                    available_until=ends_at,
+                    question_ids=question_ids,
+                    fullscreen_required=True,
+                    integrity_monitoring_enabled=True,
+                    max_integrity_violations=3,
+                    is_ai_scheduled=True,
+                    auto_certificate_top_n=config.auto_certificate_top_n,
+                )
+                db.add(exam)
+                await db.flush()
+                config.last_occurrence_key = key
+        except Exception:
+            # Leave last_occurrence_key untouched so this occurrence is
+            # retried on the next tick (still within the 10-minute window)
+            # instead of being silently skipped for the whole slot.
+            logger.warning("scheduled_exam_creation_failed", course_id=str(config.course_id), time_slot=config.time_slot, exc_info=True)
+            continue
         created.append(exam)
 
     await db.commit()

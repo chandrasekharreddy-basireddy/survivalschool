@@ -189,7 +189,7 @@ export default function ExamTakingPage() {
   return (
     <ExamIntegrityGuard enabled={Boolean(attempt && meta?.integrity_monitoring_enabled)} fullscreenRequired={Boolean(meta?.fullscreen_required)} onIntegrityEvent={reportIntegrityEvent}>
       <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-        <header className="sticky top-0 z-20 mb-6 border-b border-ink-700/70 bg-bg/95 py-3 backdrop-blur">
+        <header className="sticky top-0 z-20 mb-6 border-b border-ink-700/70 bg-ink-950 py-3">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0"><h1 className="truncate text-xl font-bold text-fg sm:text-2xl">{meta?.title || "Exam"}</h1><p className="text-xs text-fg-subtle">{attemptedCount}/{questions?.length || 0} answered{flaggedCount ? ` · ${flaggedCount} flagged` : ""} {savedAt ? `· Saved ${savedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</p></div>
             <div className="flex items-center gap-3"><div className="hidden text-right sm:block"><p className="text-[10px] uppercase tracking-[0.2em] text-fg-subtle">Time left</p><p className="font-mono text-sm text-fg">{formatDuration(remaining)}</p></div><TimerRing remaining={remaining} total={totalSeconds} /></div>

@@ -7,19 +7,22 @@ from pydantic import BaseModel, Field
 
 
 class OptionCreate(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=2000)
     is_correct: bool = False
-    order_index: int = 0
+    order_index: int = Field(default=0, ge=0, le=1000)
 
 
 class QuestionCreate(BaseModel):
     course_id: uuid.UUID | None = None
-    prompt: str
+    prompt: str = Field(min_length=1, max_length=10000)
     question_type: str = Field(pattern=r"^(single|multiple|true_false|short_answer)$")
-    points: int = 1
-    explanation: str | None = None
-    short_answer_key: str | None = None
-    options: list[OptionCreate] = []
+    # ge=1: zero or negative points would violate the DB CHECK constraints on
+    # points_possible/points_earned at submit time, turning an instructor's
+    # data-entry slip into a 500 for every student taking the assessment.
+    points: int = Field(default=1, ge=1, le=1000)
+    explanation: str | None = Field(default=None, max_length=10000)
+    short_answer_key: str | None = Field(default=None, max_length=2000)
+    options: list[OptionCreate] = Field(default=[], max_length=20)
 
 
 class QuestionOut(BaseModel):
@@ -52,12 +55,14 @@ class QuestionPublicOut(BaseModel):
 
 class QuizCreate(BaseModel):
     course_id: uuid.UUID
-    title: str
-    time_limit_seconds: int | None = None
-    max_attempts: int = 3
+    title: str = Field(min_length=1, max_length=200)
+    # ge=30: a non-positive limit would put every new attempt's deadline in
+    # the past the moment it starts. Capped at 24h.
+    time_limit_seconds: int | None = Field(default=None, ge=30, le=86400)
+    max_attempts: int = Field(default=3, ge=1, le=100)
     randomize_questions: bool = True
-    pass_score_percent: int = 70
-    question_ids: list[uuid.UUID] = []
+    pass_score_percent: int = Field(default=70, ge=0, le=100)
+    question_ids: list[uuid.UUID] = Field(default=[], max_length=500)
 
 
 class QuizOut(BaseModel):
@@ -74,13 +79,15 @@ class QuizOut(BaseModel):
 
 class AnswerSubmit(BaseModel):
     question_id: uuid.UUID
-    selected_option_ids: list[uuid.UUID] = []
-    text_answer: str | None = None
+    selected_option_ids: list[uuid.UUID] = Field(default=[], max_length=20)
+    text_answer: str | None = Field(default=None, max_length=10000)
 
 
 class AttemptSubmit(BaseModel):
-    answers: list[AnswerSubmit]
-    client_token: str | None = None
+    # Bounded so a client can't post an arbitrarily large answer array to the
+    # submit endpoint (each entry drives a grading pass and a DB insert).
+    answers: list[AnswerSubmit] = Field(max_length=500)
+    client_token: str | None = Field(default=None, max_length=128)
 
 
 class AttemptResultOut(BaseModel):
@@ -97,11 +104,12 @@ class AttemptResultOut(BaseModel):
 
 class ExamCreate(BaseModel):
     course_id: uuid.UUID
-    title: str
-    time_limit_seconds: int = 3600
-    max_attempts: int = 1
-    pass_score_percent: int = 70
-    question_ids: list[uuid.UUID] = []
+    title: str = Field(min_length=1, max_length=200)
+    # See QuizCreate: a non-positive limit expires every attempt instantly.
+    time_limit_seconds: int = Field(default=3600, ge=30, le=86400)
+    max_attempts: int = Field(default=1, ge=1, le=100)
+    pass_score_percent: int = Field(default=70, ge=0, le=100)
+    question_ids: list[uuid.UUID] = Field(default=[], max_length=500)
     fullscreen_required: bool = False
     integrity_monitoring_enabled: bool = True
 

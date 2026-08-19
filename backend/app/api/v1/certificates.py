@@ -71,14 +71,18 @@ def _is_expired(cert: Certificate) -> bool:
 async def my_certificates(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     # Single joined query instead of one db.get(Course, ...) per certificate —
     # avoids the N+1 the production audit flagged on this endpoint.
+    # Outer join: a certificate whose course was later deleted (course_id is
+    # SET NULL) must still appear in the holder's list — it falls back to the
+    # course_title snapshotted at issuance.
     rows = (await db.execute(
         select(Certificate, Course)
-        .join(Course, Course.id == Certificate.course_id)
+        .outerjoin(Course, Course.id == Certificate.course_id)
         .where(Certificate.student_id == user.id)
     )).all()
     return [
         CertificateOut(
-            certificate_number=c.certificate_number, course_title=course.title,
+            certificate_number=c.certificate_number,
+            course_title=(course.title if course else c.course_title) or "Course",
             issued_at=c.issued_at.isoformat(), verify_url=verification_url(c.certificate_number),
             grade=c.grade, score_percent=c.score_percent, skills=list(c.skills_json or []),
             specialization=c.specialization, instructor_name=c.instructor_name,
@@ -104,7 +108,7 @@ async def verify_certificate(certificate_number: str, db: AsyncSession = Depends
     student = await db.get(User, cert.student_id)
     return PublicCertificateOut(
         valid=True, certificate_number=cert.certificate_number,
-        course_title=course.title if course else None,
+        course_title=(course.title if course else cert.course_title),
         student_full_name=(student.full_name if student else None),
         grade=cert.grade, score_percent=cert.score_percent, skills=list(cert.skills_json or []),
         specialization=cert.specialization, instructor_name=cert.instructor_name,

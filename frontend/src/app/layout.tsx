@@ -14,6 +14,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import { ToastProvider } from "@/lib/toast";
 import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
 import { NavBar } from "@/components/NavBar";
+import { Footer } from "@/components/Footer";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
@@ -69,6 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <AnalyticsTracker />
               <ServiceWorkerRegister />
               <main className="safe-area-x">{children}</main>
+              <Footer />
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>

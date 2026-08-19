@@ -82,6 +82,7 @@ async def issue_certificate(db: AsyncSession, student: User, course: Course) -> 
         instructor_name = instructor.full_name if instructor else None
     cert = Certificate(
         certificate_number=_generate_certificate_number(), student_id=student.id, course_id=course.id,
+        course_title=course.title,
         grade=grade, score_percent=score_percent, skills_json=list(course.skills or []),
         specialization=course.specialization, instructor_name=instructor_name, expires_at=certificate_expiry(),
     )

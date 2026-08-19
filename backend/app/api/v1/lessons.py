@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.database import get_db
-from app.dependencies import get_current_verified_user, require_permission
+from app.dependencies import get_current_verified_user, require_course_ownership, require_permission
 from app.models.lms import Course, CourseProgress, CourseSection, Lesson, LessonProgress
 from app.models.user import User
 from app.schemas.auth import MessageResponse
@@ -38,6 +38,9 @@ async def create_lesson(
     section = await db.get(CourseSection, section_id)
     if section is None:
         raise NotFoundError("Section not found.")
+    # lessons.manage is granted to every INSTRUCTOR — without this, any
+    # instructor could add lessons to any other instructor's course.
+    await require_course_ownership(db, user, section.course_id)
     lesson = Lesson(section_id=section_id, **payload.model_dump())
     db.add(lesson)
     await db.commit()

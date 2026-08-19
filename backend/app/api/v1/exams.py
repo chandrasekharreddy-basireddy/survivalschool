@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
@@ -11,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError
 from app.database import get_db
-from app.dependencies import get_current_verified_user, require_permission
+from app.dependencies import get_current_verified_user, require_course_ownership, require_permission
 from app.models.assessment import Exam, ExamAnswer, ExamAttempt, Question
 from app.models.lms import Course
 from app.models.user import User
@@ -24,7 +23,6 @@ from app.schemas.assessment import (
     ExamCreate,
     ExamOut,
     FlaggedAttemptOut,
-    IntegrityEventIn,
     QuestionPublicOut,
     ReviewAnswerOut,
 )
@@ -32,7 +30,6 @@ from app.services.analytics_service import track_event
 from app.services.audit_service import record_audit_event
 from app.services.gamification_service import POINTS_EXAM_PASS, award_points, evaluate_and_award_badges
 from app.services.n8n_service import emit_event
-from app.services.rate_limit_service import enforce_rate_limit
 from app.services.scoring_service import grade_answer, summarize_attempt
 
 router = APIRouter(prefix="/exams", tags=["exams"])
@@ -40,6 +37,9 @@ router = APIRouter(prefix="/exams", tags=["exams"])
 
 @router.post("", response_model=ExamOut, status_code=201)
 async def create_exam(payload: ExamCreate, user: User = Depends(require_permission("exam.manage")), db: AsyncSession = Depends(get_db)):
+    # exam.manage is granted to every INSTRUCTOR — without this, any instructor
+    # could create an exam under any other instructor's course.
+    await require_course_ownership(db, user, payload.course_id)
     exam = Exam(
         course_id=payload.course_id, title=payload.title, time_limit_seconds=payload.time_limit_seconds,
         max_attempts=payload.max_attempts, pass_score_percent=payload.pass_score_percent,
@@ -76,6 +76,7 @@ async def publish_exam(exam_id: uuid.UUID, user: User = Depends(require_permissi
     exam = await db.get(Exam, exam_id)
     if exam is None:
         raise NotFoundError("Exam not found.")
+    await require_course_ownership(db, user, exam.course_id)
     exam.is_published = True
     await record_audit_event(db, actor_id=user.id, action="exam.publish", resource_type="exam", resource_id=str(exam_id))
     await db.commit()
@@ -83,50 +84,10 @@ async def publish_exam(exam_id: uuid.UUID, user: User = Depends(require_permissi
     return exam
 
 
-@router.post("/{exam_id}/attempts", response_model=dict, status_code=201)
-async def start_exam_attempt(exam_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
-    await enforce_rate_limit(f"exam-start:{user.id}", limit=10, window_seconds=3600)
-
-    exam = await db.get(Exam, exam_id)
-    if exam is None or not exam.is_published:
-        raise NotFoundError("Exam not found.")
-
-    now = datetime.now(timezone.utc)
-    if exam.available_from and now < exam.available_from:
-        raise ConflictError("This exam is not open yet.")
-    if exam.available_until and now > exam.available_until:
-        raise ConflictError("This exam window has closed.")
-
-    prior = (await db.execute(
-        select(ExamAttempt).where(ExamAttempt.exam_id == exam_id, ExamAttempt.student_id == user.id)
-    )).scalars().all()
-    in_progress = next((a for a in prior if a.status == "in_progress"), None)
-    if in_progress:
-        remaining = (in_progress.server_deadline_at - now).total_seconds()
-        return {
-            "attempt_id": str(in_progress.id),
-            "server_deadline_at": in_progress.server_deadline_at.isoformat(),
-            "remaining_seconds": max(0, int(remaining)),
-            "resumed": True,
-        }
-    if len(prior) >= exam.max_attempts:
-        raise ConflictError("Maximum attempts reached for this exam.")
-
-    question_ids = [uuid.UUID(q) for q in exam.question_ids]
-    random.shuffle(question_ids)
-    deadline = now + timedelta(seconds=exam.time_limit_seconds)
-
-    attempt = ExamAttempt(
-        exam_id=exam_id, student_id=user.id, attempt_number=len(prior) + 1,
-        question_order=[str(q) for q in question_ids], server_deadline_at=deadline,
-    )
-    db.add(attempt)
-    await record_audit_event(db, actor_id=user.id, action="exam.attempt_started", resource_type="exam_attempt")
-    await db.commit()
-    await db.refresh(attempt)
-
-    return {"attempt_id": str(attempt.id), "server_deadline_at": deadline.isoformat(),
-            "remaining_seconds": exam.time_limit_seconds, "resumed": False}
+# POST /{exam_id}/attempts lives in exam_security.py (secure_start_exam_attempt)
+# — it adds IP-binding on top of the same logic and is registered first, so
+# this router's copy used to be silent dead code. Deleted rather than kept in
+# sync by hand; see router.py's include_router order.
 
 
 @router.get("/me/attempts", response_model=list[AttemptHistoryOut])
@@ -335,28 +296,11 @@ async def submit_exam_attempt(attempt_id: uuid.UUID, payload: AttemptSubmit, use
     return attempt
 
 
-MAX_FLAGGED_EVENTS_PER_ATTEMPT = 200
-
-
-@router.put("/attempts/{attempt_id}/events", response_model=dict)
-async def report_integrity_event(attempt_id: uuid.UUID, payload: IntegrityEventIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
-    """The exam-taking frontend calls this on tab-blur/visibility-change/
-    fullscreen-exit/copy/paste/right-click while an attempt is in progress.
-    Deliberately append-only and non-blocking — it never fails the attempt
-    or the request; it just logs for the instructor to review afterward
-    (see the fullscreen_required/integrity_monitoring_enabled comment on the
-    Exam model for why this doesn't auto-submit)."""
-    attempt = await db.get(ExamAttempt, attempt_id)
-    if attempt is None or attempt.student_id != user.id:
-        raise NotFoundError("Attempt not found.")
-    if attempt.status != "in_progress":
-        return {"logged": False}
-    if len(attempt.flagged_events) >= MAX_FLAGGED_EVENTS_PER_ATTEMPT:
-        return {"logged": False}  # bounded — a spammy client can't grow this unboundedly
-
-    attempt.flagged_events = attempt.flagged_events + [{"type": payload.event_type, "at": datetime.now(timezone.utc).isoformat()}]
-    await db.commit()
-    return {"logged": True}
+# PUT /attempts/{attempt_id}/events lives in exam_security.py
+# (secure_integrity_event) — same event-bound (MAX_FLAGGED_EVENTS_PER_ATTEMPT)
+# now lives there too, plus IP-binding and auto-finalize-on-violation-limit
+# that this copy never had. Deleted for the same reason as start_exam_attempt
+# above: registered second, so this was silent dead code.
 
 
 @router.get("/{exam_id}/attempts/flagged", response_model=list[FlaggedAttemptOut])

@@ -313,7 +313,11 @@ function BulkImportPanel({ courseId }: { courseId: string }) {
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
+        <label htmlFor="bulk-import-file" className="sr-only">
+          Question file to import (CSV or XLSX)
+        </label>
         <input
+          id="bulk-import-file"
           type="file"
           accept=".csv,.xlsx"
           onChange={(e) => { setFile(e.target.files?.[0] || null); setPreview(null); }}

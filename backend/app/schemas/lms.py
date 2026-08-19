@@ -7,12 +7,12 @@ from pydantic import BaseModel, Field
 
 
 class LessonCreate(BaseModel):
-    title: str
-    content_type: str = "article"
-    content_body: str = ""
-    video_url: str | None = None
-    order_index: int = 0
-    duration_minutes: int = 5
+    title: str = Field(min_length=1, max_length=200)
+    content_type: str = Field(default="article", max_length=30)
+    content_body: str = Field(default="", max_length=100000)
+    video_url: str | None = Field(default=None, max_length=500)
+    order_index: int = Field(default=0, ge=0, le=10000)
+    duration_minutes: int = Field(default=5, ge=0, le=1440)
 
 
 class LessonOut(BaseModel):
@@ -29,8 +29,8 @@ class LessonOut(BaseModel):
 
 
 class SectionCreate(BaseModel):
-    title: str
-    order_index: int = 0
+    title: str = Field(min_length=1, max_length=200)
+    order_index: int = Field(default=0, ge=0, le=10000)
 
 
 class SectionOut(BaseModel):
@@ -45,22 +45,22 @@ class SectionOut(BaseModel):
 class CourseCreate(BaseModel):
     title: str = Field(min_length=3, max_length=200)
     slug: str = Field(min_length=3, max_length=220, pattern=r"^[a-z0-9-]+$")
-    description: str = ""
-    difficulty: str = "beginner"
-    estimated_hours: int = 0
-    cover_image_url: str | None = None
-    skills: list[str] = []
-    specialization: str | None = None
+    description: str = Field(default="", max_length=20000)
+    difficulty: str = Field(default="beginner", pattern=r"^(beginner|intermediate|advanced)$")
+    estimated_hours: int = Field(default=0, ge=0, le=10000)
+    cover_image_url: str | None = Field(default=None, max_length=500)
+    skills: list[str] = Field(default=[], max_length=50)
+    specialization: str | None = Field(default=None, max_length=200)
 
 
 class CourseUpdate(BaseModel):
-    title: str | None = None
-    description: str | None = None
-    difficulty: str | None = None
-    estimated_hours: int | None = None
-    cover_image_url: str | None = None
-    skills: list[str] | None = None
-    specialization: str | None = None
+    title: str | None = Field(default=None, min_length=3, max_length=200)
+    description: str | None = Field(default=None, max_length=20000)
+    difficulty: str | None = Field(default=None, pattern=r"^(beginner|intermediate|advanced)$")
+    estimated_hours: int | None = Field(default=None, ge=0, le=10000)
+    cover_image_url: str | None = Field(default=None, max_length=500)
+    skills: list[str] | None = Field(default=None, max_length=50)
+    specialization: str | None = Field(default=None, max_length=200)
 
 
 class CourseOut(BaseModel):

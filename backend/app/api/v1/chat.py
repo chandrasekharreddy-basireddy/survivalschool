@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,10 +18,12 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 
 class RoomCreate(BaseModel):
-    name: str
-    room_type: str = "direct"
+    name: str = Field(min_length=1, max_length=200)
+    room_type: str = Field(default="direct", pattern=r"^(direct|course|announcement)$")
     course_id: uuid.UUID | None = None
-    member_ids: list[uuid.UUID] = []
+    # Bounded: any authenticated user can create a room, so an unbounded
+    # member list lets one request fan out to arbitrarily many membership rows.
+    member_ids: list[uuid.UUID] = Field(default=[], max_length=500)
 
 
 class RoomOut(BaseModel):

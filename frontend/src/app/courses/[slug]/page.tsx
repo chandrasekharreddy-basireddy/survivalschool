@@ -10,7 +10,10 @@ import { formatRelative } from "@/lib/format";
 
 interface Lesson { id: string; title: string; duration_minutes: number; is_completed: boolean }
 interface Section { id: string; title: string; lessons: Lesson[] }
-interface CourseDetail { id: string; title: string; description: string; sections: Section[] }
+// Matches backend CourseOut (GET /courses) — the list response, no sections.
+interface CourseSummary { id: string; slug: string; title: string; description: string }
+// Matches backend CourseDetailOut (GET /courses/{id}) — CourseOut + sections.
+interface CourseDetail extends CourseSummary { sections: Section[] }
 interface ThreadSummary { id: string; title: string; author_name: string; is_resolved: boolean; reply_count: number; upvote_count: number; created_at: string }
 
 export default function CourseDetailPage() {
@@ -25,17 +28,24 @@ export default function CourseDetailPage() {
   const [newTitle, setNewTitle] = useState("");
   const [newBody, setNewBody] = useState("");
   const [posting, setPosting] = useState(false);
+  const [loadError, setLoadError] = useState<"notfound" | "error" | null>(null);
 
   const load = () => {
-    apiFetch<CourseDetail[]>("/courses", { auth: false })
+    setLoadError(null);
+    apiFetch<CourseSummary[]>("/courses", { auth: false })
       .then(async (list) => {
-        const match = list.find((c: any) => c.slug === params.slug);
-        if (!match) return;
-        const detail = await apiFetch<CourseDetail>(`/courses/${(match as any).id}`, { auth: false });
+        const match = list.find((c) => c.slug === params.slug);
+        if (!match) {
+          setLoadError("notfound");
+          return;
+        }
+        const detail = await apiFetch<CourseDetail>(`/courses/${match.id}`, { auth: false });
         setCourse(detail);
         apiFetch<ThreadSummary[]>(`/courses/${detail.id}/discussions`, { auth: false }).then(setThreads).catch(() => setThreads([]));
       })
-      .catch(() => {});
+      // Without this the page sat on "Loading…" forever on any network error
+      // or bad slug, with no message and no way to retry.
+      .catch(() => setLoadError("error"));
   };
 
   useEffect(load, [params.slug]);
@@ -80,6 +90,29 @@ export default function CourseDetailPage() {
       setMessage(err instanceof ApiError ? err.message : "Could not mark complete.");
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-4xl px-6 py-16">
+        <h1>{loadError === "notfound" ? "Course not found" : "Couldn't load this course"}</h1>
+        <p className="mt-2 text-fg-muted">
+          {loadError === "notfound"
+            ? "This course may have been unpublished or the link may be out of date."
+            : "Something went wrong fetching this course. Check your connection and try again."}
+        </p>
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          {loadError === "error" && (
+            <button type="button" onClick={load} className="btn-primary sm:w-auto">
+              Try again
+            </button>
+          )}
+          <Link href="/courses" className="btn-secondary sm:w-auto">
+            Back to courses
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (!course) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted">Loading…</div>;
 

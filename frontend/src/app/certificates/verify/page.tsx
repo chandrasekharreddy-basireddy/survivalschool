@@ -18,13 +18,20 @@ export default function VerifyCertificatePage() {
   const [number, setNumber] = useState("");
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [checking, setChecking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const check = async (e: React.FormEvent) => {
     e.preventDefault();
     setChecking(true);
+    setError(null);
     try {
       const res = await apiFetch<VerifyResult>(`/certificates/verify/${encodeURIComponent(number)}`, { auth: false });
       setResult(res);
+    } catch {
+      // Previously there was no catch at all — a network failure or malformed
+      // response left an unhandled rejection and no feedback on screen.
+      setResult(null);
+      setError("We couldn't reach the verification service. Check your connection and try again.");
     } finally {
       setChecking(false);
     }
@@ -47,6 +54,12 @@ export default function VerifyCertificatePage() {
           {checking ? "Checking…" : "Verify"}
         </button>
       </form>
+
+      {error && (
+        <p role="alert" className="mt-6 text-sm font-medium text-danger">
+          {error}
+        </p>
+      )}
 
       {result && (
         <div className={`card mt-8 ${result.valid ? "border-emerald-500/40" : "border-red-500/40"}`}>

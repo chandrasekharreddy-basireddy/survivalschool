@@ -92,6 +92,23 @@ async def test_join_by_room_code_is_case_insensitive_and_idempotent(client):
     assert len(participants) == 2  # not duplicated
 
 
+async def test_battle_qr_encodes_join_url_and_is_gated_like_participants(client):
+    _, admin = await _make_admin(client)
+    topic_id = await _seed_topic(client, admin)
+
+    _, host = await auth_headers(client)
+    battle = (await client.post("/elimination/battles", json={"title": "QR Test", "topic_id": topic_id}, headers=host)).json()
+
+    ok = await client.get(f"/elimination/battles/{battle['id']}/qr", headers=host)
+    assert ok.status_code == 200, ok.text
+    assert ok.headers["content-type"] == "image/png"
+    assert ok.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    _, stranger = await auth_headers(client)
+    forbidden = await client.get(f"/elimination/battles/{battle['id']}/qr", headers=stranger)
+    assert forbidden.status_code == 403, forbidden.text
+
+
 async def test_join_by_invalid_code_is_not_found(client):
     _, user = await auth_headers(client)
     resp = await client.post("/elimination/battles/join", json={"code": "ZZZZZZ"}, headers=user)

@@ -8,9 +8,10 @@ import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
 interface Battle {
-  id: string; host_id: string; title: string; topic_id: string; status: string;
+  id: string; host_id: string; title: string; topic_id: string; status: string; join_code: string;
   current_round_number: number; winner_id: string | null; started_at: string | null; ended_at: string | null;
 }
 interface Participant { user_id: string; full_name: string; status: string; eliminated_at_round: number | null; eliminated_reason: string | null }
@@ -37,6 +38,8 @@ export default function EliminationBattlePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PersonSearchResult[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
 
   const [round, setRound] = useState<{ number: number; question: RoundQuestion; deadlineAt: string } | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -65,6 +68,41 @@ export default function EliminationBattlePage() {
     const t = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(t);
   }, [round]);
+
+  // The QR endpoint requires auth, so a plain <img src> can't carry the
+  // token — fetch it manually and hand the browser an object URL instead.
+  useEffect(() => {
+    if (!battle || battle.status !== "lobby") return;
+    const token = getAccessToken();
+    if (!token) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    fetch(`${API_BASE}/elimination/battles/${battle.id}/qr`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((blob) => {
+        if (cancelled || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setQrUrl(objectUrl);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+    // Re-fetch only when the battle identity/status changes, not on every poll refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [battle?.id, battle?.status]);
+
+  const copyJoinCode = async () => {
+    if (!battle) return;
+    try {
+      await navigator.clipboard.writeText(battle.join_code);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      /* clipboard access denied — the code is still visible to copy by hand */
+    }
+  };
 
   useEffect(() => {
     if (!user || !battle) return;
@@ -189,9 +227,27 @@ export default function EliminationBattlePage() {
             </ul>
           </div>
 
+          <div className="card">
+            <h2 className="font-semibold text-fg">Room code</h2>
+            <p className="mt-1 text-xs text-fg-subtle">Anyone with this code — or a scan of the QR — can join instantly, no invite or connection required.</p>
+            <div className="mt-3 flex items-center gap-4">
+              {qrUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qrUrl} alt="Scan to join this battle" className="h-24 w-24 rounded border border-ink-700 bg-white p-1" />
+              )}
+              <div>
+                <p className="font-mono text-2xl font-bold tracking-widest text-fg">{battle.join_code}</p>
+                <button onClick={copyJoinCode} className="btn-secondary !px-3 !py-1 mt-2 text-xs">
+                  {codeCopied ? "Copied!" : "Copy code"}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {isHost && (
             <div className="card">
-              <h2 className="font-semibold text-fg">Invite friends</h2>
+              <h2 className="font-semibold text-fg">Invite friends you follow</h2>
+              <p className="mt-1 text-xs text-fg-subtle">Only people you have an accepted connection with show up here — share the room code above for anyone else.</p>
               <input className="input mt-3" placeholder="Search by name…" value={searchQuery} onChange={(e) => search(e.target.value)} />
               {searchResults.length > 0 && (
                 <ul className="mt-2 space-y-1.5">

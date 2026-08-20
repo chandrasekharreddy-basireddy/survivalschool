@@ -3,12 +3,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
-from datetime import UTC
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from starlette.responses import JSONResponse
 
 from app.api.v1.router import api_router
 from app.config import get_settings
@@ -19,8 +17,6 @@ from app.core.middleware import (
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
 )
-from app.database import AsyncSessionLocal
-from app.services.registration_service import refresh_window
 from app.websockets.chat import router as ws_chat_router
 from app.websockets.elimination import router as ws_elimination_router
 
@@ -113,39 +109,6 @@ app.add_middleware(RequestContextMiddleware)
 
 app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
-
-
-@app.middleware("http")
-async def registration_window_guard(request, call_next):
-    # Existing unit/integration tests intentionally create accounts on any day;
-    # the production registration window remains fail-closed and Thursday-only.
-    if settings.APP_ENV == "test":
-        return await call_next(request)
-
-    if request.method == "POST" and request.url.path == f"{settings.API_V1_PREFIX}/auth/register":
-        try:
-            async with AsyncSessionLocal() as db:
-                window = await refresh_window(db)
-                await db.commit()
-        except Exception:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "message": "Registration is temporarily unavailable while the registration window is being checked.",
-                    "code": "registration_window_unavailable",
-                },
-            )
-        if not window.is_open:
-            next_open = window.next_open_at.astimezone(UTC).isoformat() if window.next_open_at else None
-            return JSONResponse(
-                status_code=403,
-                content={
-                    "message": "Registration is currently closed. Registration opens every Thursday (IST).",
-                    "code": "registration_closed",
-                    "next_open_at": next_open,
-                },
-            )
-    return await call_next(request)
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_chat_router)

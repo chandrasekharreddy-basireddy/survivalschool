@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import AuthorizationError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_verified_user
 from app.models.elimination import EliminationBattle, EliminationInvitation, EliminationParticipant
@@ -29,6 +29,21 @@ from app.services.elimination_service import (
 )
 
 router = APIRouter(prefix="/elimination", tags=["elimination"])
+
+
+async def _require_battle_access(db: AsyncSession, battle: EliminationBattle, user: User) -> None:
+    """Only the host or an accepted participant may view a battle's state —
+    battle ids travel in notification links and browser history, so they
+    are not secret the way a password is; this closes off a battle's
+    participant names and live status to anyone who merely knows/guesses
+    the UUID."""
+    if user.id == battle.host_id:
+        return
+    is_participant = (await db.execute(
+        select(EliminationParticipant.id).where(EliminationParticipant.battle_id == battle.id, EliminationParticipant.user_id == user.id)
+    )).scalar_one_or_none()
+    if is_participant is None:
+        raise AuthorizationError("You're not part of this battle.")
 
 
 @router.post("/battles", response_model=BattleOut, status_code=201)
@@ -54,11 +69,16 @@ async def get_elimination_battle(battle_id: uuid.UUID, user: User = Depends(get_
     battle = await db.get(EliminationBattle, battle_id)
     if battle is None:
         raise NotFoundError("Battle not found.")
+    await _require_battle_access(db, battle, user)
     return battle
 
 
 @router.get("/battles/{battle_id}/participants", response_model=list[ParticipantOut])
 async def list_battle_participants(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    battle = await db.get(EliminationBattle, battle_id)
+    if battle is None:
+        raise NotFoundError("Battle not found.")
+    await _require_battle_access(db, battle, user)
     rows = (await db.execute(
         select(EliminationParticipant, User.full_name)
         .join(User, User.id == EliminationParticipant.user_id)

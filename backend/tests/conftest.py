@@ -25,9 +25,19 @@ os.environ.setdefault("RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR", "1000")
 
 import app.models  # noqa: E402, F401
 import app.services.email_service as email_service  # noqa: E402
+from app.core.logging import configure_logging  # noqa: E402
 from app.database import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 from app.seed import seed_rbac  # noqa: E402
+
+# The test client's ASGITransport never fires app.main's lifespan, so
+# configure_logging() (JSON structlog output) never runs and structlog falls
+# back to its default dev ConsoleRenderer — which crashes on this
+# rich/Python combination the instant a genuinely unhandled exception needs
+# to be logged, masking the real traceback behind a rich internals crash
+# instead of the actual bug. Configure it explicitly so a real bug during
+# tests fails loudly and readably instead of double-faulting.
+configure_logging()
 
 VALID_PASSWORD = "Sup3r$ecretPass1"
 

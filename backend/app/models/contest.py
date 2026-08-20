@@ -141,6 +141,12 @@ class ContestCertificate(Base, UUIDPk, Timestamped):
     student_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     contest_title: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Also snapshotted, same reasoning as contest_title/rank/score_percent
+    # above — lets the AI Weekly Exam wins leaderboard (gamification.py)
+    # filter to contest_type="ai_weekly" without an outer join through the
+    # SET-NULL-able contest_id, which would silently drop a win the moment
+    # its source contest is ever deleted.
+    contest_type: Mapped[str] = mapped_column(String(30), nullable=False)
     score_percent: Mapped[int] = mapped_column(Integer, nullable=False)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -14,11 +14,12 @@ from app.database import get_db
 from app.dependencies import get_client_ip, get_current_verified_user, require_permission
 from app.models.assessment import Question
 from app.models.contest import Contest, ContestAnswer, ContestAttempt, ContestCertificate
-from app.models.user import User
+from app.models.user import Profile, User
 from app.schemas.assessment import FlaggedAttemptOut, IntegrityEventIn, QuestionPublicOut
 from app.schemas.contest import (
     AIWeeklyRegisterIn,
     AIWeeklyRegisterOut,
+    AIWeeklyWinsLeaderboardEntryOut,
     ContestAttemptStartOut,
     ContestCertificateOut,
     ContestCertificatePublicOut,
@@ -119,6 +120,41 @@ async def upcoming_contests(db: AsyncSession = Depends(get_db)):
     return out
 
 
+@router.get("/ai-weekly/leaderboard", response_model=list[AIWeeklyWinsLeaderboardEntryOut])
+async def ai_weekly_wins_leaderboard(limit: int = Query(20, le=100), db: AsyncSession = Depends(get_db)):
+    """Who has WON the most AI Weekly Exams — rank-1 finishes only (not
+    every top-3 certificate), by public username. contest_type is read from
+    the certificate's own snapshot (see ContestCertificate.contest_type),
+    not joined through contest_id, so a win never drops off the board just
+    because its source contest was later deleted.
+
+    Registered here, before the /{contest_id} routes below, on purpose:
+    FastAPI matches routes in registration order, and /{contest_id}/leaderboard
+    would otherwise swallow this path first, trying (and failing) to parse
+    "ai-weekly" as a contest UUID."""
+    cache_key = f"limit={limit}"
+    cached = await cache_get_versioned("ai_weekly_wins_leaderboard", cache_key)
+    if cached is not None:
+        return cached
+
+    result = await db.execute(
+        select(ContestCertificate.student_id, User.full_name, Profile.public_handle, func.count().label("wins"))
+        .join(User, User.id == ContestCertificate.student_id)
+        .outerjoin(Profile, Profile.user_id == ContestCertificate.student_id)
+        .where(ContestCertificate.contest_type == "ai_weekly", ContestCertificate.rank == 1, ContestCertificate.revoked_at.is_(None))
+        .group_by(ContestCertificate.student_id, User.full_name, Profile.public_handle)
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
+    rows = result.all()
+    out = [
+        AIWeeklyWinsLeaderboardEntryOut(rank=i, student_id=student_id, public_handle=handle, full_name=full_name, wins=int(wins))
+        for i, (student_id, full_name, handle, wins) in enumerate(rows, start=1)
+    ]
+    await cache_set_versioned("ai_weekly_wins_leaderboard", cache_key, [o.model_dump(mode="json") for o in out], _CONTESTS_LIST_TTL)
+    return out
+
+
 @router.post("", response_model=ContestOut, status_code=201)
 async def create_contest(payload: ContestCreate, user: User = Depends(require_permission("contests.manage")), db: AsyncSession = Depends(get_db)):
     contest = Contest(
@@ -178,7 +214,7 @@ async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, user: User = Depe
     Thursday-only registration window. Does not start the timed exam —
     that happens separately via POST /contests/{contest_id}/attempts once
     the exam's scheduled slot opens (see ai_exam_service.py)."""
-    attempt = await register_for_ai_weekly_exam(db, user, payload.subject_id, payload.topic_id)
+    attempt = await register_for_ai_weekly_exam(db, user, payload.subject_name, payload.topic_name)
     contest = await db.get(Contest, attempt.contest_id)
     await bump_cache_version("contests_list")
     return AIWeeklyRegisterOut(

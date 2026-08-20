@@ -164,7 +164,7 @@ export default function ContestDetailPage() {
           {deadline && <p className="text-xs text-fg-subtle">Your deadline: {formatDateTime(deadline)}</p>}
           {contest.integrity_monitoring_enabled && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-              This exam is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste is logged and may auto-submit your attempt.
+              This exam is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste is logged and can auto-submit your attempt immediately, with no credit for anything left unanswered.
             </p>
           )}
           {questions.map((q, idx) => (

@@ -5,10 +5,12 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/
 export class ApiError extends Error {
   code: string;
   status: number;
-  constructor(message: string, code: string, status: number) {
+  details: Record<string, unknown>;
+  constructor(message: string, code: string, status: number, details: Record<string, unknown> = {}) {
     super(message);
     this.code = code;
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -142,7 +144,7 @@ export async function apiFetch<T = unknown>(
       /* ignore */
     }
     const err = body?.error || {};
-    throw new ApiError(err.message || resp.statusText, err.code || "unknown_error", resp.status);
+    throw new ApiError(err.message || resp.statusText, err.code || "unknown_error", resp.status, err.details || {});
   }
 
   if (resp.status === 204) return undefined as T;

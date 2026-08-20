@@ -25,6 +25,17 @@ class AIResponse:
 
 
 @dataclass
+class TopicScopeAssessment:
+    """A live AI judgment of a freely-typed (subject, topic) pair — used to
+    gate AI Weekly Exam registration, which by definition has no existing
+    question-bank history to score a formula against (see
+    ai_exam_service.py::evaluate_ai_weekly_topic)."""
+    difficulty_percent: int
+    is_appropriate_scope: bool
+    reason: str
+
+
+@dataclass
 class GeneratedMCQ:
     prompt: str
     options: list[tuple[str, bool]] = field(default_factory=list)
@@ -56,6 +67,13 @@ class AIProvider(ABC):
     async def generate_mixed_questions(self, topic: str, single_count: int, multiple_count: int) -> list[GeneratedMCQ]:
         """single_count single-answer (MCQ) + multiple_count multi-answer
         (MSQ) questions on `topic`, e.g. the AI Weekly Exam's 40+10 set."""
+        ...
+
+    @abstractmethod
+    async def evaluate_topic_scope(self, subject: str, topic: str) -> TopicScopeAssessment:
+        """Judges whether `topic` is a real, well-scoped subtopic of
+        `subject` — broad enough to support 50 distinct, non-repetitive
+        exam questions — and how difficult such an exam would be."""
         ...
 
 
@@ -106,6 +124,27 @@ class MockAIProvider(AIProvider):
                 question_type="multiple",
             ))
         return questions
+
+    async def evaluate_topic_scope(self, subject: str, topic: str) -> TopicScopeAssessment:
+        subject_clean, topic_clean = subject.strip(), topic.strip()
+        if not topic_clean or topic_clean.lower() == subject_clean.lower():
+            return TopicScopeAssessment(
+                difficulty_percent=0, is_appropriate_scope=False,
+                reason="(Mock AI) The topic must be a real, specific subtopic of the subject — not blank or identical to the subject itself.",
+            )
+        # Deterministic stand-in for a real judgment call: a longer, more
+        # specific topic description plausibly supports more/harder distinct
+        # questions than a one- or two-word topic does. Real scoring comes
+        # from SarvamAIProvider once AI_PROVIDER=sarvam is configured.
+        score = min(96, max(35, len(topic_clean) * 3))
+        appropriate = len(topic_clean.split()) >= 2 and len(topic_clean) >= 8
+        reason = (
+            f"(Mock AI) \"{topic_clean}\" under \"{subject_clean}\" scored {score}% difficulty based on topic length/specificity. "
+            + ("Scope looks broad enough for a 50-question exam." if appropriate
+               else "Too short or vague to reliably support 50 distinct questions — be more specific.")
+            + " Connect a real Sarvam AI key and set AI_PROVIDER=sarvam for a real evaluation."
+        )
+        return TopicScopeAssessment(difficulty_percent=score, is_appropriate_scope=appropriate, reason=reason)
 
 
 class SarvamAIProvider(AIProvider):
@@ -285,6 +324,44 @@ class SarvamAIProvider(AIProvider):
                 options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
             ))
         return questions
+
+    async def evaluate_topic_scope(self, subject: str, topic: str) -> TopicScopeAssessment:
+        system_prompt = (
+            "You evaluate whether a topic is well-scoped for a rigorous university competitive exam. "
+            "Output ONLY valid JSON, no prose, no markdown fences, shaped exactly as: "
+            '{"difficulty_percent": <integer 0-100>, "is_appropriate_scope": true|false, "reason": "..."}. '
+            "difficulty_percent is how hard a rigorous 50-question mixed multiple-choice/multi-select exam on "
+            "this exact topic would be for a well-prepared student — 0 is trivial, 100 is expert-level. "
+            "is_appropriate_scope is true only if the topic is a real, specific, well-defined subtopic of the "
+            "given subject that is broad enough to support 50 distinct, non-repetitive questions without padding "
+            "— false if the topic is blank, nonsensical, unrelated to the subject, or too narrow/trivial to "
+            "support that many distinct questions. reason is a short 1-2 sentence explanation covering both judgments."
+        )
+        response = await self.chat(
+            [{"role": "user", "content": f"Subject: {subject}\nTopic: {topic}"}],
+            system_prompt=system_prompt,
+        )
+        if response.error:
+            raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+
+        raw = response.content.strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
+        if not isinstance(data, dict) or "difficulty_percent" not in data or "is_appropriate_scope" not in data:
+            raise AIGenerationError("Sarvam AI returned a malformed topic-scope evaluation.")
+        try:
+            difficulty = int(data["difficulty_percent"])
+        except (TypeError, ValueError) as exc:
+            raise AIGenerationError("Sarvam AI returned a non-numeric difficulty_percent.") from exc
+        difficulty = max(0, min(100, difficulty))
+        return TopicScopeAssessment(
+            difficulty_percent=difficulty,
+            is_appropriate_scope=bool(data["is_appropriate_scope"]),
+            reason=str(data.get("reason", "")).strip() or "No reason provided.",
+        )
 
 
 def get_ai_provider() -> AIProvider:

@@ -7,59 +7,60 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/format";
 
-interface Subject { id: string; name: string; slug: string }
-interface Topic { id: string; name: string; slug: string }
 interface RegistrationStatus { is_open: boolean; next_open_at: string | null; message: string }
-interface TopicDifficulty { topic_id: string; difficulty_percent: number; reason: string; sample_size: number; eligible_for_ai_exam: boolean }
 interface RegisterResult { attempt_id: string; contest_id: string; contest_title: string; starts_at: string; ends_at: string; status: string }
+interface Rejection { message: string; difficulty_percent?: number; is_appropriate_scope?: boolean; min_difficulty_percent?: number }
+interface Profile { public_handle: string | null; institute: string | null }
 
 export default function AiWeeklyRegisterPage() {
   const { user, loading } = useAuth();
   const toast = useToast();
 
   const [status, setStatus] = useState<RegistrationStatus | null>(null);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [subjectId, setSubjectId] = useState("");
-  const [topicId, setTopicId] = useState("");
-  const [difficulty, setDifficulty] = useState<TopicDifficulty | null>(null);
-  const [checkingDifficulty, setCheckingDifficulty] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [subject, setSubject] = useState("");
+  const [topic, setTopic] = useState("");
+  const [institute, setInstitute] = useState("");
   const [registering, setRegistering] = useState(false);
   const [result, setResult] = useState<RegisterResult | null>(null);
+  const [rejection, setRejection] = useState<Rejection | null>(null);
 
   useEffect(() => {
     apiFetch<RegistrationStatus>("/contests/ai-weekly/registration-status", { auth: false }).then(setStatus).catch(() => setStatus(null));
-    apiFetch<Subject[]>("/subjects", { auth: false }).then(setSubjects).catch(() => setSubjects([]));
   }, []);
 
   useEffect(() => {
-    if (!subjectId) { setTopics([]); setTopicId(""); return; }
-    apiFetch<Topic[]>(`/subjects/${subjectId}/topics`, { auth: false }).then(setTopics).catch(() => setTopics([]));
-    setTopicId("");
-    setDifficulty(null);
-  }, [subjectId]);
-
-  useEffect(() => {
-    if (!topicId) { setDifficulty(null); return; }
-    setCheckingDifficulty(true);
-    apiFetch<TopicDifficulty>(`/topics/${topicId}/difficulty`)
-      .then(setDifficulty)
-      .catch(() => setDifficulty(null))
-      .finally(() => setCheckingDifficulty(false));
-  }, [topicId]);
+    if (!user) return;
+    apiFetch<Profile>("/users/me/profile").then((p) => { setProfile(p); setInstitute(p.institute || ""); }).catch(() => setProfile(null));
+  }, [user]);
 
   const register = async () => {
-    if (!subjectId || !topicId) return;
+    if (!subject.trim() || !topic.trim()) return;
     setRegistering(true);
+    setRejection(null);
     try {
       const res = await apiFetch<RegisterResult>("/contests/ai-weekly/register", {
         method: "POST",
-        body: JSON.stringify({ subject_id: subjectId, topic_id: topicId }),
+        body: JSON.stringify({ subject_name: subject.trim(), topic_name: topic.trim() }),
       });
       setResult(res);
       toast.show("You're registered for the AI Weekly Exam.", "success");
+      // Best-effort: remember the institute for next time. Never blocks
+      // registration itself if it fails.
+      if (institute.trim() && institute.trim() !== (profile?.institute || "")) {
+        apiFetch("/users/me/profile", { method: "PATCH", body: JSON.stringify({ institute: institute.trim() }) }).catch(() => {});
+      }
     } catch (err) {
-      toast.show(err instanceof ApiError ? err.message : "Couldn't register.", "error");
+      if (err instanceof ApiError && err.code === "validation_error" && "difficulty_percent" in err.details) {
+        setRejection({
+          message: err.message,
+          difficulty_percent: err.details.difficulty_percent as number,
+          is_appropriate_scope: err.details.is_appropriate_scope as boolean,
+          min_difficulty_percent: err.details.min_difficulty_percent as number,
+        });
+      } else {
+        toast.show(err instanceof ApiError ? err.message : "Couldn't register.", "error");
+      }
     } finally {
       setRegistering(false);
     }
@@ -88,9 +89,6 @@ export default function AiWeeklyRegisterPage() {
           <p className={`text-sm font-medium ${status.is_open ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
             {status.message}
           </p>
-          {!status.is_open && status.next_open_at && (
-            <p className="mt-1 text-xs text-fg-subtle">Next window opens {formatDateTime(status.next_open_at)}.</p>
-          )}
         </div>
       )}
 
@@ -105,35 +103,68 @@ export default function AiWeeklyRegisterPage() {
         </div>
       ) : (
         <div className="card mt-6">
-          <label className="text-sm font-medium text-fg">Subject</label>
-          <select className="input mt-1.5" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-            <option value="">Choose a subject…</option>
-            {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className="text-sm font-medium text-fg">Name</label>
+              <p className="input mt-1.5 !bg-ink-800 text-fg-muted">{user.full_name}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-fg">Email</label>
+              <p className="input mt-1.5 !bg-ink-800 text-fg-muted">{user.email}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-fg">Username</label>
+              <p className="input mt-1.5 !bg-ink-800 text-fg-muted">
+                {profile?.public_handle ? `@${profile.public_handle}` : (
+                  <Link href="/settings" className="text-brand-600 underline dark:text-brand-400">Set a username in settings</Link>
+                )}
+              </p>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-fg">Institute <span className="font-normal text-fg-subtle">(optional)</span></label>
+              <input className="input mt-1.5" placeholder="Your college/university" value={institute} onChange={(e) => setInstitute(e.target.value)} />
+            </div>
+          </div>
+
+          <label className="mt-4 block text-sm font-medium text-fg">Subject</label>
+          <input
+            className="input mt-1.5"
+            placeholder="e.g. Computer Science"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
 
           <label className="mt-4 block text-sm font-medium text-fg">Topic</label>
-          <select className="input mt-1.5" value={topicId} onChange={(e) => setTopicId(e.target.value)} disabled={!subjectId}>
-            <option value="">Choose a topic…</option>
-            {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+          <input
+            className="input mt-1.5"
+            placeholder="e.g. Graph Algorithms and Shortest Paths"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+          />
+          <p className="mt-1.5 text-xs text-fg-subtle">
+            Be specific — the AI checks that this is a real, well-scoped subtopic broad enough to support 50
+            distinct questions, and rates how difficult that exam would be.
+          </p>
 
-          {checkingDifficulty && <p className="mt-3 text-xs text-fg-subtle">Checking eligibility…</p>}
-          {difficulty && (
-            <div className={`mt-4 rounded-lg border px-3 py-2.5 text-sm ${difficulty.eligible_for_ai_exam ? "border-emerald-500/40 text-emerald-700 dark:text-emerald-400" : "border-red-500/40 text-red-700 dark:text-red-400"}`}>
-              <p className="font-medium">
-                {difficulty.eligible_for_ai_exam ? "Eligible" : "Not eligible yet"} — difficulty {difficulty.difficulty_percent}%
-                {" "}(needs 70%+)
-              </p>
-              <p className="mt-1 text-xs text-fg-subtle">{difficulty.reason}</p>
+          {rejection && (
+            <div className="mt-4 rounded-lg border border-red-500/40 px-3 py-2.5 text-sm text-red-700 dark:text-red-400">
+              <p className="font-medium">Not eligible yet</p>
+              <p className="mt-1 text-xs text-fg-subtle">{rejection.message}</p>
+              {rejection.difficulty_percent != null && (
+                <p className="mt-1 text-xs text-fg-subtle">
+                  Difficulty {rejection.difficulty_percent}% (needs {rejection.min_difficulty_percent ?? 70}%+)
+                  {rejection.is_appropriate_scope === false ? " · topic scope too narrow or unclear" : ""}
+                </p>
+              )}
             </div>
           )}
 
           <button
             onClick={register}
-            disabled={registering || !status?.is_open || !topicId || !difficulty?.eligible_for_ai_exam}
+            disabled={registering || !status?.is_open || !subject.trim() || !topic.trim()}
             className="btn-primary mt-5 w-full"
           >
-            {registering ? "Registering…" : "Register for this week's exam"}
+            {registering ? "Checking with AI…" : "Register for this week's exam"}
           </button>
           {!status?.is_open && <p className="mt-2 text-center text-xs text-fg-subtle">Registration is closed right now — check back on Thursday.</p>}
         </div>

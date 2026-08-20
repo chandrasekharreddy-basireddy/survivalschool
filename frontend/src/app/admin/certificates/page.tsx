@@ -9,9 +9,9 @@ import { useToast } from "@/lib/toast";
 interface PublicCertificateOut {
   valid: boolean;
   certificate_number: string | null;
-  course_title: string | null;
+  contest_title: string | null;
   student_full_name: string | null;
-  grade: string | null;
+  rank: number | null;
   score_percent: number | null;
   issued_at: string | null;
   expires_at: string | null;
@@ -38,7 +38,7 @@ export default function AdminCertificatesPage() {
     setCert(null);
     try {
       const result = await apiFetch<PublicCertificateOut>(
-        `/certificates/verify/${encodeURIComponent(trimmed)}`,
+        `/contests/certificates/verify/${encodeURIComponent(trimmed)}`,
         { auth: false }
       );
       setCert(result);
@@ -59,7 +59,7 @@ export default function AdminCertificatesPage() {
     setRevoking(true);
     try {
       await apiFetch<RevokeCertificateOut>(
-        `/certificates/${encodeURIComponent(trimmed)}/revoke`,
+        `/contests/certificates/${encodeURIComponent(trimmed)}/revoke`,
         { method: "POST" }
       );
       toast.show("Certificate revoked.", "success");
@@ -120,8 +120,8 @@ export default function AdminCertificatesPage() {
               </div>
               <dl className="mt-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
                 <div>
-                  <dt className="text-fg-subtle">Course</dt>
-                  <dd className="text-fg">{cert.course_title ?? "—"}</dd>
+                  <dt className="text-fg-subtle">Contest</dt>
+                  <dd className="text-fg">{cert.contest_title ?? "—"}</dd>
                 </div>
                 <div>
                   <dt className="text-fg-subtle">Student</dt>
@@ -132,8 +132,8 @@ export default function AdminCertificatesPage() {
                   <dd className="text-fg">{cert.issued_at ? new Date(cert.issued_at).toLocaleDateString() : "—"}</dd>
                 </div>
                 <div>
-                  <dt className="text-fg-subtle">Grade</dt>
-                  <dd className="text-fg">{cert.grade ?? "—"}{cert.score_percent != null ? ` (${cert.score_percent}%)` : ""}</dd>
+                  <dt className="text-fg-subtle">Rank</dt>
+                  <dd className="text-fg">{cert.rank != null ? `#${cert.rank}` : "—"}{cert.score_percent != null ? ` (${cert.score_percent}%)` : ""}</dd>
                 </div>
               </dl>
 

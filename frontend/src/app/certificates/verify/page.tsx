@@ -7,9 +7,10 @@ import { apiFetch } from "@/lib/api";
 interface VerifyResult {
   valid: boolean;
   certificate_number?: string;
-  course_title?: string;
+  contest_title?: string;
   student_full_name?: string;
-  grade?: string;
+  rank?: number;
+  score_percent?: number;
   issued_at?: string;
   invalid_reason?: string;
 }
@@ -25,7 +26,7 @@ export default function VerifyCertificatePage() {
     setChecking(true);
     setError(null);
     try {
-      const res = await apiFetch<VerifyResult>(`/certificates/verify/${encodeURIComponent(number)}`, { auth: false });
+      const res = await apiFetch<VerifyResult>(`/contests/certificates/verify/${encodeURIComponent(number)}`, { auth: false });
       setResult(res);
     } catch {
       // Previously there was no catch at all — a network failure or malformed
@@ -68,9 +69,9 @@ export default function VerifyCertificatePage() {
               <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">✓ Valid certificate</p>
               <dl className="mt-4 space-y-2 text-sm">
                 <div className="flex justify-between"><dt className="text-fg-subtle">Certificate ID</dt><dd className="text-fg">{result.certificate_number}</dd></div>
-                <div className="flex justify-between"><dt className="text-fg-subtle">Course</dt><dd className="text-fg">{result.course_title}</dd></div>
+                <div className="flex justify-between"><dt className="text-fg-subtle">Contest</dt><dd className="text-fg">{result.contest_title}</dd></div>
                 <div className="flex justify-between"><dt className="text-fg-subtle">Awarded to</dt><dd className="text-fg">{result.student_full_name}</dd></div>
-                {result.grade && <div className="flex justify-between"><dt className="text-fg-subtle">Grade</dt><dd className="text-fg">{result.grade}</dd></div>}
+                {result.rank != null && <div className="flex justify-between"><dt className="text-fg-subtle">Rank</dt><dd className="text-fg">#{result.rank}{result.score_percent != null ? ` · ${result.score_percent}%` : ""}</dd></div>}
                 <div className="flex justify-between"><dt className="text-fg-subtle">Issued</dt><dd className="text-fg">{result.issued_at?.slice(0, 10)}</dd></div>
               </dl>
               <Link href={`/certificates/view/${result.certificate_number}`} className="btn-primary mt-6 w-full">

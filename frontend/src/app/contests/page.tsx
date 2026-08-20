@@ -40,10 +40,15 @@ export default function ContestsPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-fg">Contests</h1>
-      <p className="mt-1 text-sm text-fg-muted">
-        Live, time-boxed competitions — real questions from published courses, one attempt each. The top finishers win a real certificate.
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-fg">Contests</h1>
+          <p className="mt-1 text-sm text-fg-muted">
+            Live, time-boxed competitions from the shared question bank, one attempt each. The top finishers win a real certificate.
+          </p>
+        </div>
+        <Link href="/contests/ai-weekly/register" className="btn-secondary shrink-0">Register: AI Weekly Exam</Link>
+      </div>
 
       {next && (
         <div className="card mt-6 border-brand-500/40 bg-brand-500/5">

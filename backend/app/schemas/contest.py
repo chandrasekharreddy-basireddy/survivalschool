@@ -20,6 +20,8 @@ class ContestOut(BaseModel):
     top_n_awarded: int
     status: str
     question_count: int = 0
+    fullscreen_required: bool = False
+    integrity_monitoring_enabled: bool = False
     model_config = {"from_attributes": True}
 
 

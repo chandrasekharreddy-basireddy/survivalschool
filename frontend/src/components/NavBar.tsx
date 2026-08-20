@@ -30,8 +30,8 @@ export function NavBar() {
   const isPrivileged = hasRole(user, ["ADMIN", "SUPER_ADMIN", "INSTRUCTOR", "MODERATOR", "SUPPORT"]);
 
   const links = [
-    ["/courses", "Courses", true],
     ["/contests", "Contests", true],
+    ["/elimination", "Elimination", !!user],
     ["/dashboard", "Dashboard", !!user],
     ["/timetable", "Timetable", !!user],
     ["/practice", "Practice", !!user],
@@ -40,7 +40,7 @@ export function NavBar() {
     ["/follows", "Connections", !!user],
     ["/ai-practice", "AI Practice", !!user],
     ["/ai-assistant", "AI Tutor", !!user],
-    ["/instructor/courses", "Instructor", canTeach],
+    ["/instructor", "Question bank", canTeach],
     ["/admin", "Admin", canAdmin],
     ["/register/instructor", "Apply to teach", !!user && !canTeach],
   ] as const;

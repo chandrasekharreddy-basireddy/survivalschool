@@ -5,14 +5,18 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
 
-interface Enrollment { id: string; course_id: string; status: string; percent_complete: number }
+interface Contest { id: string; title: string; starts_at: string; ends_at: string; status: string; question_count: number }
+interface Battle { id: string; title: string; status: string; current_round_number: number }
+interface Certificate { certificate_number: string }
 interface GamificationStats { total_points: number; current_streak_days: number; longest_streak_days: number; badges: { code: string; name: string; icon: string }[] }
 interface Notification { id: string; title: string; body: string; category: string; read_at: string | null; created_at: string }
 interface DailyChallengeSummary { already_attempted: boolean; my_attempt: { is_correct: boolean; points_awarded: number } | null; current_streak_days: number }
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
-  const [enrollments, setEnrollments] = useState<Enrollment[] | null>(null);
+  const [upcomingContests, setUpcomingContests] = useState<Contest[] | null>(null);
+  const [battles, setBattles] = useState<Battle[] | null>(null);
+  const [certificates, setCertificates] = useState<Certificate[] | null>(null);
   const [stats, setStats] = useState<GamificationStats | null>(null);
   const [notifications, setNotifications] = useState<Notification[] | null>(null);
   const [challenge, setChallenge] = useState<DailyChallengeSummary | null>(null);
@@ -24,7 +28,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!user) return;
-    apiFetch<Enrollment[]>("/courses/me/enrollments").then(setEnrollments).catch(() => setEnrollments([]));
+    apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcomingContests).catch(() => setUpcomingContests([]));
+    apiFetch<Battle[]>("/elimination/battles/me").then(setBattles).catch(() => setBattles([]));
+    apiFetch<Certificate[]>("/contests/me/certificates").then(setCertificates).catch(() => setCertificates([]));
     apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => setStats(null));
     apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotifications([]));
     apiFetch<DailyChallengeSummary>("/daily-challenge/today")
@@ -42,15 +48,12 @@ export default function DashboardPage() {
     );
   }
 
-  const activeCourses = (enrollments || []).filter((e) => e.status === "active");
-  const completedCourses = (enrollments || []).filter((e) => e.status === "completed");
-
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
       <h1 className="text-2xl font-bold text-fg">Welcome back, {user.full_name.split(" ")[0]}.</h1>
       {!user.is_email_verified && (
         <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-          Verify your email to unlock enrollment, quizzes, and exams. Check your inbox for the link.
+          Verify your email to unlock contests, elimination battles, and the daily challenge. Check your inbox for the link.
         </div>
       )}
 
@@ -58,25 +61,48 @@ export default function DashboardPage() {
         <div className="lg:col-span-2 space-y-6">
           <div className="card">
             <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-fg">Continue learning</h2>
-              <Link href="/courses" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">Browse courses</Link>
+              <h2 className="font-semibold text-fg">Upcoming contests</h2>
+              <Link href="/contests" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All contests</Link>
             </div>
-            {enrollments === null ? (
+            {upcomingContests === null ? (
               <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
-            ) : activeCourses.length === 0 ? (
+            ) : upcomingContests.length === 0 ? (
               <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
-                No active courses yet. <Link href="/courses" className="text-brand-600 underline dark:text-brand-400">Enroll in your first course</Link> to get started.
+                Nothing scheduled right now. <Link href="/contests/ai-weekly/register" className="text-brand-600 underline dark:text-brand-400">Register for the AI Weekly Exam</Link> — it opens every Thursday.
               </div>
             ) : (
               <ul className="mt-4 space-y-3">
-                {activeCourses.map((e) => (
-                  <li key={e.id} className="flex items-center justify-between rounded-lg border border-ink-700 px-4 py-3">
-                    <div className="flex-1">
-                      <div className="mb-1 h-2 w-full overflow-hidden rounded-full bg-ink-800">
-                        <div className="h-full rounded-full bg-brand-500" style={{ width: `${e.percent_complete}%` }} />
-                      </div>
-                      <span className="text-xs text-fg-subtle">{e.percent_complete}% complete</span>
-                    </div>
+                {upcomingContests.map((c) => (
+                  <li key={c.id}>
+                    <Link href={`/contests/${c.id}`} className="flex items-center justify-between rounded-lg border border-ink-700 px-4 py-3 transition hover:border-brand-500/50">
+                      <span className="text-sm font-medium text-fg">{c.title}</span>
+                      <span className="text-xs text-fg-subtle">{c.question_count} questions</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-fg">Elimination battles</h2>
+              <Link href="/elimination" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All battles</Link>
+            </div>
+            {battles === null ? (
+              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
+            ) : battles.length === 0 ? (
+              <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
+                No battles yet. <Link href="/elimination" className="text-brand-600 underline dark:text-brand-400">Start one and invite friends</Link>.
+              </div>
+            ) : (
+              <ul className="mt-4 space-y-3">
+                {battles.filter((b) => b.status === "lobby" || b.status === "active").slice(0, 5).map((b) => (
+                  <li key={b.id}>
+                    <Link href={`/elimination/${b.id}`} className="flex items-center justify-between rounded-lg border border-ink-700 px-4 py-3 transition hover:border-brand-500/50">
+                      <span className="text-sm font-medium text-fg">{b.title}</span>
+                      <span className="text-xs text-fg-subtle">{b.status === "active" ? `round ${b.current_round_number}` : "waiting to start"}</span>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -157,9 +183,9 @@ export default function DashboardPage() {
 
           <div className="card">
             <h2 className="font-semibold text-fg">Certificates earned</h2>
-            <p className="mt-2 text-sm text-fg-subtle">{completedCourses.length} course{completedCourses.length === 1 ? "" : "s"} completed</p>
-            <Link href="/quiz-history" className="mt-3 inline-block text-sm text-brand-600 dark:text-brand-400 hover:underline">
-              Quiz history →
+            <p className="mt-2 text-sm text-fg-subtle">{certificates === null ? "…" : certificates.length} certificate{certificates?.length === 1 ? "" : "s"} earned</p>
+            <Link href="/contests/certificates" className="mt-3 inline-block text-sm text-brand-600 dark:text-brand-400 hover:underline">
+              View certificates →
             </Link>
           </div>
         </div>

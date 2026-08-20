@@ -4,8 +4,9 @@ const LINK_GROUPS: { title: string; links: { href: string; label: string }[] }[]
   {
     title: "Platform",
     links: [
-      { href: "/courses", label: "Courses" },
       { href: "/contests", label: "Contests" },
+      { href: "/contests/ai-weekly/register", label: "AI Weekly Exam" },
+      { href: "/elimination", label: "Elimination battles" },
       { href: "/leaderboard", label: "Leaderboard" },
       { href: "/certificates/verify", label: "Verify a certificate" },
     ],
@@ -36,7 +37,7 @@ export function Footer() {
         <div>
           <span className="text-sm font-semibold text-fg">Survival School</span>
           <p className="mt-2 max-w-xs text-sm text-fg-muted">
-            Courses, AI-conducted weekend exams, and certificates you can verify.
+            A weekly AI exam, live elimination battles, and certificates you can verify.
           </p>
         </div>
         {LINK_GROUPS.map((group) => (

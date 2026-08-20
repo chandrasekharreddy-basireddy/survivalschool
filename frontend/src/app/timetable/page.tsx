@@ -2,24 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
-import { useToast } from "@/lib/toast";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-interface TimetableEntry {
-  id: string;
-  course_id: string;
-  course_title: string;
-  instructor_name: string | null;
-  term: string;
-  day_of_week: number;
-  start_time: string;
-  end_time: string;
-  room: string;
-  session_type: string;
-}
+import { apiFetch, ApiError } from "@/lib/api";
 
 interface CampusEntry {
   id: string;
@@ -43,16 +26,23 @@ function fmtTime(t: string): string {
   return `${displayHour}:${m} ${period}`;
 }
 
+function fmtDate(d: string): string {
+  return new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
 export default function TimetablePage() {
   const { user, loading } = useAuth();
-  const [entries, setEntries] = useState<TimetableEntry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [entries, setEntries] = useState<CampusEntry[] | null>(null);
+  const [needsSection, setNeedsSection] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    apiFetch<TimetableEntry[]>("/timetable/me")
+    apiFetch<CampusEntry[]>("/timetable/campus/me")
       .then(setEntries)
-      .catch(() => setError("Couldn't load your timetable."));
+      .catch((err) => {
+        if (err instanceof ApiError && err.code === "validation_error") setNeedsSection(true);
+        setEntries([]);
+      });
   }, [user]);
 
   if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-fg-muted">Loading…</div>;
@@ -64,221 +54,56 @@ export default function TimetablePage() {
     );
   }
 
-  const byDay: TimetableEntry[][] = DAYS.map((_, i) => (entries || []).filter((e) => e.day_of_week === i));
-
-  return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-fg">Your timetable</h1>
-          <p className="mt-1 text-sm text-fg-muted">Built from your course enrollments — updates automatically when an instructor changes a schedule.</p>
-        </div>
-        <DownloadIcsButton />
-      </div>
-
-      <CheckInBox />
-      <AttendanceSummary />
-      <CampusTimetableSection />
-
-      {error && <p className="mt-4 text-sm text-red-700 dark:text-red-400">{error}</p>}
-
-      {entries !== null && entries.length === 0 && (
-        <div className="card mt-8 text-center text-sm text-fg-muted">
-          No scheduled classes yet — enroll in a course with a published timetable, or check back once your instructor sets one up.
-        </div>
-      )}
-
-      <div className="mt-8 grid gap-4 lg:grid-cols-7">
-        {DAYS.map((day, i) => (
-          <div key={day} className="card !p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{day}</p>
-            <div className="mt-3 space-y-2">
-              {byDay[i].length === 0 && <p className="text-xs text-fg-subtle">—</p>}
-              {byDay[i]
-                .slice()
-                .sort((a, b) => a.start_time.localeCompare(b.start_time))
-                .map((e) => (
-                  <div key={e.id} className="rounded-lg border border-ink-700 bg-ink-950 p-3">
-                    <p className="text-sm font-medium text-fg">{e.course_title}</p>
-                    <p className="mt-1 text-xs text-fg-muted">{fmtTime(e.start_time)} – {fmtTime(e.end_time)}</p>
-                    <p className="mt-1 text-xs text-fg-subtle">
-                      {e.room || "TBD"} · <span className="capitalize">{e.session_type}</span>
-                    </p>
-                  </div>
-                ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DownloadIcsButton() {
-  const [downloading, setDownloading] = useState(false);
-
-  const download = async () => {
-    setDownloading(true);
-    try {
-      const token = getAccessToken();
-      const resp = await fetch(`${API_BASE}/timetable/me/export.ics`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!resp.ok) throw new Error("Export failed");
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "timetable.ics";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch {
-      /* toast intentionally omitted here — the button itself gives instant visual feedback */
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  return (
-    <button onClick={download} disabled={downloading} className="btn-secondary">
-      {downloading ? "Preparing…" : "Add to calendar (.ics)"}
-    </button>
-  );
-}
-
-function CheckInBox() {
-  const toast = useToast();
-  const [code, setCode] = useState("");
-  const [checking, setChecking] = useState(false);
-
-  const checkIn = async () => {
-    if (!code.trim()) return;
-    setChecking(true);
-    try {
-      await apiFetch("/attendance/check-in", { method: "POST", body: JSON.stringify({ code: code.trim() }) });
-      toast.show("Checked in — you're marked present.", "success");
-      setCode("");
-    } catch (err) {
-      toast.show(err instanceof ApiError ? err.message : "Couldn't check in.", "error");
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  return (
-    <div className="card mt-6 !p-4">
-      <p className="text-sm font-medium text-fg">In class right now?</p>
-      <p className="mt-1 text-xs text-fg-muted">Enter the attendance code your instructor is showing.</p>
-      <div className="mt-3 flex gap-2">
-        <input
-          className="input flex-1 font-mono uppercase tracking-widest"
-          placeholder="e.g. A1B2C3"
-          value={code}
-          onChange={(e) => setCode(e.target.value.toUpperCase())}
-          maxLength={10}
-        />
-        <button onClick={checkIn} disabled={checking || !code.trim()} className="btn-primary shrink-0">
-          {checking ? "Checking in…" : "Check in"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-interface AttendanceSummaryItem { course_id: string; course_title: string; total_sessions: number; present_count: number; attendance_percent: number }
-
-function AttendanceSummary() {
-  const [summary, setSummary] = useState<AttendanceSummaryItem[] | null>(null);
-
-  useEffect(() => {
-    apiFetch<AttendanceSummaryItem[]>("/attendance/me").then(setSummary).catch(() => setSummary([]));
-  }, []);
-
-  if (!summary || summary.length === 0) return null;
-
-  return (
-    <div className="mt-6">
-      <h2 className="text-sm font-semibold text-fg">Your attendance</h2>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        {summary.map((s) => (
-          <div key={s.course_id} className="card !p-3 flex items-center justify-between text-sm">
-            <span className="text-fg-muted">{s.course_title}</span>
-            <span className={`font-semibold ${s.attendance_percent >= 75 ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-              {s.attendance_percent}% ({s.present_count}/{s.total_sessions})
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function fmtDate(d: string): string {
-  return new Date(d + "T00:00:00").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-
-function CampusTimetableSection() {
-  const [entries, setEntries] = useState<CampusEntry[] | null>(null);
-  const [needsSection, setNeedsSection] = useState(false);
-
-  useEffect(() => {
-    apiFetch<CampusEntry[]>("/timetable/campus/me")
-      .then(setEntries)
-      .catch((err) => {
-        if (err instanceof ApiError && err.code === "validation_error") {
-          setNeedsSection(true);
-        }
-        setEntries([]);
-      });
-  }, []);
-
-  if (needsSection) {
-    return (
-      <div className="card mt-6 !p-4 text-sm text-fg-muted">
-        Set your section in your <a href="/profile" className="font-medium text-brand-600 underline dark:text-brand-400">profile</a> to
-        see your university-wide campus timetable here.
-      </div>
-    );
-  }
-
-  if (!entries || entries.length === 0) return null;
-
   const byDate = new Map<string, CampusEntry[]>();
-  for (const e of entries) {
+  for (const e of entries || []) {
     if (!byDate.has(e.class_date)) byDate.set(e.class_date, []);
     byDate.get(e.class_date)!.push(e);
   }
 
   return (
-    <div className="mt-8">
-      <h2 className="text-sm font-semibold text-fg">Campus timetable</h2>
-      <p className="mt-1 text-xs text-fg-muted">Your university&apos;s class schedule for your section, kept in sync by your institution.</p>
-      <div className="mt-3 space-y-3">
-        {[...byDate.entries()].map(([date, dayEntries]) => (
-          <div key={date} className="card !p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{fmtDate(date)}</p>
-            <div className="mt-2 space-y-2">
-              {dayEntries
-                .slice()
-                .sort((a, b) => a.start_time.localeCompare(b.start_time))
-                .map((e) => (
-                  <div key={e.id} className={`rounded-lg border p-3 ${e.is_cancelled ? "border-red-500/30 bg-red-500/5" : "border-ink-700 bg-ink-950"}`}>
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-fg">
-                        {e.course_name} {e.course_code && <span className="text-fg-subtle">({e.course_code})</span>}
+    <div className="mx-auto max-w-5xl px-6 py-10">
+      <h1 className="text-2xl font-bold text-fg">Your timetable</h1>
+      <p className="mt-1 text-sm text-fg-muted">Your university&apos;s class schedule for your section, kept in sync by your institution.</p>
+
+      {needsSection && (
+        <div className="card mt-8 !p-4 text-sm text-fg-muted">
+          Set your section in your <a href="/profile" className="font-medium text-brand-600 underline dark:text-brand-400">profile</a> to
+          see your campus timetable here.
+        </div>
+      )}
+
+      {entries !== null && !needsSection && entries.length === 0 && (
+        <div className="card mt-8 text-center text-sm text-fg-muted">No classes scheduled yet for your section.</div>
+      )}
+
+      {entries !== null && entries.length > 0 && (
+        <div className="mt-8 space-y-3">
+          {[...byDate.entries()].map(([date, dayEntries]) => (
+            <div key={date} className="card !p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{fmtDate(date)}</p>
+              <div className="mt-2 space-y-2">
+                {dayEntries
+                  .slice()
+                  .sort((a, b) => a.start_time.localeCompare(b.start_time))
+                  .map((e) => (
+                    <div key={e.id} className={`rounded-lg border p-3 ${e.is_cancelled ? "border-red-500/30 bg-red-500/5" : "border-ink-700 bg-ink-950"}`}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-fg">
+                          {e.course_name} {e.course_code && <span className="text-fg-subtle">({e.course_code})</span>}
+                        </p>
+                        {e.is_cancelled && <span className="text-xs font-semibold text-red-700 dark:text-red-400">Cancelled</span>}
+                      </div>
+                      <p className="mt-1 text-xs text-fg-muted">{fmtTime(e.start_time)} – {fmtTime(e.end_time)}</p>
+                      <p className="mt-1 text-xs text-fg-subtle">
+                        {e.room || "TBD"}{e.teacher_name ? ` · ${e.teacher_name}` : ""}{e.is_elective ? " · Elective" : ""}
                       </p>
-                      {e.is_cancelled && <span className="text-xs font-semibold text-red-700 dark:text-red-400">Cancelled</span>}
                     </div>
-                    <p className="mt-1 text-xs text-fg-muted">{fmtTime(e.start_time)} – {fmtTime(e.end_time)}</p>
-                    <p className="mt-1 text-xs text-fg-subtle">
-                      {e.room || "TBD"}{e.teacher_name ? ` · ${e.teacher_name}` : ""}{e.is_elective ? " · Elective" : ""}
-                    </p>
-                  </div>
-                ))}
+                  ))}
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

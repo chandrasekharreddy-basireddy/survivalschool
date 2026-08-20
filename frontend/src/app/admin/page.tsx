@@ -17,22 +17,15 @@ interface SystemHealth {
 interface DashboardStats {
   total_students: number;
   active_students_7d: number;
-  total_courses: number;
-  published_courses: number;
-  total_enrollments: number;
   certificates_issued: number;
-  quiz_attempts_30d: number;
-  exam_attempts_30d: number;
+  contest_attempts_30d: number;
 }
 
 const TILES: { key: keyof DashboardStats; label: string }[] = [
   { key: "total_students", label: "Total students" },
   { key: "active_students_7d", label: "Active (7d)" },
-  { key: "published_courses", label: "Published courses" },
-  { key: "total_enrollments", label: "Enrollments" },
   { key: "certificates_issued", label: "Certificates issued" },
-  { key: "quiz_attempts_30d", label: "Quiz attempts (30d)" },
-  { key: "exam_attempts_30d", label: "Exam attempts (30d)" },
+  { key: "contest_attempts_30d", label: "Contest attempts (30d)" },
 ];
 
 export default function AdminDashboardPage() {
@@ -62,6 +55,7 @@ export default function AdminDashboardPage() {
           <Link href="/admin/users" className="text-brand-600 dark:text-brand-400 hover:underline">Users</Link>
           <Link href="/admin/instructor-applications" className="text-brand-600 dark:text-brand-400 hover:underline">Instructor applications</Link>
           <Link href="/admin/campus-timetable" className="text-brand-600 dark:text-brand-400 hover:underline">Campus timetable</Link>
+          <Link href="/instructor" className="text-brand-600 dark:text-brand-400 hover:underline">Question bank</Link>
           <Link href="/admin/audit-logs" className="text-brand-600 dark:text-brand-400 hover:underline">Audit logs</Link>
           <Link href="/admin/certificates" className="text-brand-600 dark:text-brand-400 hover:underline">Certificates</Link>
         </div>

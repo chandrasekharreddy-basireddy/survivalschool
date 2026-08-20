@@ -65,6 +65,7 @@ def _contest_out(contest: Contest) -> ContestOut:
         is_auto_generated=contest.is_auto_generated, starts_at=contest.starts_at, ends_at=contest.ends_at,
         duration_seconds=contest.duration_seconds, top_n_awarded=contest.top_n_awarded, status=contest.status,
         question_count=len(contest.question_ids),
+        fullscreen_required=contest.fullscreen_required, integrity_monitoring_enabled=contest.integrity_monitoring_enabled,
     )
 
 

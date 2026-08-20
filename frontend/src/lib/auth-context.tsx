@@ -41,6 +41,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshUser().finally(() => setLoading(false));
+
+    // A tab left open across a verification/role-change that happened
+    // elsewhere (another tab, another device) never refetches on its own —
+    // there's no push channel for "your own /auth/me changed". Revalidate
+    // whenever this tab becomes the active one again.
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === "hidden") return;
+      refreshUser();
+    };
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
+    return () => {
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
+    };
   }, []);
 
   const login = async (email: string, password: string): Promise<LoginResult> => {

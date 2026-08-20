@@ -43,11 +43,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import random
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -67,12 +69,17 @@ from app.services.audit_service import record_audit_event
 from app.services.distributed_lock import try_lock
 from app.services.notification_service import create_notification
 from app.services.scoring_service import grade_answer
+from app.services.social_graph_service import has_accepted_connection
 from app.websockets.manager import manager as ws_manager
 
 logger = structlog.get_logger("survivalschool.elimination")
 
 SWEEP_INTERVAL_SECONDS = 2
 MAX_INVITEES_PER_BATTLE = 50
+# Excludes visually ambiguous characters (0/O, 1/I/L) since this is meant to
+# be read off a phone screen or typed in by hand, not just scanned as a QR.
+_JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_JOIN_CODE_LENGTH = 6
 
 
 def _battle_lock_key(battle_id: uuid.UUID) -> str:
@@ -86,14 +93,59 @@ async def _battle_channel(battle_id: uuid.UUID) -> uuid.UUID:
     return battle_id
 
 
+def _generate_join_code() -> str:
+    return "".join(secrets.choice(_JOIN_CODE_ALPHABET) for _ in range(_JOIN_CODE_LENGTH))
+
+
 async def create_battle(db: AsyncSession, host: User, title: str, topic_id: uuid.UUID) -> EliminationBattle:
-    battle = EliminationBattle(host_id=host.id, title=title, topic_id=topic_id, status="lobby")
-    db.add(battle)
-    await db.flush()
+    battle = EliminationBattle(host_id=host.id, title=title, topic_id=topic_id, status="lobby", join_code=_generate_join_code())
+    # Collisions are astronomically unlikely at this alphabet/length (32^6 ≈
+    # 1.07B combinations) but the unique constraint plus a bounded retry
+    # loop makes this correct rather than merely probably-fine.
+    for _ in range(5):
+        try:
+            async with db.begin_nested():
+                db.add(battle)
+                await db.flush()
+            break
+        except IntegrityError:
+            battle.join_code = _generate_join_code()
+    else:
+        raise ConflictError("Couldn't allocate a battle room code — please try again.")
     db.add(EliminationParticipant(battle_id=battle.id, user_id=host.id, status="ready"))
     await record_audit_event(db, actor_id=host.id, action="elimination.battle_created", resource_type="elimination_battle", resource_id=str(battle.id))
     await db.commit()
     await db.refresh(battle)
+    return battle
+
+
+async def join_battle_by_code(db: AsyncSession, user: User, code: str) -> EliminationBattle:
+    """The Free Fire-style path: anyone holding the room code joins
+    directly, no invitation or prior connection required — that's the
+    whole point of a shareable code over the connections-gated invite flow
+    in invite_to_battle() below."""
+    battle = (await db.execute(
+        select(EliminationBattle).where(EliminationBattle.join_code == code.strip().upper())
+    )).scalar_one_or_none()
+    if battle is None:
+        raise NotFoundError("No battle found with that code.")
+    if battle.status != "lobby":
+        raise ConflictError("This battle has already started or finished.")
+
+    existing = (await db.execute(
+        select(EliminationParticipant).where(EliminationParticipant.battle_id == battle.id, EliminationParticipant.user_id == user.id)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return battle
+
+    participant_count = (await db.execute(
+        select(EliminationParticipant.id).where(EliminationParticipant.battle_id == battle.id)
+    )).scalars().all()
+    if len(participant_count) >= MAX_INVITEES_PER_BATTLE + 1:
+        raise ConflictError(f"This battle is full ({MAX_INVITEES_PER_BATTLE + 1} players max).")
+
+    db.add(EliminationParticipant(battle_id=battle.id, user_id=user.id, status="ready"))
+    await db.commit()
     return battle
 
 
@@ -107,6 +159,8 @@ async def invite_to_battle(db: AsyncSession, battle: EliminationBattle, inviter:
     invitee = await db.get(User, invitee_id)
     if invitee is None or invitee.deleted_at is not None:
         raise NotFoundError("User not found.")
+    if not await has_accepted_connection(db, inviter.id, invitee_id):
+        raise AuthorizationError("You can only invite people you're connected with — share the room code/QR instead to invite anyone else.")
 
     existing_count = (await db.execute(
         select(EliminationInvitation).where(EliminationInvitation.battle_id == battle.id)

@@ -94,14 +94,21 @@ async def test_ai_weekly_registration_status_is_public_and_never_gates_signup(cl
 
 async def _force_ai_weekly_window_open(client):
     """Registration is real-calendar Thursday-gated; force it open so these
-    tests are deterministic regardless of what day the suite runs on."""
+    tests are deterministic regardless of what day the suite runs on.
+
+    register_for_ai_weekly_exam() checks ai_exam_registration_is_open(now,
+    window.override_until) directly — it never reads window.is_open (that
+    field is a display cache refresh_window() maintains for the public
+    /registration-status endpoint). override_until is the field that
+    actually gates registration, so that's what has to be forced here."""
+    from datetime import UTC, datetime, timedelta
+
     from app.database import AsyncSessionLocal
     from app.services.registration_service import get_or_create_window
 
     async with AsyncSessionLocal() as db:
         window = await get_or_create_window(db)
-        window.is_open = True
-        window.override_until = None
+        window.override_until = datetime.now(UTC) + timedelta(hours=1)
         await db.commit()
 
 

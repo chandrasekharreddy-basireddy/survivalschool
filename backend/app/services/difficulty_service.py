@@ -57,11 +57,17 @@ async def evaluate_topic_difficulty(db: AsyncSession, topic_id: uuid.UUID) -> To
             reason="No validated questions exist for this topic yet.", sample_size=0,
         )
     else:
-        avg_option_count = (await db.execute(
-            select(func.avg(func.count(QuestionOption.id)))
+        # Postgres rejects avg(count(...)) directly (nested aggregates) — count
+        # options per question in a subquery first, then average those counts.
+        option_counts_subq = (
+            select(func.count(QuestionOption.id).label("option_count"))
             .select_from(QuestionOption)
             .where(QuestionOption.question_id.in_(question_ids))
             .group_by(QuestionOption.question_id)
+            .subquery()
+        )
+        avg_option_count = (await db.execute(
+            select(func.avg(option_counts_subq.c.option_count))
         )).scalar() or 2.0
         msq_count = (await db.execute(
             select(func.count()).select_from(Question).where(Question.id.in_(question_ids), Question.question_type == "multiple")

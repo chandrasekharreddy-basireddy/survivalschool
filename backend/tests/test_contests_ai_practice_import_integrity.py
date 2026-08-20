@@ -84,9 +84,13 @@ async def test_contest_attempt_leaderboard_and_finalize_awards_top3_certificates
     q2 = await _make_question(client, instructor, subject_id, topic_id, "Contest Q2?", "Right2", "Wrong2")
 
     now = datetime.now(UTC)
+    # A generous window: this test needs two full auth+attempt+submit round
+    # trips to complete for real (not mocked) before the contest closes, and
+    # a short window makes the test flaky under any real system load rather
+    # than testing anything about finalize() itself.
     created = await client.post("/contests", json={
         "title": "Finalize Test Contest", "starts_at": (now - timedelta(minutes=1)).isoformat(),
-        "ends_at": (now + timedelta(seconds=3)).isoformat(), "duration_seconds": 1800,
+        "ends_at": (now + timedelta(seconds=20)).isoformat(), "duration_seconds": 1800,
         "question_ids": [q1, q2], "top_n_awarded": 1,
     }, headers=admin)
     assert created.status_code == 201, created.text
@@ -118,7 +122,7 @@ async def test_contest_attempt_leaderboard_and_finalize_awards_top3_certificates
     assert leaderboard[0]["score_percent"] == 100
 
     # Wait out the contest window, then finalize.
-    await asyncio.sleep(3.2)
+    await asyncio.sleep(20.3)
     too_early_gone = await client.post(f"/contests/{contest_id}/finalize", headers=admin)
     assert too_early_gone.status_code == 200, too_early_gone.text
     assert too_early_gone.json()["status"] == "closed"

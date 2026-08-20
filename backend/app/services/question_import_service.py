@@ -122,12 +122,12 @@ def parse_xlsx(file_bytes: bytes) -> list[ParsedRow]:
     return _rows_from_dicts(raw_rows[:MAX_ROWS_PER_IMPORT])
 
 
-async def commit_rows(db: AsyncSession, course_id, rows: list[ParsedRow]) -> int:
+async def commit_rows(db: AsyncSession, subject_id, topic_id, rows: list[ParsedRow]) -> int:
     """Only called once the caller has confirmed every row is error-free."""
     inserted = 0
     for row in rows:
         question = Question(
-            course_id=course_id, prompt=row.prompt, question_type=row.question_type,
+            subject_id=subject_id, topic_id=topic_id, prompt=row.prompt, question_type=row.question_type,
             points=row.points, explanation=row.explanation, short_answer_key=row.short_answer_key,
         )
         db.add(question)

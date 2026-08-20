@@ -7,7 +7,7 @@ import type { MetadataRoute } from "next";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://survivalschool.example.com";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const staticPaths = ["/", "/courses", "/leaderboard", "/certificates/verify", "/login", "/register"];
+  const staticPaths = ["/", "/contests", "/leaderboard", "/certificates/verify", "/login", "/register"];
   const lastModified = new Date();
   return staticPaths.map((path) => ({
     url: `${SITE_URL}${path}`,

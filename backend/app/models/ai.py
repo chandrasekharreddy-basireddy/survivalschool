@@ -16,7 +16,6 @@ class AIConversation(Base, UUIDPk, Timestamped):
 
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(200), default="New conversation", nullable=False)
-    course_context_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="SET NULL"))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

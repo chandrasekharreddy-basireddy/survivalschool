@@ -45,11 +45,7 @@ async def _capturing_send_email(to, subject, template, **context):
 email_service.send_email = _capturing_send_email
 # Also patch the reference imported into modules that did `from ... import send_email`.
 import app.api.v1.auth as _auth_mod  # noqa: E402
-import app.api.v1.courses as _courses_mod  # noqa: E402
-import app.api.v1.lessons as _lessons_mod  # noqa: E402
 
-_courses_mod.send_email = _capturing_send_email
-_lessons_mod.send_email = _capturing_send_email
 _auth_mod.send_email = _capturing_send_email
 
 

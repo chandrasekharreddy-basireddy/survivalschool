@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { SearchBar } from "@/components/SearchBar";
 import { hasRole, isAdmin, isInstructor } from "@/lib/roles";
 
 function LogoMark() {
@@ -30,8 +29,8 @@ export function NavBar() {
   const isPrivileged = hasRole(user, ["ADMIN", "SUPER_ADMIN", "INSTRUCTOR", "MODERATOR", "SUPPORT"]);
 
   const links = [
-    ["/courses", "Courses", true],
     ["/contests", "Contests", true],
+    ["/elimination", "Elimination", !!user],
     ["/dashboard", "Dashboard", !!user],
     ["/timetable", "Timetable", !!user],
     ["/practice", "Practice", !!user],
@@ -40,7 +39,7 @@ export function NavBar() {
     ["/follows", "Connections", !!user],
     ["/ai-practice", "AI Practice", !!user],
     ["/ai-assistant", "AI Tutor", !!user],
-    ["/instructor/courses", "Instructor", canTeach],
+    ["/instructor", "Question bank", canTeach],
     ["/admin", "Admin", canAdmin],
     ["/register/instructor", "Apply to teach", !!user && !canTeach],
   ] as const;
@@ -60,7 +59,6 @@ export function NavBar() {
             Survival<span className="text-brand-600 dark:text-brand-400"> School</span>
           </span>
         </Link>
-        <div className="mx-auto hidden w-full max-w-sm md:block"><SearchBar /></div>
         <div className="ml-auto hidden items-center gap-0.5 lg:flex">
           {links.map(([href, label, visible]) => visible ? <Link key={href} href={href} className={linkClass(href)}>{label}</Link> : null)}
         </div>
@@ -80,7 +78,6 @@ export function NavBar() {
       </nav>
       {mobileOpen && (
         <div className="border-t border-ink-700 bg-ink-950 px-3 py-3 sm:px-5 lg:hidden">
-          <div className="mb-3"><SearchBar /></div>
           <div className="grid grid-cols-2 gap-1 text-sm text-fg-muted">
             {links.map(([href, label, visible]) => visible ? <Link key={href} href={href} onClick={closeMobile} className={linkClass(href)}>{label}</Link> : null)}
             {isPrivileged && <Link href="/notifications" onClick={closeMobile} className={linkClass("/notifications")}>Notifications</Link>}

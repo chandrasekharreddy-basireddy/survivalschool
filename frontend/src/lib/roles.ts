@@ -22,6 +22,6 @@ export function isStudent(user: CurrentUser | null | undefined) {
 
 export function getPostLoginPath(user: CurrentUser) {
   if (hasRole(user, ["SUPER_ADMIN", "ADMIN"])) return "/admin";
-  if (hasRole(user, "INSTRUCTOR")) return "/instructor/courses";
+  if (hasRole(user, "INSTRUCTOR")) return "/instructor";
   return "/dashboard";
 }

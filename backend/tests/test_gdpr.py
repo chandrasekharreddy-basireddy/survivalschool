@@ -23,10 +23,10 @@ async def test_export_returns_downloadable_json_with_account_data(client):
     assert body["account"]["email"] == email
     assert "export_generated_at" in body
     for key in (
-        "enrollments", "quiz_attempts", "exam_attempts", "certificates",
-        "contest_attempts", "points_ledger", "achievements", "practice_sessions",
-        "discussion_threads_authored", "chat_messages_sent", "notifications",
-        "ai_conversations", "audit_log_as_actor",
+        "contest_attempts", "contest_certificates", "points_ledger", "achievements",
+        "practice_sessions", "question_bookmarks", "chat_messages_sent", "notifications",
+        "elimination_battles_participated", "elimination_invitations_sent",
+        "ai_conversations", "ai_messages", "ai_mock_practice_sessions", "audit_log_as_actor",
     ):
         assert key in body
         assert isinstance(body[key], list)
@@ -110,5 +110,5 @@ async def test_deleted_account_data_is_actually_gone_from_export_path(client):
     new_headers = {"Authorization": f"Bearer {new_tokens['access_token']}"}
     export = await client.get("/users/me/export", headers=new_headers)
     assert export.status_code == 200
-    assert export.json()["enrollments"] == []
+    assert export.json()["contest_attempts"] == []
     assert export.json()["points_ledger"] == []

@@ -23,12 +23,20 @@ from app.models.base import Timestamped, UUIDPk
 
 # ---- Platform-wide competitive contests ----
 #
-# A Contest snapshots a fixed set of real, already-authored Question rows
-# (drawn from published courses' question banks — never AI-generated, never
-# invented) at creation time, the same way Quiz/Exam already snapshot
-# question_ids. Auto-generated contests (weekly Sat/Sun AM+PM IST, monthly)
-# are created idempotently by the worker via `occurrence_key`; admin-created
-# ad hoc contests leave it null. See app/services/contest_service.py.
+# A Contest snapshots a fixed set of real Question rows at creation time.
+# contest_type distinguishes the shapes this platform runs:
+#   - "ai_weekly": THE AI Weekly Exam. Registration gated by
+#     AIExamRegistrationWindow (opens Thursday, see registration_service.py),
+#     fixed 2-hour duration (duration_seconds=7200), exactly 50 AI-generated
+#     questions (40 "single" + 10 "multiple" — see
+#     ai_exam_service.generate_ai_weekly_exam_questions), no elimination —
+#     everyone who registered sits the full exam. Certificates (top 3 only,
+#     top_n_awarded=3) go through ContestCertificate below.
+#   - "weekly_morning"/"weekly_evening"/"monthly": the pre-existing
+#     auto-generated contest slots (unchanged).
+#   - "custom": admin-created ad hoc contests.
+# Auto-generated contests are created idempotently via `occurrence_key`;
+# admin-created ad hoc contests leave it null. See contest_service.py.
 
 
 class Contest(Base, UUIDPk, Timestamped):
@@ -51,6 +59,13 @@ class Contest(Base, UUIDPk, Timestamped):
     top_n_awarded: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="scheduled", nullable=False)
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Ported from the old course-Exam system, which carried these same
+    # fields (fullscreen_required/integrity_monitoring_enabled/
+    # max_integrity_violations) — the exam_security.py enforcement is
+    # repointed at ContestAttempt below instead of the removed ExamAttempt.
+    fullscreen_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    integrity_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    max_integrity_violations: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
 
 
 class ContestAttempt(Base, UUIDPk, Timestamped):
@@ -65,7 +80,13 @@ class ContestAttempt(Base, UUIDPk, Timestamped):
         CheckConstraint("points_earned IS NULL OR points_earned >= 0", name="points_earned_non_negative"),
         CheckConstraint("points_possible IS NULL OR points_possible >= 0", name="points_possible_non_negative"),
         CheckConstraint("points_earned IS NULL OR points_possible IS NULL OR points_earned <= points_possible", name="points_earned_within_possible"),
-        CheckConstraint("status IN ('in_progress', 'submitted', 'abandoned')", name="status_valid"),
+        # "registered" is the AI Weekly Exam's pre-attempt state: it marks a
+        # student joined during the Thursday registration window, before the
+        # timed 2-hour window has actually started (see
+        # ai_exam_service.py::register_for_ai_weekly_exam). Every other
+        # contest type skips straight to "in_progress" on first start, same
+        # as before.
+        CheckConstraint("status IN ('registered', 'in_progress', 'submitted', 'abandoned')", name="status_valid"),
     )
 
     contest_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contests.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -80,6 +101,12 @@ class ContestAttempt(Base, UUIDPk, Timestamped):
     points_possible: Mapped[int | None] = mapped_column(Integer)
     rank: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="in_progress", nullable=False)
+    # Same integrity-monitoring fields the old ExamAttempt carried — see
+    # exam_security.py, now enforced against contest_attempts.
+    submission_client_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
+    flagged_events: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    allowed_ip: Mapped[str | None] = mapped_column(String(64))
+    violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class ContestAnswer(Base, UUIDPk, Timestamped):

@@ -20,6 +20,8 @@ class ContestOut(BaseModel):
     top_n_awarded: int
     status: str
     question_count: int = 0
+    fullscreen_required: bool = False
+    integrity_monitoring_enabled: bool = False
     model_config = {"from_attributes": True}
 
 
@@ -38,6 +40,20 @@ class ContestAttemptStartOut(BaseModel):
     server_deadline_at: datetime
     remaining_seconds: int
     resumed: bool
+
+
+class AIWeeklyRegisterIn(BaseModel):
+    subject_id: uuid.UUID
+    topic_id: uuid.UUID
+
+
+class AIWeeklyRegisterOut(BaseModel):
+    attempt_id: uuid.UUID
+    contest_id: uuid.UUID
+    contest_title: str
+    starts_at: datetime
+    ends_at: datetime
+    status: str
 
 
 class ContestSubmit(BaseModel):

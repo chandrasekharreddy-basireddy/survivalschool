@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,19 +16,6 @@ from app.models.user import User
 from app.services.social_graph_service import has_accepted_connection
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-class RoomCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=200)
-    # "direct" is deliberately excluded here — a 1:1 room can only be created
-    # through POST /chat/dm/{user_id}, which enforces the follow-accepted
-    # gate. Without that, this endpoint would let any authenticated user
-    # message any other user by just naming them in member_ids.
-    room_type: str = Field(default="course", pattern=r"^(course|announcement)$")
-    course_id: uuid.UUID | None = None
-    # Bounded: any authenticated user can create a room, so an unbounded
-    # member list lets one request fan out to arbitrarily many membership rows.
-    member_ids: list[uuid.UUID] = Field(default=[], max_length=500)
 
 
 class RoomOut(BaseModel):
@@ -95,18 +82,6 @@ async def my_rooms(user: User = Depends(get_current_user), db: AsyncSession = De
         out.append(RoomOut(id=room.id, name=room.name, room_type=room.room_type, other_user_id=other_id, other_user_name=other_name))
     return out
 
-
-@router.post("/rooms", response_model=RoomOut, status_code=201)
-async def create_room(payload: RoomCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    room = ChatRoom(name=payload.name, room_type=payload.room_type, course_id=payload.course_id, created_by=user.id)
-    db.add(room)
-    await db.flush()
-    db.add(ChatMember(room_id=room.id, user_id=user.id, role="moderator"))
-    for member_id in payload.member_ids:
-        db.add(ChatMember(room_id=room.id, user_id=member_id))
-    await db.commit()
-    await db.refresh(room)
-    return room
 
 
 @router.post("/dm/{other_user_id}", response_model=RoomOut, status_code=201)

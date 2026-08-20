@@ -9,7 +9,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Survival School",
     short_name: "Survival",
     description:
-      "Learn. Compete. Certify. Courses, AI-conducted weekend exams, live leaderboards, and verifiable certificates.",
+      "Compete. Certify. A weekly AI exam, live elimination battles, leaderboards, and verifiable certificates.",
     id: "/",
     start_url: "/dashboard",
     scope: "/",
@@ -26,7 +26,8 @@ export default function manifest(): MetadataRoute.Manifest {
     ],
     shortcuts: [
       { name: "Dashboard", url: "/dashboard" },
-      { name: "Courses", url: "/courses" },
+      { name: "Contests", url: "/contests" },
+      { name: "Elimination battles", url: "/elimination" },
       { name: "Leaderboard", url: "/leaderboard" },
     ],
   };

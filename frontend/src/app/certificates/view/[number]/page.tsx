@@ -11,13 +11,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/
 interface CertificateDetail {
   valid: boolean;
   certificate_number?: string;
-  course_title?: string;
+  contest_title?: string;
   student_full_name?: string;
-  grade?: string;
+  rank?: number;
   score_percent?: number;
-  skills?: string[];
-  specialization?: string;
-  instructor_name?: string;
   issued_at?: string;
   expires_at?: string;
   invalid_reason?: string;
@@ -31,14 +28,14 @@ export default function CertificateViewPage() {
   const [shared, setShared] = useState(false);
 
   useEffect(() => {
-    apiFetch<CertificateDetail>(`/certificates/verify/${encodeURIComponent(number)}`, { auth: false })
+    apiFetch<CertificateDetail>(`/contests/certificates/verify/${encodeURIComponent(number)}`, { auth: false })
       .then(setCert)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this certificate."));
   }, [number]);
 
   const share = async () => {
     const url = window.location.href;
-    const title = cert?.course_title ? `Survival School certificate — ${cert.course_title}` : "Survival School certificate";
+    const title = cert?.contest_title ? `Survival School certificate — ${cert.contest_title}` : "Survival School certificate";
     if (navigator.share) {
       await navigator.share({ title, text: `${cert?.student_full_name ?? "Student"} earned a verified Survival School certificate.`, url });
       return;
@@ -71,7 +68,7 @@ export default function CertificateViewPage() {
         <div className="flex flex-wrap gap-3">
           <button onClick={share} className="btn-secondary">{shared ? "Link copied" : "Share"}</button>
           <button onClick={() => window.print()} className="btn-secondary">Print / Save as PDF</button>
-          <a href={`${API_BASE}/certificates/${encodeURIComponent(number)}/pdf`} target="_blank" rel="noreferrer" className="btn-primary">Download PDF</a>
+          <a href={`${API_BASE}/contests/certificates/${encodeURIComponent(number)}/pdf`} target="_blank" rel="noreferrer" className="btn-primary">Download PDF</a>
         </div>
       </div>
 
@@ -84,7 +81,7 @@ export default function CertificateViewPage() {
         <div className="p-8 sm:p-12">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Certificate of Completion</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">Certificate of Achievement</p>
               <p className="mt-1 text-sm font-semibold text-zinc-700">Survival School</p>
             </div>
             <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 border-amber-500 text-center text-[8px] font-bold leading-tight text-amber-700">SS<br />VERIFIED</div>
@@ -92,31 +89,19 @@ export default function CertificateViewPage() {
 
           <p className="mt-10 text-sm text-zinc-500">This certifies that</p>
           <p className="mt-1 text-3xl font-bold tracking-tight text-zinc-900 sm:text-4xl">{cert.student_full_name}</p>
-          <p className="mt-4 text-sm text-zinc-500">has successfully completed</p>
-          <h1 className="mt-1 text-2xl font-semibold text-zinc-900 sm:text-3xl">{cert.course_title}</h1>
-          {cert.specialization && <p className="mt-1 text-sm text-zinc-500">{cert.specialization}</p>}
+          <p className="mt-4 text-sm text-zinc-500">finished rank #{cert.rank} in</p>
+          <h1 className="mt-1 text-2xl font-semibold text-zinc-900 sm:text-3xl">{cert.contest_title}</h1>
 
           <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-            {cert.grade && <span className="font-semibold text-zinc-900">Grade {cert.grade}</span>}
-            {cert.score_percent != null && <span className="text-zinc-600">{cert.score_percent}% overall</span>}
+            {cert.score_percent != null && <span className="font-semibold text-zinc-900">{cert.score_percent}% overall</span>}
           </div>
-
-          {cert.skills && cert.skills.length > 0 && (
-            <div className="mt-6">
-              <p className="text-xs font-medium uppercase tracking-wide text-zinc-400">Skills covered</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {cert.skills.map((s) => <span key={s} className="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-600">{s}</span>)}
-              </div>
-            </div>
-          )}
 
           <div className="mt-12 grid items-end gap-8 border-t border-zinc-200 pt-6 sm:grid-cols-[1fr_auto]">
             <div className="flex flex-wrap gap-x-12 gap-y-4">
-              <div className="text-xs text-zinc-500"><div className="mb-1 font-semibold text-zinc-800">{cert.instructor_name || "Course Lead"}</div>Course Lead</div>
               <div className="text-xs text-zinc-500"><div className="mb-1 font-semibold text-zinc-800">Survival School</div>Authorized Issuer</div>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`${API_BASE}/certificates/${encodeURIComponent(number)}/qr`} alt="Scan to verify this certificate" className="h-20 w-20 rounded border border-zinc-200 bg-white p-1 sm:justify-self-end" />
+            <img src={`${API_BASE}/contests/certificates/${encodeURIComponent(number)}/qr`} alt="Scan to verify this certificate" className="h-20 w-20 rounded border border-zinc-200 bg-white p-1 sm:justify-self-end" />
           </div>
 
           <div className="mt-6 border-t border-zinc-200 pt-4 text-xs leading-relaxed text-zinc-500">

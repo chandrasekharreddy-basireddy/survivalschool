@@ -8,10 +8,12 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { ContestCountdown } from "@/components/ContestCountdown";
+import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 
 interface Contest {
   id: string; title: string; description: string; starts_at: string; ends_at: string;
   duration_seconds: number; top_n_awarded: number; status: string; question_count: number;
+  fullscreen_required?: boolean; integrity_monitoring_enabled?: boolean;
 }
 interface OptionPublic { id: string; text: string; order_index: number }
 interface QuestionPublic { id: string; prompt: string; question_type: string; points: number; options: OptionPublic[] }
@@ -53,6 +55,11 @@ export default function ContestDetailPage() {
       setDeadline(start.server_deadline_at);
       const qs = await apiFetch<QuestionPublic[]>(`/contests/attempts/${start.attempt_id}/questions`);
       setQuestions(qs);
+      if (contest?.fullscreen_required && document.documentElement.requestFullscreen) {
+        // Best-effort — some browsers/contexts refuse this without a more
+        // direct user gesture, but the "join" click itself usually counts.
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setAlreadyCompeted(true);
@@ -63,6 +70,23 @@ export default function ContestDetailPage() {
       setJoining(false);
     }
   };
+
+  const reportIntegrityEvent = useCallback(
+    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click") => {
+      if (!attemptId) return;
+      apiFetch<{ logged: boolean; violation_count: number; auto_submitted: boolean }>(
+        `/contests/attempts/${attemptId}/events`, { method: "PUT", body: JSON.stringify({ event_type: eventType }) }
+      )
+        .then((res) => {
+          if (res.auto_submitted) {
+            toast.show("Too many integrity violations — your exam was automatically submitted.", "error");
+            setResult({ id: attemptId, status: "submitted", score_percent: null, rank: null });
+          }
+        })
+        .catch(() => {});
+    },
+    [attemptId, toast]
+  );
 
   const toggleOption = (question: QuestionPublic, optionId: string) => {
     setAnswers((prev) => {
@@ -131,8 +155,18 @@ export default function ContestDetailPage() {
           </button>
         </div>
       ) : (
+        <ExamIntegrityGuard
+          enabled={!!contest.integrity_monitoring_enabled}
+          fullscreenRequired={!!contest.fullscreen_required}
+          onIntegrityEvent={reportIntegrityEvent}
+        >
         <div className="mt-6 space-y-6">
           {deadline && <p className="text-xs text-fg-subtle">Your deadline: {formatDateTime(deadline)}</p>}
+          {contest.integrity_monitoring_enabled && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              This exam is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste is logged and may auto-submit your attempt.
+            </p>
+          )}
           {questions.map((q, idx) => (
             <div key={q.id} className="card">
               <p className="font-medium text-fg">{idx + 1}. {q.prompt}</p>
@@ -161,6 +195,7 @@ export default function ContestDetailPage() {
             {submitting ? "Submitting…" : "Submit final answers"}
           </button>
         </div>
+        </ExamIntegrityGuard>
       )}
 
       <div className="mt-10">

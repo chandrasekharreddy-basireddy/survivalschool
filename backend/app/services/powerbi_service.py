@@ -188,18 +188,22 @@ async def compute_daily_engagement(db: AsyncSession, *, day: date) -> dict:
         )
     ).scalar_one()
 
-    from app.models.assessment import QuizAttempt
+    from app.models.contest import ContestAttempt
 
+    # "Pass" has no meaning for a contest (no pass_score_percent) the way it
+    # did for the old course quizzes — approximate it as scoring at or above
+    # the median competitive bar of 50%, just for this aggregate engagement
+    # metric.
     quiz_stats = (
         await db.execute(
             select(
-                func.count(QuizAttempt.id),
-                func.avg(QuizAttempt.score_percent),
-                func.sum(func.cast(QuizAttempt.passed, Integer)),
+                func.count(ContestAttempt.id),
+                func.avg(ContestAttempt.score_percent),
+                func.sum(func.cast(ContestAttempt.score_percent >= 50, Integer)),
             ).where(
-                QuizAttempt.submitted_at >= start,
-                QuizAttempt.submitted_at < end,
-                QuizAttempt.status == "submitted",
+                ContestAttempt.submitted_at >= start,
+                ContestAttempt.submitted_at < end,
+                ContestAttempt.status == "submitted",
             )
         )
     ).one()

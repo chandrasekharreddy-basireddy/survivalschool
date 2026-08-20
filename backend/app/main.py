@@ -22,6 +22,7 @@ from app.core.middleware import (
 from app.database import AsyncSessionLocal
 from app.services.registration_service import refresh_window
 from app.websockets.chat import router as ws_chat_router
+from app.websockets.elimination import router as ws_elimination_router
 
 settings = get_settings()
 
@@ -49,31 +50,37 @@ async def lifespan(app: FastAPI):
     settings.validate_for_production()
     from app.seed import seed_rbac
     await seed_rbac()
-    from app.database import AsyncSessionLocal
-    from app.seed_courses import seed_default_courses
-    async with AsyncSessionLocal() as db:
-        created = await seed_default_courses(db)
-    if created:
-        import structlog
-        structlog.get_logger("survivalschool.startup").info("default_courses_seeded", count=created)
+
+    from app.websockets.manager import manager as ws_manager
+    if settings.APP_ENV != "test":
+        await ws_manager.start_listener()
 
     # Drive the weekend-exam / contest scheduler from inside the web process
     # when no standalone worker is deployed. Guarded by a Redis leader lock in
     # scheduler_loop, so running multiple gunicorn workers is safe.
     stop_event = asyncio.Event()
     scheduler_task: asyncio.Task | None = None
+    elimination_task: asyncio.Task | None = None
     if settings.RUN_INPROCESS_SCHEDULER and settings.APP_ENV != "test":
         from app.services.scheduler_runtime import scheduler_loop
         scheduler_task = asyncio.create_task(scheduler_loop(stop_event))
+        # A separate, much tighter loop than the 60s scheduler tick — a
+        # strict 15-second elimination-battle deadline can't wait behind a
+        # tick built for hourly/weekly jobs. See elimination_service.py's
+        # module docstring for why this needs its own cadence.
+        from app.services.elimination_service import elimination_sweep_loop
+        elimination_task = asyncio.create_task(elimination_sweep_loop(stop_event))
 
     try:
         yield
     finally:
         stop_event.set()
-        if scheduler_task is not None:
-            scheduler_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await scheduler_task
+        for task in (scheduler_task, elimination_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        await ws_manager.stop_listener()
 
 
 app = FastAPI(
@@ -142,6 +149,7 @@ async def registration_window_guard(request, call_next):
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(ws_chat_router)
+app.include_router(ws_elimination_router)
 
 Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json", "/metrics"]).instrument(app).expose(
     app, include_in_schema=False

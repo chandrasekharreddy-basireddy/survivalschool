@@ -6,34 +6,23 @@ from app.models.ai_practice import (  # noqa: F401
     AIMockAnswer,
     AIMockSession,
 )
-from app.models.assessment import (  # noqa: F401
-    Exam,
-    ExamAnswer,
-    ExamAttempt,
-    Question,
-    QuestionOption,
-    Quiz,
-    QuizAnswer,
-    QuizAttempt,
-)
-from app.models.attendance import AttendanceRecord, AttendanceSession  # noqa: F401
+from app.models.assessment import Question, QuestionOption  # noqa: F401
 from app.models.campus_timetable import CampusTimetableEntry, CampusTimetableSource  # noqa: F401
-from app.models.certificate import Certificate  # noqa: F401
 from app.models.challenge import DailyChallenge, DailyChallengeAttempt  # noqa: F401
-from app.models.classroom import (  # noqa: F401
-    Announcement,
-    AnnouncementComment,
-    Assignment,
-    AssignmentComment,
-    AssignmentSubmission,
-)
 from app.models.contest import (  # noqa: F401
     Contest,
     ContestAnswer,
     ContestAttempt,
     ContestCertificate,
 )
-from app.models.discussion import DiscussionReply, DiscussionThread, DiscussionVote  # noqa: F401
+from app.models.elimination import (  # noqa: F401
+    EliminationAnswer,
+    EliminationBattle,
+    EliminationInvitation,
+    EliminationParticipant,
+    EliminationRound,
+)
+from app.models.exam_platform import Subject, Topic, TopicDifficultyEvaluation, University  # noqa: F401
 from app.models.gamification import (  # noqa: F401
     Achievement,
     Badge,
@@ -41,17 +30,8 @@ from app.models.gamification import (  # noqa: F401
     PointsLedger,
     Streak,
 )
-from app.models.lms import (  # noqa: F401
-    Course,
-    CourseProgress,
-    CourseSection,
-    Enrollment,
-    Lesson,
-    LessonProgress,
-    LessonResource,
-)
 from app.models.practice import PracticeAnswer, PracticeSession, QuestionBookmark  # noqa: F401
-from app.models.scheduling import RegistrationWindow, ScheduledExamConfig  # noqa: F401
+from app.models.scheduling import AIExamRegistrationWindow  # noqa: F401
 from app.models.social import (  # noqa: F401
     ChatMember,
     ChatMessage,
@@ -69,7 +49,6 @@ from app.models.system import (  # noqa: F401
     SupportTicket,
     SystemSetting,
 )
-from app.models.timetable import TimetableEntry  # noqa: F401
 from app.models.user import (  # noqa: F401
     EmailVerification,
     InstructorApplication,

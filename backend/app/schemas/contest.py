@@ -40,6 +40,20 @@ class ContestAttemptStartOut(BaseModel):
     resumed: bool
 
 
+class AIWeeklyRegisterIn(BaseModel):
+    subject_id: uuid.UUID
+    topic_id: uuid.UUID
+
+
+class AIWeeklyRegisterOut(BaseModel):
+    attempt_id: uuid.UUID
+    contest_id: uuid.UUID
+    contest_title: str
+    starts_at: datetime
+    ends_at: datetime
+    status: str
+
+
 class ContestSubmit(BaseModel):
     answers: list[AnswerSubmit]
 

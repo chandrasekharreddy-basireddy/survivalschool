@@ -19,7 +19,6 @@ from sqlalchemy.orm import selectinload
 from app.config import get_settings
 from app.database import AsyncSessionLocal
 from app.models.gamification import Badge
-from app.models.lms import Course, CourseSection, Lesson
 from app.models.user import Permission, Role, User
 from app.security.passwords import hash_password
 
@@ -27,8 +26,6 @@ settings = get_settings()
 
 PERMISSIONS = [
     "users.read", "users.update", "users.delete",
-    "courses.create", "courses.read", "courses.update", "courses.delete",
-    "lessons.manage",
     "quiz.create", "quiz.manage",
     "exam.manage",
     "results.view",
@@ -38,31 +35,25 @@ PERMISSIONS = [
     "system.manage",
     "certificates.manage",
     "files.upload",
-    "timetable.manage",
     "contests.manage",
 ]
 
 ROLE_PERMISSIONS = {
     "STUDENT": ["files.upload"],
-    "INSTRUCTOR": ["courses.create", "courses.read", "courses.update", "lessons.manage",
-                   "quiz.create", "quiz.manage", "exam.manage", "results.view", "files.upload",
-                   "timetable.manage"],
+    "INSTRUCTOR": ["quiz.create", "quiz.manage", "exam.manage", "results.view", "files.upload", "contests.manage"],
     "MODERATOR": ["chat.moderate", "users.read"],
     "SUPPORT": ["users.read", "notifications.manage"],
-    "ADMIN": ["users.read", "users.update", "courses.create", "courses.read", "courses.update",
-              "courses.delete", "lessons.manage", "quiz.create", "quiz.manage", "exam.manage",
+    "ADMIN": ["users.read", "users.update", "quiz.create", "quiz.manage", "exam.manage",
               "results.view", "analytics.view", "chat.moderate", "notifications.manage",
-              "certificates.manage", "files.upload", "system.manage", "timetable.manage",
-              "contests.manage"],
+              "certificates.manage", "files.upload", "system.manage", "contests.manage"],
     "SUPER_ADMIN": PERMISSIONS,  # also implicitly bypasses all checks — see dependencies.py
 }
 
 BADGES = [
-    ("first_lesson", "First Steps", "Complete your first lesson", "footprints"),
     ("perfect_quiz", "Perfectionist", "Score 100% on a quiz", "star"),
-    ("course_finisher", "Course Finisher", "Complete a full course", "trophy"),
     ("week_streak", "Week Warrior", "Maintain a 7-day learning streak", "flame"),
     ("month_streak", "Unstoppable", "Maintain a 30-day learning streak", "medal"),
+    ("battle_winner", "Last One Standing", "Win an elimination battle", "crown"),
 ]
 
 
@@ -141,28 +132,8 @@ async def seed_demo_data():
             return u
 
         await ensure_user("admin@survivalschool.dev", "Ada Admin", ["ADMIN"])
-        instructor = await ensure_user("instructor@survivalschool.dev", "Ian Instructor", ["INSTRUCTOR"])
+        await ensure_user("instructor@survivalschool.dev", "Ian Instructor", ["INSTRUCTOR"])
         await ensure_user("student@survivalschool.dev", "Sam Student", ["STUDENT"])
-
-        course = (await db.execute(select(Course).where(Course.slug == "python-foundations"))).scalar_one_or_none()
-        if course is None:
-            course = Course(
-                title="Python Foundations", slug="python-foundations",
-                description="Learn Python from first principles through hands-on MCQ challenges.",
-                difficulty="beginner", is_published=True, instructor_id=instructor.id, estimated_hours=6,
-            )
-            db.add(course)
-            await db.flush()
-            section = CourseSection(course_id=course.id, title="Getting Started", order_index=0)
-            db.add(section)
-            await db.flush()
-            db.add(Lesson(section_id=section.id, title="What is Python?", content_type="article",
-                           content_body="Python is a high-level, readable programming language...",
-                           order_index=0, duration_minutes=8))
-            db.add(Lesson(section_id=section.id, title="Variables and Types", content_type="article",
-                           content_body="Variables in Python are dynamically typed...",
-                           order_index=1, duration_minutes=10))
-
         await db.commit()
 
     print("Demo data seeded.")
@@ -172,11 +143,6 @@ async def seed_demo_data():
 
 async def main():
     await seed_rbac()
-    from app.seed_courses import seed_default_courses
-    async with AsyncSessionLocal() as db:
-        created = await seed_default_courses(db)
-    if created:
-        print(f"Seeded {created} default course(s).")
     if "--with-demo-data" in sys.argv:
         await seed_demo_data()
 

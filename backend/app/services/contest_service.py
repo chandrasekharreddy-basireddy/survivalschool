@@ -1,10 +1,15 @@
 """Platform-wide contest scheduling, question selection, and finalization.
 
 Design constraints, deliberate:
-- Contest questions are always drawn from real, instructor-authored Question
-  rows belonging to published courses — never AI-generated. Certificates get
-  issued off these results, so the answer key must be something a human
-  instructor actually vetted, not something a language model produced.
+- Contest questions are always drawn from validated Question rows
+  (is_validated=True) — either instructor-authored, or AI-generated and
+  then passed through question_validation_service before that flag is set.
+  Certificates get issued off these results, so the answer key must be
+  something that actually passed structural/answer-count validation, not
+  raw unchecked model output. (Courses/instructor ownership no longer
+  gate this bank — see ai_exam_service.py for the AI Weekly Exam's own
+  generation path, which is a separate, always-AI-generated flow by
+  design since it needs a fresh set every week.)
 - Auto-generated occurrences (weekly Sat/Sun morning+evening IST, monthly)
   are idempotent via Contest.occurrence_key's unique constraint — the worker
   polls every 5 minutes and simply skips creating a contest whose occurrence
@@ -33,10 +38,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.assessment import Question
 from app.models.contest import Contest, ContestAttempt, ContestCertificate
-from app.models.lms import Course
 from app.models.user import User
 from app.services.cache_service import bump_cache_version, cache_delete
-from app.services.certificate_service import certificate_expiry
+from app.services.contest_certificate_service import certificate_expiry
 from app.services.gamification_service import award_points
 from app.services.notification_service import create_notification
 
@@ -59,11 +63,7 @@ POINTS_CONTEST_TOP3 = 50
 
 
 async def select_contest_questions(db: AsyncSession, count: int) -> list[uuid.UUID]:
-    rows = (await db.execute(
-        select(Question.id)
-        .join(Course, Course.id == Question.course_id)
-        .where(Course.is_published.is_(True), Course.deleted_at.is_(None))
-    )).scalars().all()
+    rows = (await db.execute(select(Question.id).where(Question.is_validated.is_(True)))).scalars().all()
     if not rows:
         return []
     return random.sample(list(rows), min(count, len(rows)))
@@ -120,7 +120,7 @@ async def check_and_create_scheduled_contests(db: AsyncSession) -> list[Contest]
         contest = await _create_if_missing(
             db, occurrence_key=occurrence_key,
             title=f"Weekend Challenge — {occurrence_date.strftime('%A %b %d')} {'Morning' if 'am' in slot_key else 'Evening'}",
-            description="A weekly platform-wide contest — real questions from published courses, top 3 win a certificate.",
+            description="A weekly platform-wide contest — top 3 win a certificate.",
             contest_type=contest_type, starts_at=slot_start, ends_at=slot_end,
             question_count=WEEKLY_QUESTION_COUNT,
         )

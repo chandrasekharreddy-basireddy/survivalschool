@@ -16,9 +16,7 @@ from app.core.exceptions import ConflictError, NotFoundError
 from app.core.runtime import PROCESS_STARTED_AT
 from app.database import check_db_health, get_db
 from app.dependencies import require_permission
-from app.models.assessment import ExamAttempt, QuizAttempt
-from app.models.certificate import Certificate
-from app.models.lms import Course, Enrollment
+from app.models.contest import ContestAttempt, ContestCertificate
 from app.models.system import AuditLog
 from app.models.user import InstructorApplication, Role, User
 from app.redis_client import check_redis_health
@@ -34,12 +32,8 @@ settings = get_settings()
 class AdminDashboardOut(BaseModel):
     total_students: int
     active_students_7d: int
-    total_courses: int
-    published_courses: int
-    total_enrollments: int
     certificates_issued: int
-    quiz_attempts_30d: int
-    exam_attempts_30d: int
+    contest_attempts_30d: int
 
 
 class AuditLogOut(BaseModel):
@@ -71,17 +65,12 @@ async def admin_dashboard(user: User = Depends(require_permission("analytics.vie
 
     total_students = (await db.execute(select(func.count(User.id)).where(User.deleted_at.is_(None)))).scalar_one()
     active_7d = (await db.execute(select(func.count(func.distinct(User.id))).where(User.last_login_at >= week_ago))).scalar_one()
-    total_courses = (await db.execute(select(func.count(Course.id)).where(Course.deleted_at.is_(None)))).scalar_one()
-    published = (await db.execute(select(func.count(Course.id)).where(Course.is_published.is_(True)))).scalar_one()
-    enrollments = (await db.execute(select(func.count(Enrollment.id)))).scalar_one()
-    certs = (await db.execute(select(func.count(Certificate.id)))).scalar_one()
-    quiz_attempts = (await db.execute(select(func.count(QuizAttempt.id)).where(QuizAttempt.created_at >= month_ago))).scalar_one()
-    exam_attempts = (await db.execute(select(func.count(ExamAttempt.id)).where(ExamAttempt.created_at >= month_ago))).scalar_one()
+    certs = (await db.execute(select(func.count(ContestCertificate.id)))).scalar_one()
+    contest_attempts = (await db.execute(select(func.count(ContestAttempt.id)).where(ContestAttempt.created_at >= month_ago))).scalar_one()
 
     return AdminDashboardOut(
-        total_students=total_students, active_students_7d=active_7d, total_courses=total_courses,
-        published_courses=published, total_enrollments=enrollments, certificates_issued=certs,
-        quiz_attempts_30d=quiz_attempts, exam_attempts_30d=exam_attempts,
+        total_students=total_students, active_students_7d=active_7d,
+        certificates_issued=certs, contest_attempts_30d=contest_attempts,
     )
 
 

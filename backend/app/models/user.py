@@ -114,10 +114,16 @@ class UserRole(Base):
 
 class Profile(Base, UUIDPk, Timestamped):
     __tablename__ = "profiles"
+    __table_args__ = (UniqueConstraint("public_handle", name="uq_profiles_public_handle"),)
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False
     )
+    # The shareable "@handle" other students find/invite by (elimination
+    # battles, follow search) instead of exposing email. Nullable until the
+    # student sets one (see users.py's handle-claim endpoint); existing
+    # accounts backfill lazily rather than a forced migration prompt.
+    public_handle: Mapped[str | None] = mapped_column(String(30))
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     bio: Mapped[str | None] = mapped_column(String(1000))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)

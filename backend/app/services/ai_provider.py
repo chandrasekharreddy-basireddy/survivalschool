@@ -28,6 +28,11 @@ class AIResponse:
 class GeneratedMCQ:
     prompt: str
     options: list[tuple[str, bool]] = field(default_factory=list)
+    # "single" (exactly one correct option, MCQ) | "multiple" (one or more
+    # correct options, MSQ). Defaults to "single" so the existing
+    # generate_questions() callers (ai_practice, the old weekly/monthly
+    # contest slots) are unaffected.
+    question_type: str = "single"
 
 
 class AIGenerationError(Exception):
@@ -45,6 +50,12 @@ class AIProvider(ABC):
 
     @abstractmethod
     async def generate_questions(self, subject: str, count: int) -> list[GeneratedMCQ]:
+        ...
+
+    @abstractmethod
+    async def generate_mixed_questions(self, topic: str, single_count: int, multiple_count: int) -> list[GeneratedMCQ]:
+        """single_count single-answer (MCQ) + multiple_count multi-answer
+        (MSQ) questions on `topic`, e.g. the AI Weekly Exam's 40+10 set."""
         ...
 
 
@@ -77,6 +88,22 @@ class MockAIProvider(AIProvider):
                     (f"A common misconception about {subject} (#{i})", False),
                     (f"An unrelated distractor for {subject} (#{i})", False),
                 ],
+            ))
+        return questions
+
+    async def generate_mixed_questions(self, topic: str, single_count: int, multiple_count: int) -> list[GeneratedMCQ]:
+        questions: list[GeneratedMCQ] = []
+        for i in range(1, single_count + 1):
+            questions.append(GeneratedMCQ(
+                prompt=f"(Mock AI) Question {i} on \"{topic}\": which of the following is correct?",
+                options=[(f"Correct concept #{i}", True), (f"Distractor A #{i}", False), (f"Distractor B #{i}", False), (f"Distractor C #{i}", False)],
+                question_type="single",
+            ))
+        for i in range(1, multiple_count + 1):
+            questions.append(GeneratedMCQ(
+                prompt=f"(Mock AI) Multi-select question {i} on \"{topic}\": select ALL that apply.",
+                options=[(f"Correct concept A #{i}", True), (f"Correct concept B #{i}", True), (f"Distractor #{i}", False), (f"Another distractor #{i}", False)],
+                question_type="multiple",
             ))
         return questions
 
@@ -202,6 +229,59 @@ class SarvamAIProvider(AIProvider):
                 raise AIGenerationError("Sarvam AI returned a question without exactly one correct option.")
             questions.append(GeneratedMCQ(
                 prompt=str(item["prompt"]),
+                options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
+            ))
+        return questions
+
+    async def generate_mixed_questions(self, topic: str, single_count: int, multiple_count: int) -> list[GeneratedMCQ]:
+        system_prompt = (
+            "You are a question-generation engine for a university competitive exam. "
+            "Output ONLY valid JSON, no prose, no markdown fences. The JSON must be a list of objects, "
+            "each shaped exactly as: "
+            '{"prompt": "...", "question_type": "single"|"multiple", "options": '
+            '[{"text": "...", "is_correct": true|false}, ...]}. '
+            "For question_type \"single\", exactly one option must have is_correct true (this is a standard "
+            "multiple-choice question). For question_type \"multiple\", one or more options must have "
+            "is_correct true, and at least one option must have is_correct false (this is a select-all-that-apply "
+            "question, so it must have at least one wrong option to be a real question). Every question needs "
+            "2-6 options. Do not include any other keys or text."
+        )
+        response = await self.chat(
+            [{"role": "user", "content": (
+                f"Generate exactly {single_count} single-answer multiple-choice questions and exactly "
+                f"{multiple_count} multi-select questions about: {topic}. Total {single_count + multiple_count} questions."
+            )}],
+            system_prompt=system_prompt,
+        )
+        if response.error:
+            raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+
+        raw = response.content.strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
+        if not isinstance(data, list) or not data:
+            raise AIGenerationError("Sarvam AI returned an empty or malformed question list.")
+
+        questions: list[GeneratedMCQ] = []
+        for item in data:
+            if not isinstance(item, dict) or "prompt" not in item or "options" not in item:
+                raise AIGenerationError("Sarvam AI returned a question missing required fields.")
+            qtype = item.get("question_type")
+            if qtype not in ("single", "multiple"):
+                raise AIGenerationError(f"Sarvam AI returned an invalid question_type: {qtype!r}.")
+            options = item["options"]
+            if not isinstance(options, list) or len(options) < 2:
+                raise AIGenerationError("Sarvam AI returned a question with fewer than 2 options.")
+            correct_count = sum(1 for o in options if isinstance(o, dict) and o.get("is_correct") is True)
+            if qtype == "single" and correct_count != 1:
+                raise AIGenerationError("Sarvam AI returned a 'single' question without exactly one correct option.")
+            if qtype == "multiple" and (correct_count < 1 or correct_count >= len(options)):
+                raise AIGenerationError("Sarvam AI returned a 'multiple' question without a valid mix of correct/incorrect options.")
+            questions.append(GeneratedMCQ(
+                prompt=str(item["prompt"]), question_type=qtype,
                 options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
             ))
         return questions

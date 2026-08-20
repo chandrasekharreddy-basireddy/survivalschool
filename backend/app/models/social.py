@@ -17,8 +17,10 @@ class ChatRoom(Base, UUIDPk, Timestamped):
     __tablename__ = "chat_rooms"
 
     name: Mapped[str] = mapped_column(String(150), nullable=False)
-    room_type: Mapped[str] = mapped_column(String(20), nullable=False)  # direct|course|announcement
-    course_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"))
+    # "course" and "announcement" room types existed for the old LMS and are
+    # gone along with it — "direct" (the follow-gated 1:1 DM, see
+    # chat.py::start_direct_message) is the only room type left.
+    room_type: Mapped[str] = mapped_column(String(20), nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 

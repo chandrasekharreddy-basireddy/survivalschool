@@ -17,15 +17,12 @@ class BookmarkOut(BaseModel):
     question_id: uuid.UUID
     prompt: str
     question_type: str
-    course_id: uuid.UUID | None
-    course_title: str | None
     note: str | None
     created_at: datetime
 
 
 class PracticeStartRequest(BaseModel):
-    course_id: uuid.UUID | None = None
-    source: str = Field(pattern=r"^(bookmarks|mistakes|course)$")
+    source: str = Field(pattern=r"^(bookmarks|mistakes)$")
     limit: int = Field(default=10, ge=1, le=50)
 
 
@@ -42,7 +39,6 @@ class PracticeQuestionOut(BaseModel):
 class PracticeSessionStartOut(BaseModel):
     id: uuid.UUID
     source: str
-    course_id: uuid.UUID | None
     questions: list[PracticeQuestionOut]
 
 
@@ -72,8 +68,6 @@ class PracticeResultOut(BaseModel):
 class PracticeSessionHistoryOut(BaseModel):
     id: uuid.UUID
     source: str
-    course_id: uuid.UUID | None
-    course_title: str | None
     score_percent: int | None
     started_at: datetime
     submitted_at: datetime | None

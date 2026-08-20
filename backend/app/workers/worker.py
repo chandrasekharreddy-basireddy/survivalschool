@@ -19,11 +19,8 @@ from app.config import get_settings
 from app.core.logging import configure_logging
 from app.database import AsyncSessionLocal
 from app.models.gamification import LeaderboardSnapshot, PointsLedger
-from app.models.lms import CourseProgress
 from app.models.user import EmailVerification, PasswordReset, RefreshToken
 from app.models.user import Session as SessionModel
-from app.services.email_service import send_email
-from app.services.n8n_service import emit_event
 from app.services.powerbi_service import sync_daily_engagement
 from app.services.scheduler_runtime import run_locked_tick
 
@@ -62,40 +59,6 @@ async def recompute_leaderboard_snapshot() -> None:
     logger.info("leaderboard_snapshot_recomputed", entries=len(rows))
 
 
-async def send_inactivity_reminders() -> None:
-    """Nudges students who made progress but haven't returned in 7+ days —
-    mirrors the n8n 'inactive student -> engagement reminder' workflow
-    (spec section 20) but runs natively too, so the reminder still fires even
-    if the n8n automation layer is down (spec section 48: n8n failing must
-    never break core functionality)."""
-    cutoff = datetime.now(UTC) - timedelta(days=7)
-    async with AsyncSessionLocal() as db:
-        stalled = (await db.execute(
-            select(CourseProgress).where(
-                CourseProgress.percent_complete > 0, CourseProgress.percent_complete < 100,
-                CourseProgress.updated_at < cutoff,
-            ).limit(50)
-        )).scalars().all()
-        for progress in stalled:
-            from app.models.lms import Course
-            from app.models.user import User
-            student = await db.get(User, progress.student_id)
-            course = await db.get(Course, progress.course_id)
-            if not student or not course:
-                continue
-            await send_email(
-                student.email, "We saved your spot", "inactivity_reminder",
-                full_name=student.full_name, course_title=course.title,
-                percent_complete=progress.percent_complete,
-                resume_url=f"{settings.FRONTEND_URL}/courses/{course.slug}",
-            )
-            await emit_event("student.inactive", {
-                "email": student.email, "full_name": student.full_name,
-                "course_title": course.title, "percent_complete": progress.percent_complete,
-            })
-    logger.info("inactivity_reminders_sent", count=len(stalled))
-
-
 async def run_scheduler_tick() -> None:
     """Runs the shared weekend-exam + contest scheduling tick (see
     app/services/scheduler_runtime.py) behind its Redis leader lock.
@@ -126,7 +89,6 @@ async def run_powerbi_sync() -> None:
 
 
 JOBS = [
-    (send_inactivity_reminders, 86400),
     # Same 60s cadence as scheduler_runtime.TICK_SECONDS, since both compete
     # for the same lock and only one of them will actually run any given tick.
     # cleanup_expired_tokens and recompute_leaderboard_snapshot are NOT listed

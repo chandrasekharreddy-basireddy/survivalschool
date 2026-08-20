@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Literal
 
@@ -10,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError
+from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_user, require_permission
 from app.models.user import Profile, Role, User
@@ -73,6 +74,7 @@ async def update_me(
 
 class ProfileOut(BaseModel):
     id: uuid.UUID
+    public_handle: str | None
     bio: str | None
     avatar_url: str | None
     timezone: str
@@ -82,7 +84,11 @@ class ProfileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+_HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{3,30}$")
+
+
 class ProfilePatch(BaseModel):
+    public_handle: str | None = None
     bio: str | None = None
     avatar_url: str | None = None
     timezone: str | None = None
@@ -114,6 +120,15 @@ async def update_my_profile(
     db: AsyncSession = Depends(get_db),
 ):
     profile = await _get_or_create_profile(db, user)
+    if body.public_handle is not None:
+        handle = body.public_handle.strip().lower()
+        if not _HANDLE_PATTERN.match(handle):
+            raise ValidationAppError("Handles must be 3-30 characters: lowercase letters, numbers, and underscores only.")
+        if handle != profile.public_handle:
+            existing = (await db.execute(select(Profile).where(Profile.public_handle == handle))).scalar_one_or_none()
+            if existing is not None and existing.id != profile.id:
+                raise ConflictError("That handle is already taken.")
+            profile.public_handle = handle
     if body.bio is not None:
         profile.bio = body.bio
     if body.avatar_url is not None:

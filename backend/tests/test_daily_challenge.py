@@ -14,7 +14,29 @@ async def _make_instructor(client):
     return email, {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-async def _seed_question(client, instructor_headers, prompt="Daily Q"):
+async def _make_admin(client):
+    email, headers = await auth_headers(client)
+    await grant_role(email, "ADMIN")
+    tokens = await login(client, email)
+    return email, {"Authorization": f"Bearer {tokens['access_token']}"}
+
+
+async def _seed_subject_and_topic(client, admin_headers, name="Daily"):
+    import uuid as uuid_mod
+    unique = uuid_mod.uuid4().hex[:8]
+    subject_resp = await client.post(
+        "/subjects", json={"name": f"Subject {unique}", "slug": f"subj-{unique}"}, headers=admin_headers,
+    )
+    assert subject_resp.status_code == 201, subject_resp.text
+    subject_id = subject_resp.json()["id"]
+    topic_resp = await client.post(
+        f"/subjects/{subject_id}/topics", json={"name": f"Topic {unique}", "slug": f"topic-{unique}"}, headers=admin_headers,
+    )
+    assert topic_resp.status_code == 201, topic_resp.text
+    return subject_id, topic_resp.json()["id"]
+
+
+async def _seed_question(client, instructor_headers, prompt="Daily Q", admin_headers=None):
     """Only used to guarantee at least one single/true_false Question exists
     in case this is the very first test in the whole suite to touch
     /daily-challenge — the *content* of the seeded question is irrelevant to
@@ -25,15 +47,13 @@ async def _seed_question(client, instructor_headers, prompt="Daily Q"):
     tests/conftest.py's session-scoped _setup_database fixture) — so tests
     below look up the real correct option directly via the DB rather than
     assuming their own freshly-seeded question is the one in play."""
-    course_resp = await client.post(
-        "/courses", json={"title": f"Course for {prompt}", "slug": f"course-{prompt}".lower().replace(" ", "-")[:60]},
-        headers=instructor_headers,
-    )
-    course_id = course_resp.json()["id"]
+    if admin_headers is None:
+        _, admin_headers = await _make_admin(client)
+    subject_id, topic_id = await _seed_subject_and_topic(client, admin_headers)
     q_resp = await client.post(
         "/questions",
         json={
-            "course_id": course_id, "prompt": prompt, "question_type": "single", "points": 1,
+            "subject_id": subject_id, "topic_id": topic_id, "prompt": prompt, "question_type": "single", "points": 1,
             "options": [
                 {"text": "Wrong", "is_correct": False, "order_index": 0},
                 {"text": "Right", "is_correct": True, "order_index": 1},

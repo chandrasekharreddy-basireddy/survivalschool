@@ -34,8 +34,14 @@ from app.models.exam_platform import Subject, Topic
 from app.models.user import User
 from app.services.ai_provider import get_ai_provider
 from app.services.cache_service import bump_cache_version
-from app.services.difficulty_service import MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM, get_current_difficulty
-from app.services.question_validation_service import QuestionValidationError, validate_generated_batch
+from app.services.difficulty_service import (
+    MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM,
+    get_current_difficulty,
+)
+from app.services.question_validation_service import (
+    QuestionValidationError,
+    validate_generated_batch,
+)
 from app.services.registration_service import ai_exam_registration_is_open, get_or_create_window
 
 logger = structlog.get_logger("survivalschool.ai_exam")

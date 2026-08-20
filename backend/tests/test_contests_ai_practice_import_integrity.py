@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import io
-from datetime import date, datetime, timedelta, timezone
+import uuid
+from datetime import UTC, datetime, timedelta
 
 import openpyxl
 import pytest
@@ -27,19 +28,27 @@ async def _make_admin(client):
     return email, {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-async def _make_course(client, instructor_headers, title, slug, publish=True):
-    course_id = (await client.post("/courses", json={"title": title, "slug": slug}, headers=instructor_headers)).json()["id"]
-    if publish:
-        await client.post(f"/courses/{course_id}/publish", headers=instructor_headers)
-    return course_id
+async def _seed_subject_and_topic(client, admin_headers):
+    unique = uuid.uuid4().hex[:8]
+    subject_resp = await client.post(
+        "/subjects", json={"name": f"Subject {unique}", "slug": f"subj-{unique}"}, headers=admin_headers,
+    )
+    assert subject_resp.status_code == 201, subject_resp.text
+    subject_id = subject_resp.json()["id"]
+    topic_resp = await client.post(
+        f"/subjects/{subject_id}/topics", json={"name": f"Topic {unique}", "slug": f"topic-{unique}"}, headers=admin_headers,
+    )
+    assert topic_resp.status_code == 201, topic_resp.text
+    return subject_id, topic_resp.json()["id"]
 
 
-async def _make_question(client, instructor_headers, course_id, prompt, correct_text, wrong_text):
+async def _make_question(client, instructor_headers, subject_id, topic_id, prompt, correct_text, wrong_text):
     resp = await client.post("/questions", json={
-        "course_id": course_id, "prompt": prompt, "question_type": "single", "points": 1,
+        "subject_id": subject_id, "topic_id": topic_id, "prompt": prompt, "question_type": "single", "points": 1,
         "options": [{"text": correct_text, "is_correct": True, "order_index": 0},
                     {"text": wrong_text, "is_correct": False, "order_index": 1}],
     }, headers=instructor_headers)
+    assert resp.status_code == 201, resp.text
     return resp.json()["id"]
 
 
@@ -47,32 +56,34 @@ async def _make_question(client, instructor_headers, course_id, prompt, correct_
 # Contests
 # ---------------------------------------------------------------------------
 
-async def test_contest_creation_is_admin_only(client):
+async def test_contest_creation_requires_contests_manage_permission(client):
+    """contests.manage is held by INSTRUCTOR and ADMIN (see app/seed.py) —
+    a plain student must not be able to create a contest."""
+    _, student = await auth_headers(client)
     _, instructor = await _make_instructor(client)
-    _, admin = await _make_admin(client)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     forbidden = await client.post("/contests", json={
-        "title": "Instructor Attempt", "starts_at": now.isoformat(), "ends_at": (now + timedelta(hours=1)).isoformat(),
+        "title": "Student Attempt", "starts_at": now.isoformat(), "ends_at": (now + timedelta(hours=1)).isoformat(),
         "question_ids": [],
-    }, headers=instructor)
+    }, headers=student)
     assert forbidden.status_code == 403
 
     allowed = await client.post("/contests", json={
-        "title": "Admin Contest", "starts_at": now.isoformat(), "ends_at": (now + timedelta(hours=1)).isoformat(),
+        "title": "Instructor Contest", "starts_at": now.isoformat(), "ends_at": (now + timedelta(hours=1)).isoformat(),
         "question_ids": [],
-    }, headers=admin)
+    }, headers=instructor)
     assert allowed.status_code == 201, allowed.text
 
 
 async def test_contest_attempt_leaderboard_and_finalize_awards_top3_certificates(client):
-    _, instructor = await _make_instructor(client)
-    course_id = await _make_course(client, instructor, "Contest Source Course", "contest-source-course")
-    q1 = await _make_question(client, instructor, course_id, "Contest Q1?", "Right1", "Wrong1")
-    q2 = await _make_question(client, instructor, course_id, "Contest Q2?", "Right2", "Wrong2")
-
     _, admin = await _make_admin(client)
-    now = datetime.now(timezone.utc)
+    _, instructor = await _make_instructor(client)
+    subject_id, topic_id = await _seed_subject_and_topic(client, admin)
+    q1 = await _make_question(client, instructor, subject_id, topic_id, "Contest Q1?", "Right1", "Wrong1")
+    q2 = await _make_question(client, instructor, subject_id, topic_id, "Contest Q2?", "Right2", "Wrong2")
+
+    now = datetime.now(UTC)
     created = await client.post("/contests", json={
         "title": "Finalize Test Contest", "starts_at": (now - timedelta(minutes=1)).isoformat(),
         "ends_at": (now + timedelta(seconds=3)).isoformat(), "duration_seconds": 1800,
@@ -137,7 +148,7 @@ async def test_contest_scheduler_occurrence_key_is_idempotent(client):
     from app.services.contest_service import _create_if_missing
 
     async with AsyncSessionLocal() as db:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         first = await _create_if_missing(
             db, occurrence_key="test-occurrence-key-unique-1", title="Idempotency Test", description="",
             contest_type="weekly_morning", starts_at=now, ends_at=now + timedelta(hours=1), question_count=5,
@@ -199,10 +210,10 @@ async def test_ai_mock_practice_generates_and_grades_server_side_with_zero_point
 
 
 async def test_ai_mock_practice_never_appears_in_real_question_bank(client):
-    """The whole point of the separate table set: an AI-generated question
-    must never be selectable as a real Question row (e.g. by the contest
-    question-selection service, which only ever queries the `questions`
-    table joined to published courses)."""
+    """The whole point of the separate table set: an AI-generated mock
+    practice question must never be selectable as a real Question row (e.g.
+    by the contest question-selection service, which only ever queries the
+    `questions` table)."""
     _, student = await auth_headers(client)
     created = (await client.post("/ai-practice/sessions", json={"subject": "History", "question_count": 3}, headers=student)).json()
     ai_question_ids = {q["id"] for q in created["questions"]}
@@ -233,29 +244,31 @@ _CSV_ONE_BAD_ROW = (
 
 
 async def test_bulk_import_csv_preview_then_commit(client):
+    _, admin = await _make_admin(client)
     _, instructor = await _make_instructor(client)
-    course_id = await _make_course(client, instructor, "Bulk Import Course", "bulk-import-course")
+    subject_id, topic_id = await _seed_subject_and_topic(client, admin)
 
     files = {"file": ("questions.csv", _CSV_VALID.encode(), "text/csv")}
-    preview = await client.post(f"/questions/bulk-import?course_id={course_id}", files=files, headers=instructor)
+    preview = await client.post(f"/questions/bulk-import?subject_id={subject_id}&topic_id={topic_id}", files=files, headers=instructor)
     assert preview.status_code == 200, preview.text
     body = preview.json()
     assert body["total_rows"] == 2 and body["valid_rows"] == 2 and body["error_rows"] == 0
     assert body["committed"] is False and body["inserted_count"] == 0
 
     files = {"file": ("questions.csv", _CSV_VALID.encode(), "text/csv")}
-    commit = await client.post(f"/questions/bulk-import?course_id={course_id}&dry_run=false", files=files, headers=instructor)
+    commit = await client.post(f"/questions/bulk-import?subject_id={subject_id}&topic_id={topic_id}&dry_run=false", files=files, headers=instructor)
     assert commit.status_code == 200, commit.text
     assert commit.json()["committed"] is True
     assert commit.json()["inserted_count"] == 2
 
 
 async def test_bulk_import_all_or_nothing_on_row_error(client):
+    _, admin = await _make_admin(client)
     _, instructor = await _make_instructor(client)
-    course_id = await _make_course(client, instructor, "Bulk Import Bad Course", "bulk-import-bad-course")
+    subject_id, topic_id = await _seed_subject_and_topic(client, admin)
 
     files = {"file": ("questions.csv", _CSV_ONE_BAD_ROW.encode(), "text/csv")}
-    commit = await client.post(f"/questions/bulk-import?course_id={course_id}&dry_run=false", files=files, headers=instructor)
+    commit = await client.post(f"/questions/bulk-import?subject_id={subject_id}&topic_id={topic_id}&dry_run=false", files=files, headers=instructor)
     assert commit.status_code == 200, commit.text
     body = commit.json()
     assert body["error_rows"] == 1
@@ -265,19 +278,10 @@ async def test_bulk_import_all_or_nothing_on_row_error(client):
     assert "exactly one correct option" in bad_row["error"]
 
 
-async def test_bulk_import_rejects_non_owner_instructor(client):
-    _, owner = await _make_instructor(client)
-    _, other = await _make_instructor(client)
-    course_id = await _make_course(client, owner, "Bulk Import Owned Course", "bulk-import-owned-course")
-
-    files = {"file": ("questions.csv", _CSV_VALID.encode(), "text/csv")}
-    resp = await client.post(f"/questions/bulk-import?course_id={course_id}", files=files, headers=other)
-    assert resp.status_code == 403
-
-
 async def test_bulk_import_xlsx(client):
+    _, admin = await _make_admin(client)
     _, instructor = await _make_instructor(client)
-    course_id = await _make_course(client, instructor, "Bulk Import XLSX Course", "bulk-import-xlsx-course")
+    subject_id, topic_id = await _seed_subject_and_topic(client, admin)
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -287,125 +291,55 @@ async def test_bulk_import_xlsx(client):
     wb.save(buf)
 
     files = {"file": ("questions.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
-    commit = await client.post(f"/questions/bulk-import?course_id={course_id}&dry_run=false", files=files, headers=instructor)
+    commit = await client.post(f"/questions/bulk-import?subject_id={subject_id}&topic_id={topic_id}&dry_run=false", files=files, headers=instructor)
     assert commit.status_code == 200, commit.text
     assert commit.json()["inserted_count"] == 1
 
 
 # ---------------------------------------------------------------------------
-# Exam integrity
+# Contest integrity monitoring
 # ---------------------------------------------------------------------------
 
-async def test_exam_integrity_events_are_logged_and_reviewable_by_instructor(client):
+async def test_contest_integrity_events_are_logged_reviewable_and_auto_submit_on_threshold(client):
+    _, admin = await _make_admin(client)
     _, instructor = await _make_instructor(client)
-    course_id = await _make_course(client, instructor, "Integrity Course", "integrity-course")
-    question_id = await _make_question(client, instructor, course_id, "Integrity Q?", "Right", "Wrong")
-    exam_id = (await client.post("/exams", json={
-        "course_id": course_id, "title": "Integrity Exam", "time_limit_seconds": 3600,
-        "question_ids": [question_id], "fullscreen_required": True,
-    }, headers=instructor)).json()["id"]
-    await client.post(f"/exams/{exam_id}/publish", headers=instructor)
+    subject_id, topic_id = await _seed_subject_and_topic(client, admin)
+    question_id = await _make_question(client, instructor, subject_id, topic_id, "Integrity Q?", "Right", "Wrong")
+
+    now = datetime.now(UTC)
+    contest = await client.post("/contests", json={
+        "title": "Integrity Contest", "starts_at": (now - timedelta(minutes=1)).isoformat(),
+        "ends_at": (now + timedelta(hours=1)).isoformat(), "duration_seconds": 3600,
+        "question_ids": [question_id],
+    }, headers=admin)
+    assert contest.status_code == 201, contest.text
+    contest_id = contest.json()["id"]
 
     _, student = await auth_headers(client)
-    start = await client.post(f"/exams/{exam_id}/attempts", headers=student)
+    start = await client.post(f"/contests/{contest_id}/attempts", headers=student)
+    assert start.status_code == 201, start.text
     attempt_id = start.json()["attempt_id"]
 
-    logged = await client.put(f"/exams/attempts/{attempt_id}/events", json={"event_type": "tab_blur"}, headers=student)
+    logged = await client.put(f"/contests/attempts/{attempt_id}/events", json={"event_type": "tab_blur"}, headers=student)
     assert logged.status_code == 200 and logged.json()["logged"] is True
-    await client.put(f"/exams/attempts/{attempt_id}/events", json={"event_type": "fullscreen_exit"}, headers=student)
+    await client.put(f"/contests/attempts/{attempt_id}/events", json={"event_type": "fullscreen_exit"}, headers=student)
 
-    flagged = await client.get(f"/exams/{exam_id}/attempts/flagged", headers=instructor)
+    flagged = await client.get(f"/contests/{contest_id}/flagged-attempts", headers=admin)
     assert flagged.status_code == 200
     assert len(flagged.json()) == 1
     assert len(flagged.json()[0]["flagged_events"]) == 2
     assert {e["type"] for e in flagged.json()[0]["flagged_events"]} == {"tab_blur", "fullscreen_exit"}
 
-    # A different instructor can't see this exam's integrity data.
-    _, other_instructor = await _make_instructor(client)
-    forbidden = await client.get(f"/exams/{exam_id}/attempts/flagged", headers=other_instructor)
+    # A non-privileged actor can't see this contest's integrity data.
+    _, other_student = await auth_headers(client)
+    forbidden = await client.get(f"/contests/{contest_id}/flagged-attempts", headers=other_student)
     assert forbidden.status_code == 403
 
     # Events stop being accepted once the attempt is submitted.
-    qs = (await client.get(f"/exams/attempts/{attempt_id}/questions", headers=student)).json()
+    qs = (await client.get(f"/contests/attempts/{attempt_id}/questions", headers=student)).json()
     correct_id = next(o["id"] for o in qs[0]["options"] if o["text"] == "Right")
-    await client.post(f"/exams/attempts/{attempt_id}/submit", json={
+    await client.post(f"/contests/attempts/{attempt_id}/submit", json={
         "answers": [{"question_id": question_id, "selected_option_ids": [correct_id]}],
     }, headers=student)
-    post_submit = await client.put(f"/exams/attempts/{attempt_id}/events", json={"event_type": "copy"}, headers=student)
+    post_submit = await client.put(f"/contests/attempts/{attempt_id}/events", json={"event_type": "copy"}, headers=student)
     assert post_submit.json()["logged"] is False
-
-
-# ---------------------------------------------------------------------------
-# Attendance
-# ---------------------------------------------------------------------------
-
-async def _make_timetable_entry_for_today(client, instructor, course_id):
-    today_weekday = date.today().weekday()
-    resp = await client.post("/timetable", json={
-        "course_id": course_id, "term": "2026-Fall", "term_start_date": "2026-01-01", "term_end_date": "2026-12-31",
-        "day_of_week": today_weekday, "start_time": "09:00:00", "end_time": "10:00:00", "room": "Attendance Room",
-    }, headers=instructor)
-    assert resp.status_code == 201, resp.text
-    return resp.json()["id"]
-
-
-async def test_attendance_open_requires_actual_scheduled_day(client):
-    _, instructor = await _make_instructor(client)
-    course_id = await _make_course(client, instructor, "Attendance Day Course", "attendance-day-course")
-    wrong_weekday = (date.today().weekday() + 1) % 7
-    entry_id = (await client.post("/timetable", json={
-        "course_id": course_id, "term": "2026-Fall", "term_start_date": "2026-01-01", "term_end_date": "2026-12-31",
-        "day_of_week": wrong_weekday, "start_time": "09:00:00", "end_time": "10:00:00", "room": "R1",
-    }, headers=instructor)).json()["id"]
-
-    resp = await client.post("/attendance/sessions/open", json={"timetable_entry_id": entry_id}, headers=instructor)
-    assert resp.status_code == 422, resp.text
-
-
-async def test_attendance_check_in_flow_and_manual_marking(client):
-    _, instructor = await _make_instructor(client)
-    course_id = await _make_course(client, instructor, "Attendance Flow Course", "attendance-flow-course")
-    entry_id = await _make_timetable_entry_for_today(client, instructor, course_id)
-
-    opened = await client.post("/attendance/sessions/open", json={"timetable_entry_id": entry_id}, headers=instructor)
-    assert opened.status_code == 201, opened.text
-    session_id = opened.json()["id"]
-    code = opened.json()["check_in_code"]
-
-    _, enrolled_student = await auth_headers(client)
-    await client.post(f"/courses/{course_id}/enroll", headers=enrolled_student)
-    _, outsider = await auth_headers(client)
-
-    wrong_code = await client.post("/attendance/check-in", json={"code": "ZZZZZZ"}, headers=enrolled_student)
-    assert wrong_code.status_code == 409
-
-    not_enrolled = await client.post("/attendance/check-in", json={"code": code}, headers=outsider)
-    assert not_enrolled.status_code == 403
-
-    checked_in = await client.post("/attendance/check-in", json={"code": code}, headers=enrolled_student)
-    assert checked_in.status_code == 200, checked_in.text
-    assert checked_in.json()["status"] == "present"
-
-    # Idempotent — checking in twice doesn't create two records.
-    again = await client.post("/attendance/check-in", json={"code": code}, headers=enrolled_student)
-    assert again.status_code == 200
-    assert again.json()["id"] == checked_in.json()["id"]
-
-    _, second_enrolled = await auth_headers(client)
-    await client.post(f"/courses/{course_id}/enroll", headers=second_enrolled)
-    marked = await client.post(f"/attendance/sessions/{session_id}/mark", json={
-        "student_id": (await client.get("/auth/me", headers=second_enrolled)).json()["id"], "status": "excused",
-    }, headers=instructor)
-    assert marked.status_code == 200
-    assert marked.json()["status"] == "excused"
-
-    roster = await client.get(f"/attendance/sessions/{session_id}", headers=instructor)
-    assert roster.status_code == 200
-    statuses = {r["status"] for r in roster.json()}
-    assert "present" in statuses and "excused" in statuses
-
-    summary = (await client.get("/attendance/me", headers=enrolled_student)).json()
-    course_summary = next(s for s in summary if s["course_id"] == course_id)
-    assert course_summary["total_sessions"] == 1
-    assert course_summary["present_count"] == 1
-    assert course_summary["attendance_percent"] == 100

@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ValidationAppError
 from app.database import get_db
@@ -18,7 +19,6 @@ from app.schemas.assessment import QuestionCreate, QuestionOut
 from app.schemas.question_import import ImportPreviewOut, ImportRowOut
 from app.services.audit_service import record_audit_event
 from app.services.question_import_service import commit_rows, parse_csv, parse_xlsx
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/questions", tags=["question-bank"])
 

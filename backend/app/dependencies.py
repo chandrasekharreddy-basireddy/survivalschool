@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
-from app.core.exceptions import AuthenticationError, AuthorizationError, NotFoundError
+from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.database import get_db
 from app.models.user import Role, User
 from app.models.user import Session as SessionModel

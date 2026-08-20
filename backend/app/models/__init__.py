@@ -22,7 +22,12 @@ from app.models.elimination import (  # noqa: F401
     EliminationParticipant,
     EliminationRound,
 )
-from app.models.exam_platform import Subject, Topic, TopicDifficultyEvaluation, University  # noqa: F401
+from app.models.exam_platform import (  # noqa: F401
+    Subject,
+    Topic,
+    TopicDifficultyEvaluation,
+    University,
+)
 from app.models.gamification import (  # noqa: F401
     Achievement,
     Badge,

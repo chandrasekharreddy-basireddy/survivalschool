@@ -11,7 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import AuthenticationError, AuthorizationError, ConflictError, NotFoundError, ValidationAppError
+from app.core.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    ConflictError,
+    NotFoundError,
+    ValidationAppError,
+)
 from app.database import get_db
 from app.dependencies import get_current_user, require_permission
 from app.models.user import Profile, Role, User

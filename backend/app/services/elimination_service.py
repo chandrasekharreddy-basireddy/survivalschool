@@ -49,6 +49,7 @@ from datetime import UTC, datetime, timedelta
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError, ValidationAppError
 from app.database import AsyncSessionLocal
@@ -158,7 +159,15 @@ async def _pick_question(db: AsyncSession, topic_id: uuid.UUID, exclude_ids: set
     candidates = [q for q in rows if q not in exclude_ids]
     if not candidates:
         return None
-    return await db.get(Question, random.choice(candidates))
+    # Eager-load options here, not via db.get()'s default lazy relationship —
+    # release_round() below reads question.options *after* a db.commit(),
+    # which expires the instance by default (expire_on_commit=True). Async
+    # SQLAlchemy has no implicit lazy-load fallback the way sync mode does;
+    # touching an unloaded relationship post-commit raises MissingGreenlet
+    # instead of transparently re-querying. Loading it up front avoids that.
+    return (await db.execute(
+        select(Question).where(Question.id == random.choice(candidates)).options(selectinload(Question.options))
+    )).scalar_one()
 
 
 async def release_round(db: AsyncSession, battle: EliminationBattle) -> EliminationRound | None:
@@ -258,7 +267,9 @@ async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, sele
             # second grading pass.
             return {"is_correct": existing_answer.is_correct, "eliminated": participant.status == "eliminated"}
 
-        question = await db.get(Question, round_.question_id)
+        question = (await db.execute(
+            select(Question).where(Question.id == round_.question_id).options(selectinload(Question.options))
+        )).scalar_one()
         is_correct, _points = grade_answer(question, [str(i) for i in selected_option_ids], None)
         db.add(EliminationAnswer(round_id=round_.id, participant_id=participant.id, selected_option_ids=[str(i) for i in selected_option_ids], is_correct=is_correct))
 

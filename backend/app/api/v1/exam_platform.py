@@ -20,7 +20,10 @@ from app.schemas.exam_platform import (
     TopicDifficultyOut,
     TopicOut,
 )
-from app.services.difficulty_service import MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM, get_current_difficulty
+from app.services.difficulty_service import (
+    MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM,
+    get_current_difficulty,
+)
 
 router = APIRouter(tags=["exam-platform"])
 

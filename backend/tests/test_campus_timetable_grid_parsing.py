@@ -194,3 +194,30 @@ def test_personal_upload_of_a_grid_file_filters_to_the_students_own_section():
 
     other_section = parse_personal_rows("timetable.csv", GRID_CSV, section="2", school=None)
     assert {r.course_name for r in other_section} == {"Operating Systems"}
+
+
+def test_personal_upload_normalizes_a_prefixed_section_value():
+    """Regression test: a profile section stored as "sec-1" (a person typed
+    it, rather than picking from a real dropdown) must still match a
+    spreadsheet cell's bare "1" — confirmed happening to a real user, whose
+    upload silently produced "Imported 0 classes" with no explanation."""
+    from app.services.personal_timetable_service import parse_personal_rows
+
+    for variant in ("sec-1", "Section 1", "SEC 1", "sec.1", "01"):
+        rows = parse_personal_rows("timetable.csv", GRID_CSV, section=variant, school=None)
+        assert {r.course_name for r in rows} == {"Data Structures", "Linear Algebra"}, variant
+
+
+def test_personal_upload_raises_a_clear_error_when_nothing_matches_the_section():
+    """The old behavior here was a silent "0 imported, 0 errors" that
+    looked like a success toast in the UI — the exact confusion a real
+    user hit. A section that plainly doesn't exist in the file must fail
+    loudly with an explanation instead."""
+    from app.core.exceptions import ValidationAppError
+    from app.services.personal_timetable_service import parse_personal_rows
+
+    try:
+        parse_personal_rows("timetable.csv", GRID_CSV, section="99", school=None)
+        raise AssertionError("expected a ValidationAppError")
+    except ValidationAppError as e:
+        assert "section" in str(e).lower() and "99" in str(e)

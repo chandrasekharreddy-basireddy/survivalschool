@@ -27,7 +27,8 @@ type BattleEvent =
   | { event: "battle.round_released"; battle_id: string; round_number: number; question: RoundQuestion; deadline_at: string }
   | { event: "battle.answer_result"; battle_id: string; user_id: string; round_number: number; is_correct: boolean }
   | { event: "battle.round_resolved"; battle_id: string; round_number: number; eliminated_user_ids: string[]; survivors_remaining: number }
-  | { event: "battle.completed"; battle_id: string; winner_user_id: string | null };
+  | { event: "battle.completed"; battle_id: string; winner_user_id: string | null }
+  | { event: "battle.cancelled"; battle_id: string };
 
 export default function EliminationBattlePage() {
   const params = useParams<{ battleId: string }>();
@@ -141,6 +142,8 @@ export default function EliminationBattlePage() {
           setWinnerId(evt.winner_user_id);
           setBattle((b) => (b ? { ...b, status: "completed" } : b));
           loadState();
+        } else if (evt.event === "battle.cancelled") {
+          setBattle((b) => (b ? { ...b, status: "cancelled" } : b));
         }
       } catch {
         /* ignore malformed frames */

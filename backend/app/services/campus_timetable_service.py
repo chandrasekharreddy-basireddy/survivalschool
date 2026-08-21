@@ -55,6 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ValidationAppError
 from app.database import AsyncSessionLocal
 from app.models.campus_timetable import CampusTimetableEntry, CampusTimetableSource
+from app.services.ai_provider import AIProvider, get_ai_provider
 from app.services.n8n_service import emit_event
 from app.services.spreadsheet_import import (
     _parse_csv_raw,
@@ -154,6 +155,102 @@ def parse_campus_rows(filename: str, content: bytes) -> list[ParsedCampusRow]:
     parsed: list[ParsedCampusRow] = []
     for raw_rows in sheets:
         parsed.extend(_parse_one_sheet(raw_rows))
+    return parsed
+
+
+_AI_CHUNK_ROWS = 25
+# _detect_format falls back to "list" for any sheet whose shape it can't
+# place as grid or lab — genuinely clumsy/unrecognized layouts land there
+# too, not just real list-format files with a typo'd header. A real
+# list-format file parses almost entirely cleanly; a sheet that isn't
+# actually list-format at all fails almost every row. That gap is the
+# signal used below to decide a sheet is worth the AI-assisted attempt.
+_AI_FALLBACK_ERROR_RATE = 0.5
+
+
+def _serialize_rows_for_ai(raw_rows: list[list[str]]) -> str:
+    lines = [f"row {i + 1}: {' | '.join(c for c in row if c)}" for i, row in enumerate(raw_rows) if any(c for c in row)]
+    return "\n".join(lines)
+
+
+async def _ai_extract_sheet(raw_rows: list[list[str]], ai_provider: AIProvider) -> list[ParsedCampusRow]:
+    """Chunks the sheet and asks the AI provider to extract class entries
+    from each chunk (see AIProvider.extract_timetable_rows for the
+    no-fabrication rule every provider implementation must follow).
+    Anything the provider returns that still can't be turned into a real
+    weekday/time pair is silently skipped here too — same lenient
+    philosophy _parse_grid_rows/_parse_lab_rows already follow: a
+    genuinely messy spreadsheet is expected to have some unreadable rows,
+    and failing the whole import over them would defeat the point of
+    this fallback existing at all."""
+    today = date_type.today()
+    parsed: list[ParsedCampusRow] = []
+    for start in range(0, len(raw_rows), _AI_CHUNK_ROWS):
+        text = _serialize_rows_for_ai(raw_rows[start:start + _AI_CHUNK_ROWS])
+        if not text:
+            continue
+        try:
+            extracted = await ai_provider.extract_timetable_rows(text)
+        except Exception:
+            logger.warning("ai_timetable_extraction_failed", exc_info=True)
+            continue
+        for item in extracted:
+            if not item.day or not item.start_time or not item.end_time or not item.course_name.strip():
+                continue
+            day_upper = item.day.upper()
+            weekday_idx = next((idx for name, idx in _WEEKDAY_INDEX.items() if name in day_upper), None)
+            if weekday_idx is None:
+                continue
+            try:
+                class_start, class_end = _parse_grid_time_range(f"{item.start_time} - {item.end_time}")
+            except ValueError:
+                continue
+            if class_end <= class_start:
+                continue
+            for week in range(_GRID_WEEKS_AHEAD):
+                parsed.append(ParsedCampusRow(
+                    row_number=start + 1, school=item.school, year_of_study=item.year,
+                    section=item.section or "1", course_name=item.course_name.strip(),
+                    class_date=_next_weekday_occurrence(today, weekday_idx, week),
+                    start_time=class_start, end_time=class_end, room=item.room, teacher_name=item.teacher_name,
+                ))
+    return parsed
+
+
+async def _parse_one_sheet_async(raw_rows: list[list[str]], *, use_ai_fallback: bool) -> list[ParsedCampusRow]:
+    fmt = _detect_format(raw_rows)
+    if fmt == "grid":
+        return _parse_grid_rows(raw_rows)
+    if fmt == "lab":
+        return _parse_lab_rows(raw_rows)
+    rows = _rows_from_dicts(_dicts_from_raw_rows(raw_rows))
+    if not use_ai_fallback or not rows:
+        return rows
+    error_rate = sum(1 for r in rows if r.error) / len(rows)
+    if error_rate <= _AI_FALLBACK_ERROR_RATE:
+        return rows
+
+    ai_rows = await _ai_extract_sheet(raw_rows, get_ai_provider())
+    # Only replace the mostly-failed deterministic result if the AI path
+    # actually found something — in mock mode (or a real call that
+    # genuinely found nothing confident to extract) it returns an empty
+    # list, and the original per-row errors are still more useful to the
+    # uploader than silently emitting zero rows with no explanation.
+    return ai_rows if ai_rows else rows
+
+
+async def parse_campus_rows_async(filename: str, content: bytes, *, use_ai_fallback: bool = True) -> list[ParsedCampusRow]:
+    """Async counterpart to parse_campus_rows, for callers that can afford
+    to await an AI call for a sheet whose shape none of the deterministic
+    parsers recognize (see _parse_one_sheet_async). parse_campus_rows
+    itself stays synchronous and AI-free — used by
+    fetch_and_apply_live_sync's scheduled background sync and any
+    lower-stakes/script caller where a plain deterministic parse is
+    enough and an unpredictable-latency AI call isn't wanted."""
+    sheets = parse_raw_sheets(filename, content)
+    parsed: list[ParsedCampusRow] = []
+    for raw_rows in sheets:
+        parsed.extend(await _parse_one_sheet_async(raw_rows, use_ai_fallback=use_ai_fallback))
     return parsed
 
 
@@ -484,10 +581,19 @@ def _row_key(row: ParsedCampusRow, source: str) -> str:
     # with an uncaught IntegrityError — exactly the case the class docstring
     # ("entries from different sources are tracked separately") promises
     # doesn't happen.
+    #
+    # lab_group is part of the identity too: a course legitimately meets
+    # more than once at the same section/date/start_time when it's split
+    # into parallel lab groups (same course, same slot, different
+    # room/teacher per group — see the LabGroup column). Without lab_group
+    # here, two such rows hash to the identical key and the second upsert
+    # silently overwrites the first instead of creating a second row — a
+    # real lab group's room/teacher just vanishes on upload.
     identity = "|".join([
         source,
         (row.school or "").strip().lower(),
         (row.section or "").strip().lower(),
+        (row.lab_group or "").strip().lower(),
         (row.course_code or row.course_name or "").strip().lower(),
         row.class_date.isoformat(),
         row.start_time.isoformat(),

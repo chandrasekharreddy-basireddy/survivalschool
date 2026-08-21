@@ -25,8 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ValidationAppError
 from app.models.campus_timetable import PersonalTimetableEntry
+from app.services.ai_provider import get_ai_provider
 from app.services.campus_timetable_service import (
+    _AI_FALLBACK_ERROR_RATE,
     ParsedCampusRow,
+    _ai_extract_sheet,
     _detect_format,
     _dicts_from_raw_rows,
     _parse_grid_rows,
@@ -94,6 +97,39 @@ def parse_personal_rows(
             parsed.extend(_personal_rows_from_campus_rows(campus_rows, section, school))
         else:
             parsed.extend(_personal_rows_from_dicts(_dicts_from_raw_rows(raw_rows)))
+    return parsed
+
+
+async def parse_personal_rows_async(
+    filename: str, content: bytes, *, section: str | None = None, school: str | None = None,
+) -> list[ParsedPersonalRow]:
+    """Async counterpart to parse_personal_rows: on top of everything that
+    one handles, a "list"-format sheet that mostly fails to parse (see
+    campus_timetable_service._AI_FALLBACK_ERROR_RATE) gets one more
+    attempt via AI-assisted extraction — the same fallback the campus
+    importer uses for a genuinely clumsy/unrecognized layout, not just
+    the three shapes _detect_format knows how to name. AI-extracted rows
+    go through the exact same section/school reduction grid/lab rows do
+    (see _personal_rows_from_campus_rows) — a sheet only reaches this
+    fallback by looking nothing like a real personal export, so it's
+    treated the same way an institution-wide file would be."""
+    sheets = parse_raw_sheets(filename, content)
+    parsed: list[ParsedPersonalRow] = []
+    for raw_rows in sheets:
+        fmt = _detect_format(raw_rows)
+        if fmt in ("grid", "lab"):
+            campus_rows = _parse_grid_rows(raw_rows) if fmt == "grid" else _parse_lab_rows(raw_rows)
+            parsed.extend(_personal_rows_from_campus_rows(campus_rows, section, school))
+            continue
+        dict_rows = _personal_rows_from_dicts(_dicts_from_raw_rows(raw_rows))
+        if not dict_rows:
+            continue
+        error_rate = sum(1 for r in dict_rows if r.error) / len(dict_rows)
+        if error_rate <= _AI_FALLBACK_ERROR_RATE:
+            parsed.extend(dict_rows)
+            continue
+        ai_campus_rows = await _ai_extract_sheet(raw_rows, get_ai_provider())
+        parsed.extend(_personal_rows_from_campus_rows(ai_campus_rows, section, school) if ai_campus_rows else dict_rows)
     return parsed
 
 

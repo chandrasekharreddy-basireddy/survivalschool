@@ -36,6 +36,27 @@ class TopicScopeAssessment:
 
 
 @dataclass
+class ExtractedTimetableRow:
+    """One class entry pulled from a chunk of raw, possibly messy
+    timetable-spreadsheet text by extract_timetable_rows — see that
+    method's docstring for the grounding rule every implementation must
+    follow: every non-null field here must be literal text the AI found
+    in the source chunk, never inferred or guessed. day/start_time/
+    end_time are the raw text as the AI read it (e.g. "Monday",
+    "09:15 AM") — parsing/validating that text into real date/time values
+    is the caller's job, not the AI's."""
+    day: str | None
+    start_time: str | None
+    end_time: str | None
+    course_name: str
+    section: str | None = None
+    teacher_name: str | None = None
+    room: str | None = None
+    school: str | None = None
+    year: str | None = None
+
+
+@dataclass
 class GeneratedMCQ:
     prompt: str
     options: list[tuple[str, bool]] = field(default_factory=list)
@@ -74,6 +95,25 @@ class AIProvider(ABC):
         """Judges whether `topic` is a real, well-scoped subtopic of
         `subject` — broad enough to support 50 distinct, non-repetitive
         exam questions — and how difficult such an exam would be."""
+        ...
+
+    @abstractmethod
+    async def extract_timetable_rows(self, raw_text: str) -> list[ExtractedTimetableRow]:
+        """Extracts class entries from a chunk of raw timetable-spreadsheet
+        text (a rendered grid, a list, or anything messier/less
+        consistent than either — the whole point of this method existing
+        alongside campus_timetable_service.py's deterministic grid/list/
+        lab parsers is to handle the formats those don't recognize).
+
+        GROUNDING RULE, binding on every implementation: only return a
+        field value that is literal text actually present in raw_text.
+        Never invent, infer, or guess a day, time, course, section,
+        teacher, room, school, or year that isn't stated — leave it None
+        instead. This mirrors the same no-fabrication rule the timetable
+        AI chat feature follows (personal_timetable_service.py /
+        TimetableChatPanel.tsx): the point of both is that a student can
+        trust what the app shows them actually came from their real
+        timetable, not a plausible-sounding guess."""
         ...
 
 
@@ -145,6 +185,15 @@ class MockAIProvider(AIProvider):
             + " Connect a real Sarvam AI key and set AI_PROVIDER=sarvam for a real evaluation."
         )
         return TopicScopeAssessment(difficulty_percent=score, is_appropriate_scope=appropriate, reason=reason)
+
+    async def extract_timetable_rows(self, raw_text: str) -> list[ExtractedTimetableRow]:
+        # Free-form extraction from an unrecognized layout genuinely needs
+        # real language understanding — there's no honest deterministic
+        # stand-in the way the other mock methods have one. Returning
+        # nothing (rather than a fabricated example) means the caller
+        # correctly falls back to "this sheet couldn't be read" instead of
+        # silently trusting made-up mock data as if it were real.
+        return []
 
 
 class SarvamAIProvider(AIProvider):
@@ -362,6 +411,65 @@ class SarvamAIProvider(AIProvider):
             is_appropriate_scope=bool(data["is_appropriate_scope"]),
             reason=str(data.get("reason", "")).strip() or "No reason provided.",
         )
+
+    async def extract_timetable_rows(self, raw_text: str) -> list[ExtractedTimetableRow]:
+        system_prompt = (
+            "You extract class-schedule entries from a raw, possibly messy timetable spreadsheet, given below "
+            "as pipe-separated rows. Output ONLY valid JSON, no prose, no markdown fences. The JSON must be a "
+            "list of objects, each shaped exactly as: "
+            '{"day": "...", "start_time": "...", "end_time": "...", "course_name": "...", "section": "...", '
+            '"teacher_name": "...", "room": "...", "school": "...", "year": "..."}. '
+            "day, start_time, end_time, and course_name are required for every entry — skip anything that "
+            "genuinely has no day, no time range, or no course/subject name rather than guessing one. section, "
+            "teacher_name, room, school, and year are optional: set each to null (not an empty string, not a "
+            "guess) whenever that specific piece of information is not literally written somewhere in the given "
+            "rows for that entry. Do NOT invent, infer, or guess ANY value under any circumstances — every field "
+            "you return, including day/start_time/end_time/course_name, must be copied verbatim from the actual "
+            "text you were given, not derived from what a typical timetable usually looks like. If you're not "
+            "sure whether a piece of text is really a class entry (it could be a title, a header, a stray note, "
+            "a room-only row with no class), leave it out entirely. Return an empty JSON list [] if you find no "
+            "class entries you're genuinely confident about."
+        )
+        response = await self.chat([{"role": "user", "content": raw_text}], system_prompt=system_prompt)
+        if response.error:
+            raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+
+        raw = response.content.strip()
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
+        if not isinstance(data, list):
+            raise AIGenerationError("Sarvam AI did not return a JSON list.")
+
+        # Grounding check, on top of the prompt's own instructions: every
+        # value has to actually appear in the source text somewhere, or it
+        # gets dropped — a model that hallucinates a plausible-looking
+        # entry (or a field on an otherwise-real one) is caught here
+        # rather than trusted, same principle the timetable chat feature's
+        # own answer-grounding follows.
+        text_lower = raw_text.lower()
+
+        def _grounded(value: object) -> str | None:
+            if not isinstance(value, str) or not value.strip():
+                return None
+            cleaned = value.strip()
+            return cleaned if cleaned.lower() in text_lower else None
+
+        rows: list[ExtractedTimetableRow] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            day, start, end, course = _grounded(item.get("day")), _grounded(item.get("start_time")), _grounded(item.get("end_time")), _grounded(item.get("course_name"))
+            if not (day and start and end and course):
+                continue
+            rows.append(ExtractedTimetableRow(
+                day=day, start_time=start, end_time=end, course_name=course,
+                section=_grounded(item.get("section")), teacher_name=_grounded(item.get("teacher_name")),
+                room=_grounded(item.get("room")), school=_grounded(item.get("school")), year=_grounded(item.get("year")),
+            ))
+        return rows
 
 
 def get_ai_provider() -> AIProvider:

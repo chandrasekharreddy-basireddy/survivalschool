@@ -35,9 +35,12 @@ from app.services.campus_timetable_service import (
     UnsafeUrlError,
     apply_campus_rows,
     fetch_and_apply_live_sync,
-    parse_campus_rows,
+    parse_campus_rows_async,
 )
-from app.services.personal_timetable_service import parse_personal_rows, replace_personal_timetable
+from app.services.personal_timetable_service import (
+    parse_personal_rows_async,
+    replace_personal_timetable,
+)
 from app.services.rate_limit_service import enforce_rate_limit
 
 router = APIRouter(prefix="/timetable/campus", tags=["campus-timetable"])
@@ -175,7 +178,7 @@ async def upload_campus_timetable(
     if len(content) > max_bytes:
         raise ValidationAppError(f"File exceeds the {settings.MAX_UPLOAD_MB}MB upload limit.")
 
-    rows = parse_campus_rows(file.filename or "", content)
+    rows = await parse_campus_rows_async(file.filename or "", content)
     result = await apply_campus_rows(db, rows, source="upload")
 
     source = await _get_or_create_source(db)
@@ -269,7 +272,7 @@ async def upload_my_timetable(
         raise ValidationAppError(f"File exceeds the {settings.MAX_UPLOAD_MB}MB upload limit.")
 
     profile = (await db.execute(select(Profile).where(Profile.user_id == user.id))).scalar_one_or_none()
-    rows = parse_personal_rows(
+    rows = await parse_personal_rows_async(
         file.filename or "", content,
         section=profile.section if profile else None, school=profile.school if profile else None,
     )

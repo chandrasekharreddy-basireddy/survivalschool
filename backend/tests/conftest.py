@@ -63,6 +63,10 @@ def unique_email() -> str:
     return f"test_{uuid.uuid4().hex[:10]}@example.com"
 
 
+def unique_username() -> str:
+    return f"test_{uuid.uuid4().hex[:12]}"
+
+
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def _setup_database():
     async with engine.begin() as conn:
@@ -99,9 +103,13 @@ def _last_token_for(email: str, template: str) -> str:
     raise AssertionError(f"no {template} email captured for {email}")
 
 
-async def register_and_verify(client, email: str | None = None, password: str = VALID_PASSWORD, full_name: str = "Test User") -> str:
+async def register_and_verify(
+    client, email: str | None = None, password: str = VALID_PASSWORD, full_name: str = "Test User",
+    username: str | None = None,
+) -> str:
     email = email or unique_email()
-    resp = await client.post("/auth/register", json={"email": email, "password": password, "full_name": full_name})
+    username = username or unique_username()
+    resp = await client.post("/auth/register", json={"email": email, "password": password, "full_name": full_name, "username": username})
     assert resp.status_code == 201, resp.text
 
     token = _last_token_for(email, "verify_email")

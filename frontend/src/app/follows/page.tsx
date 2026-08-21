@@ -10,11 +10,12 @@ import { formatRelative } from "@/lib/format";
 import { initials } from "@/lib/avatar";
 
 interface FollowRequestOut {
-  id: string; requester_id: string; requester_name: string; target_id: string; target_name: string;
+  id: string; requester_id: string; requester_name: string; requester_handle: string | null;
+  target_id: string; target_name: string; target_handle: string | null;
   status: string; created_at: string; responded_at: string | null;
 }
-interface ConnectionOut { user_id: string; full_name: string; avatar_url: string | null; connected_since: string }
-interface PersonResult { user_id: string; full_name: string; avatar_url: string | null; relationship: string }
+interface ConnectionOut { user_id: string; full_name: string; public_handle: string | null; avatar_url: string | null; connected_since: string }
+interface PersonResult { user_id: string; full_name: string; public_handle: string | null; avatar_url: string | null; relationship: string }
 
 type Tab = "connections" | "requests" | "find";
 
@@ -181,7 +182,9 @@ export default function FollowsPage() {
               <Avatar name={c.full_name} url={c.avatar_url} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-fg">{c.full_name}</p>
-                <p className="text-xs text-fg-subtle">Connected {formatRelative(c.connected_since)}</p>
+                <p className="truncate text-xs text-fg-subtle">
+                  {c.public_handle ? `@${c.public_handle} · ` : ""}Connected {formatRelative(c.connected_since)}
+                </p>
               </div>
               <button onClick={() => messageConnection(c.user_id)} disabled={busyId === c.user_id} className="btn-primary !px-3 !py-1.5 text-xs">
                 Message
@@ -205,7 +208,9 @@ export default function FollowsPage() {
                   <Avatar name={r.requester_name} url={null} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-fg">{r.requester_name}</p>
-                    <p className="text-xs text-fg-subtle">Requested {formatRelative(r.created_at)}</p>
+                    <p className="truncate text-xs text-fg-subtle">
+                      {r.requester_handle ? `@${r.requester_handle} · ` : ""}Requested {formatRelative(r.created_at)}
+                    </p>
                   </div>
                   <button onClick={() => respond(r.id, "accept")} disabled={busyId === r.id} className="btn-primary !px-3 !py-1.5 text-xs">Accept</button>
                   <button onClick={() => respond(r.id, "decline")} disabled={busyId === r.id} className="btn-secondary !px-3 !py-1.5 text-xs">Decline</button>
@@ -222,7 +227,9 @@ export default function FollowsPage() {
                   <Avatar name={r.target_name} url={null} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-fg">{r.target_name}</p>
-                    <p className="text-xs text-fg-subtle">Sent {formatRelative(r.created_at)} &middot; waiting for response</p>
+                    <p className="truncate text-xs text-fg-subtle">
+                      {r.target_handle ? `@${r.target_handle} · ` : ""}Sent {formatRelative(r.created_at)} &middot; waiting for response
+                    </p>
                   </div>
                   <button onClick={() => cancelRequest(r.id)} disabled={busyId === r.id} className="btn-secondary !px-3 !py-1.5 text-xs">Cancel</button>
                 </div>
@@ -237,7 +244,7 @@ export default function FollowsPage() {
           <div className="flex gap-2">
             <input
               className="input"
-              placeholder="Search by name…"
+              placeholder="Search by name or @username…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && search()}
@@ -248,7 +255,10 @@ export default function FollowsPage() {
             {results?.map((p) => (
               <div key={p.user_id} className="card flex items-center gap-3 !p-3">
                 <Avatar name={p.full_name} url={p.avatar_url} />
-                <p className="min-w-0 flex-1 truncate text-sm font-medium text-fg">{p.full_name}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-fg">{p.full_name}</p>
+                  {p.public_handle && <p className="truncate text-xs text-fg-subtle">@{p.public_handle}</p>}
+                </div>
                 {p.relationship === "connected" && <span className="text-xs text-fg-subtle">Connected</span>}
                 {p.relationship === "pending_outgoing" && <span className="text-xs text-fg-subtle">Requested</span>}
                 {p.relationship === "pending_incoming" && <span className="text-xs text-fg-subtle">Sent you a request</span>}

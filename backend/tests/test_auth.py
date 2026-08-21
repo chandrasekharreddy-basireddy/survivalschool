@@ -1,20 +1,20 @@
 from __future__ import annotations
 
-from tests.conftest import VALID_PASSWORD, register_and_verify, unique_email
+from tests.conftest import VALID_PASSWORD, register_and_verify, unique_email, unique_username
 
 pytestmark = __import__("pytest").mark.asyncio(loop_scope="session")
 
 
 async def test_register_rejects_weak_password(client):
     resp = await client.post("/auth/register", json={
-        "email": unique_email(), "password": "weak", "full_name": "Weak Pw",
+        "email": unique_email(), "password": "weak", "full_name": "Weak Pw", "username": unique_username(),
     })
     assert resp.status_code == 422
 
 
 async def test_register_login_verify_flow(client):
     email = unique_email()
-    resp = await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Flow User"})
+    resp = await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Flow User", "username": unique_username()})
     assert resp.status_code == 201
     assert resp.json()["is_email_verified"] is False
 
@@ -28,9 +28,28 @@ async def test_register_login_verify_flow(client):
 
 async def test_duplicate_registration_conflicts(client):
     email = unique_email()
-    await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Dup"})
-    resp = await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Dup"})
+    await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Dup", "username": unique_username()})
+    resp = await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Dup", "username": unique_username()})
     assert resp.status_code == 409
+
+
+async def test_register_rejects_duplicate_username(client):
+    username = unique_username()
+    first = await client.post("/auth/register", json={"email": unique_email(), "password": VALID_PASSWORD, "full_name": "First", "username": username})
+    assert first.status_code == 201, first.text
+    second = await client.post("/auth/register", json={"email": unique_email(), "password": VALID_PASSWORD, "full_name": "Second", "username": username})
+    assert second.status_code == 409, second.text
+
+    # Case-insensitive: same collision even with different casing.
+    third = await client.post("/auth/register", json={"email": unique_email(), "password": VALID_PASSWORD, "full_name": "Third", "username": username.upper()})
+    assert third.status_code == 409, third.text
+
+
+async def test_register_rejects_malformed_username(client):
+    resp = await client.post("/auth/register", json={
+        "email": unique_email(), "password": VALID_PASSWORD, "full_name": "Bad Handle", "username": "a b!",
+    })
+    assert resp.status_code == 422, resp.text
 
 
 async def test_login_wrong_password_is_generic(client):

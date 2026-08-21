@@ -14,8 +14,8 @@ interface Battle {
   id: string; host_id: string; title: string; topic_id: string; status: string; join_code: string;
   current_round_number: number; winner_id: string | null; started_at: string | null; ended_at: string | null;
 }
-interface Participant { user_id: string; full_name: string; status: string; eliminated_at_round: number | null; eliminated_reason: string | null }
-interface PersonSearchResult { user_id: string; full_name: string; avatar_url: string | null; relationship: string }
+interface Participant { user_id: string; full_name: string; public_handle: string | null; status: string; eliminated_at_round: number | null; eliminated_reason: string | null }
+interface PersonSearchResult { user_id: string; full_name: string; public_handle: string | null; avatar_url: string | null; relationship: string }
 interface RoundOption { id: string; text: string }
 interface RoundQuestion { id: string; prompt: string; question_type: string; options: RoundOption[] }
 
@@ -221,7 +221,11 @@ export default function EliminationBattlePage() {
             <ul className="mt-3 space-y-1.5 text-sm">
               {participants.map((p) => (
                 <li key={p.user_id} className="flex items-center justify-between">
-                  <span className="text-fg">{p.full_name}{p.user_id === battle.host_id ? " (host)" : ""}</span>
+                  <span className="text-fg">
+                    {p.full_name}
+                    {p.public_handle && <span className="text-fg-subtle"> @{p.public_handle}</span>}
+                    {p.user_id === battle.host_id ? " (host)" : ""}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -248,12 +252,15 @@ export default function EliminationBattlePage() {
             <div className="card">
               <h2 className="font-semibold text-fg">Invite friends you follow</h2>
               <p className="mt-1 text-xs text-fg-subtle">Only people you have an accepted connection with show up here — share the room code above for anyone else.</p>
-              <input className="input mt-3" placeholder="Search by name…" value={searchQuery} onChange={(e) => search(e.target.value)} />
+              <input className="input mt-3" placeholder="Search by name or @username…" value={searchQuery} onChange={(e) => search(e.target.value)} />
               {searchResults.length > 0 && (
                 <ul className="mt-2 space-y-1.5">
                   {searchResults.map((r) => (
                     <li key={r.user_id} className="flex items-center justify-between rounded-lg border border-ink-700 px-3 py-2 text-sm">
-                      <span className="text-fg">{r.full_name}</span>
+                      <span className="text-fg">
+                        {r.full_name}
+                        {r.public_handle && <span className="text-fg-subtle"> @{r.public_handle}</span>}
+                      </span>
                       <button onClick={() => invite(r.user_id)} disabled={inviting === r.user_id} className="btn-secondary !px-3 !py-1 text-xs">
                         {inviting === r.user_id ? "Inviting…" : "Invite"}
                       </button>
@@ -333,7 +340,10 @@ export default function EliminationBattlePage() {
             <ul className="mt-3 space-y-1.5 text-sm">
               {participants.map((p) => (
                 <li key={p.user_id} className={`flex items-center justify-between ${p.status === "eliminated" ? "opacity-50 line-through" : ""}`}>
-                  <span className="text-fg">{p.full_name}</span>
+                  <span className="text-fg">
+                    {p.full_name}
+                    {p.public_handle && <span className="text-fg-subtle"> @{p.public_handle}</span>}
+                  </span>
                   <span className="text-xs text-fg-subtle">{p.status === "eliminated" ? `out (round ${p.eliminated_at_round})` : p.status}</span>
                 </li>
               ))}

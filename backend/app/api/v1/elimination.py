@@ -14,7 +14,7 @@ from app.core.exceptions import AuthorizationError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_verified_user
 from app.models.elimination import EliminationBattle, EliminationInvitation, EliminationParticipant
-from app.models.user import User
+from app.models.user import Profile, User
 from app.schemas.elimination import (
     BattleCreate,
     BattleOut,
@@ -52,6 +52,11 @@ async def _require_battle_access(db: AsyncSession, battle: EliminationBattle, us
     )).scalar_one_or_none()
     if is_participant is None:
         raise AuthorizationError("You're not part of this battle.")
+
+
+async def _handle_for(db: AsyncSession, user_id: uuid.UUID) -> str | None:
+    profile = (await db.execute(select(Profile).where(Profile.user_id == user_id))).scalar_one_or_none()
+    return profile.public_handle if profile else None
 
 
 @router.post("/battles", response_model=BattleOut, status_code=201)
@@ -108,13 +113,14 @@ async def list_battle_participants(battle_id: uuid.UUID, user: User = Depends(ge
         raise NotFoundError("Battle not found.")
     await _require_battle_access(db, battle, user)
     rows = (await db.execute(
-        select(EliminationParticipant, User.full_name)
+        select(EliminationParticipant, User.full_name, Profile.public_handle)
         .join(User, User.id == EliminationParticipant.user_id)
+        .outerjoin(Profile, Profile.user_id == EliminationParticipant.user_id)
         .where(EliminationParticipant.battle_id == battle_id)
     )).all()
     return [
-        ParticipantOut(user_id=p.user_id, full_name=name, status=p.status, eliminated_at_round=p.eliminated_at_round, eliminated_reason=p.eliminated_reason)
-        for p, name in rows
+        ParticipantOut(user_id=p.user_id, full_name=name, public_handle=handle, status=p.status, eliminated_at_round=p.eliminated_at_round, eliminated_reason=p.eliminated_reason)
+        for p, name, handle in rows
     ]
 
 
@@ -126,22 +132,24 @@ async def invite_to_elimination_battle(battle_id: uuid.UUID, payload: InviteCrea
     invitation = await invite_to_battle(db, battle, user, payload.invitee_id)
     return InvitationOut(
         id=invitation.id, battle_id=battle.id, battle_title=battle.title, inviter_id=invitation.inviter_id,
-        inviter_name=user.full_name, invitee_id=invitation.invitee_id, status=invitation.status, created_at=invitation.created_at,
+        inviter_name=user.full_name, inviter_handle=await _handle_for(db, user.id),
+        invitee_id=invitation.invitee_id, status=invitation.status, created_at=invitation.created_at,
     )
 
 
 @router.get("/invitations/incoming", response_model=list[InvitationOut])
 async def list_incoming_invitations(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     rows = (await db.execute(
-        select(EliminationInvitation, EliminationBattle.title, User.full_name)
+        select(EliminationInvitation, EliminationBattle.title, User.full_name, Profile.public_handle)
         .join(EliminationBattle, EliminationBattle.id == EliminationInvitation.battle_id)
         .join(User, User.id == EliminationInvitation.inviter_id)
+        .outerjoin(Profile, Profile.user_id == EliminationInvitation.inviter_id)
         .where(EliminationInvitation.invitee_id == user.id, EliminationInvitation.status == "pending")
         .order_by(EliminationInvitation.created_at.desc())
     )).all()
     return [
-        InvitationOut(id=inv.id, battle_id=inv.battle_id, battle_title=title, inviter_id=inv.inviter_id, inviter_name=inviter_name, invitee_id=inv.invitee_id, status=inv.status, created_at=inv.created_at)
-        for inv, title, inviter_name in rows
+        InvitationOut(id=inv.id, battle_id=inv.battle_id, battle_title=title, inviter_id=inv.inviter_id, inviter_name=inviter_name, inviter_handle=handle, invitee_id=inv.invitee_id, status=inv.status, created_at=inv.created_at)
+        for inv, title, inviter_name, handle in rows
     ]
 
 
@@ -153,7 +161,7 @@ async def accept_invitation(invitation_id: uuid.UUID, user: User = Depends(get_c
     battle = await db.get(EliminationBattle, invitation.battle_id)
     inviter = await db.get(User, invitation.inviter_id)
     invitation = await respond_to_invitation(db, invitation, user, accept=True)
-    return InvitationOut(id=invitation.id, battle_id=invitation.battle_id, battle_title=battle.title if battle else "", inviter_id=invitation.inviter_id, inviter_name=inviter.full_name if inviter else "", invitee_id=invitation.invitee_id, status=invitation.status, created_at=invitation.created_at)
+    return InvitationOut(id=invitation.id, battle_id=invitation.battle_id, battle_title=battle.title if battle else "", inviter_id=invitation.inviter_id, inviter_name=inviter.full_name if inviter else "", inviter_handle=await _handle_for(db, invitation.inviter_id), invitee_id=invitation.invitee_id, status=invitation.status, created_at=invitation.created_at)
 
 
 @router.post("/invitations/{invitation_id}/decline", response_model=InvitationOut)
@@ -164,7 +172,7 @@ async def decline_invitation(invitation_id: uuid.UUID, user: User = Depends(get_
     battle = await db.get(EliminationBattle, invitation.battle_id)
     inviter = await db.get(User, invitation.inviter_id)
     invitation = await respond_to_invitation(db, invitation, user, accept=False)
-    return InvitationOut(id=invitation.id, battle_id=invitation.battle_id, battle_title=battle.title if battle else "", inviter_id=invitation.inviter_id, inviter_name=inviter.full_name if inviter else "", invitee_id=invitation.invitee_id, status=invitation.status, created_at=invitation.created_at)
+    return InvitationOut(id=invitation.id, battle_id=invitation.battle_id, battle_title=battle.title if battle else "", inviter_id=invitation.inviter_id, inviter_name=inviter.full_name if inviter else "", inviter_handle=await _handle_for(db, invitation.inviter_id), invitee_id=invitation.invitee_id, status=invitation.status, created_at=invitation.created_at)
 
 
 @router.post("/battles/{battle_id}/start", response_model=BattleOut)

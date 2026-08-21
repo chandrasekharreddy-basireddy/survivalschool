@@ -15,7 +15,7 @@ interface Battle {
   current_round_number: number; winner_id: string | null; started_at: string | null; ended_at: string | null;
 }
 interface Invitation {
-  id: string; battle_id: string; battle_title: string; inviter_id: string; inviter_name: string;
+  id: string; battle_id: string; battle_title: string; inviter_id: string; inviter_name: string; inviter_handle: string | null;
   invitee_id: string; status: string; created_at: string;
 }
 
@@ -141,7 +141,9 @@ export default function EliminationPage() {
               <div key={inv.id} className="card !p-4 flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-fg">{inv.battle_title}</p>
-                  <p className="text-xs text-fg-subtle">from {inv.inviter_name} · {formatRelative(inv.created_at)}</p>
+                  <p className="text-xs text-fg-subtle">
+                    from {inv.inviter_name}{inv.inviter_handle ? ` (@${inv.inviter_handle})` : ""} · {formatRelative(inv.created_at)}
+                  </p>
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <button onClick={() => respond(inv.id, true)} className="btn-primary !px-3 !py-1.5 text-sm">Accept</button>

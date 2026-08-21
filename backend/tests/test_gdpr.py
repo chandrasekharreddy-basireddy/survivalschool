@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.conftest import VALID_PASSWORD, auth_headers
+from tests.conftest import VALID_PASSWORD, auth_headers, unique_username
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -66,7 +66,7 @@ async def test_delete_account_removes_user_and_invalidates_session(client):
     assert me.status_code == 401
 
     # And the email is free to register again.
-    register_resp = await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Reused Email"})
+    register_resp = await client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD, "full_name": "Reused Email", "username": unique_username()})
     assert register_resp.status_code == 201
 
 

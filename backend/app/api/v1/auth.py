@@ -68,6 +68,7 @@ from app.services.audit_service import record_audit_event
 from app.services.email_service import send_email
 from app.services.n8n_service import emit_event
 from app.services.notification_service import notify_security_event
+from app.services.profile_service import create_profile_with_handle
 from app.services.rate_limit_service import enforce_rate_limit
 from app.services.totp_service import (
     generate_backup_codes,
@@ -143,6 +144,13 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
     db.add(user)
     await db.flush()
 
+    # Every account gets its unique @handle up front — it's how people find
+    # each other for connections, elimination-battle invites/lobbies, etc.
+    # throughout the app, so there's no "unnamed user" state to fall back
+    # to later. A claim collision here rolls back the whole registration
+    # (nothing has been committed yet) and surfaces as a clean 409.
+    await create_profile_with_handle(db, user.id, payload.username)
+
     raw_token, token_hash, expires_at = new_email_verification_token()
     db.add(EmailVerification(user_id=user.id, token_hash=token_hash, expires_at=expires_at))
 
@@ -193,9 +201,9 @@ async def apply_as_instructor(
 
     email_delivery_ok = True
     if user is None:
-        if not payload.email or not payload.password or not payload.full_name:
+        if not payload.email or not payload.password or not payload.full_name or not payload.username:
             raise ValidationAppError(
-                "email, password, and full_name are required when applying without an existing account."
+                "email, password, full_name, and username are required when applying without an existing account."
             )
         existing = await db.execute(select(User).where(User.email == payload.email.lower()))
         if existing.scalar_one_or_none() is not None:
@@ -213,6 +221,7 @@ async def apply_as_instructor(
         user.roles.append(student_role)
         db.add(user)
         await db.flush()
+        await create_profile_with_handle(db, user.id, payload.username)
 
         raw_token, token_hash, expires_at = new_email_verification_token()
         db.add(EmailVerification(user_id=user.id, token_hash=token_hash, expires_at=expires_at))

@@ -39,6 +39,7 @@ class InvitationOut(BaseModel):
     battle_title: str
     inviter_id: uuid.UUID
     inviter_name: str
+    inviter_handle: str | None
     invitee_id: uuid.UUID
     status: str
     created_at: datetime
@@ -47,6 +48,7 @@ class InvitationOut(BaseModel):
 class ParticipantOut(BaseModel):
     user_id: uuid.UUID
     full_name: str
+    public_handle: str | None
     status: str
     eliminated_at_round: int | None
     eliminated_reason: str | None

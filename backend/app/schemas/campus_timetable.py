@@ -89,3 +89,23 @@ class PersonalUploadResultOut(BaseModel):
     total_rows: int
     error_rows: list[CampusImportErrorRow]
     imported: int
+
+
+class CampusTeacherOut(BaseModel):
+    """One teacher with at least one non-cancelled class in the next 7
+    days — class_count/day_count are real distinct-weekly-slot counts
+    (see list_campus_teachers), not a raw row count, which would
+    over-count by however many weeks ahead each slot is expanded to."""
+    teacher_name: str
+    class_count: int
+    day_count: int
+
+
+class CampusElectiveSectionOut(BaseModel):
+    section: str
+    teacher_name: str | None
+
+
+class CampusElectiveOut(BaseModel):
+    course_name: str
+    sections: list[CampusElectiveSectionOut]

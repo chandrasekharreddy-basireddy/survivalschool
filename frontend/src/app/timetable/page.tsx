@@ -12,6 +12,7 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 interface CampusEntry {
   id: string;
   section: string;
+  lab_group: string | null;
   course_name: string;
   course_code: string | null;
   class_date: string;
@@ -64,6 +65,9 @@ interface Profile {
 
 interface UploadResult { total_rows: number; imported: number; error_rows: { row_number: number; error: string }[] }
 
+interface ElectiveSection { section: string; teacher_name: string | null }
+interface Elective { course_name: string; sections: ElectiveSection[] }
+
 function fmtTime(t: string): string {
   const [h, m] = t.split(":");
   const hour = parseInt(h, 10);
@@ -106,6 +110,16 @@ export default function TimetablePage() {
   const [now, setNow] = useState(() => new Date());
   const [weekdayFilter, setWeekdayFilter] = useState<number | null>(null);
 
+  const [electives, setElectives] = useState<Elective[] | null>(null);
+  const [checkedElectives, setCheckedElectives] = useState<Set<string>>(new Set());
+  const [electivePicks, setElectivePicks] = useState<Record<string, string>>({});
+  const [electiveEntries, setElectiveEntries] = useState<Record<string, CampusEntry[]>>({});
+  const [selectedLabGroup, setSelectedLabGroup] = useState<string | null>(null);
+
+  const [freeRoomsOpen, setFreeRoomsOpen] = useState(false);
+  const [freeRooms, setFreeRooms] = useState<string[] | null>(null);
+  const [freeRoomsLoading, setFreeRoomsLoading] = useState(false);
+
   const loadPersonal = () => apiFetch<PersonalEntry[]>("/timetable/me/personal").then(setPersonalEntries).catch(() => setPersonalEntries([]));
   const loadCampus = () => {
     apiFetch<CampusEntry[]>("/timetable/campus/me")
@@ -125,7 +139,47 @@ export default function TimetablePage() {
       setProfile(p);
       if (p.section) setPickedKey(`${p.school ?? ""} ${p.section}`);
     }).catch(() => setProfile(null));
+    apiFetch<Elective[]>("/timetable/campus/electives").then(setElectives).catch(() => setElectives([]));
   }, [user]);
+
+  // Fetching one elective's chosen section: same 8-week-ahead-from-today
+  // window the base campus feed itself expands into, via course_name +
+  // section together — an elective's section numbering is its own,
+  // separate from the student's base section (see list_campus_electives).
+  useEffect(() => {
+    for (const courseName of checkedElectives) {
+      const section = electivePicks[courseName];
+      if (!section || electiveEntries[courseName]) continue;
+      apiFetch<CampusEntry[]>(
+        `/timetable/campus?course_name=${encodeURIComponent(courseName)}&section=${encodeURIComponent(section)}`
+      ).then((rows) => setElectiveEntries((prev) => ({ ...prev, [courseName]: rows }))).catch(() => {});
+    }
+  }, [checkedElectives, electivePicks, electiveEntries]);
+
+  const toggleElective = (courseName: string) => {
+    setCheckedElectives((prev) => {
+      const next = new Set(prev);
+      if (next.has(courseName)) {
+        next.delete(courseName);
+        setElectiveEntries((entriesPrev) => { const { [courseName]: _drop, ...rest } = entriesPrev; return rest; });
+      } else {
+        next.add(courseName);
+        // Auto-pick the section if the elective only has one — nothing to
+        // choose, so don't make the student click an extra dropdown.
+        const elective = electives?.find((e) => e.course_name === courseName);
+        if (elective?.sections.length === 1) {
+          setElectivePicks((prevPicks) => ({ ...prevPicks, [courseName]: elective.sections[0].section }));
+        }
+      }
+      return next;
+    });
+  };
+
+  const openFreeRooms = () => {
+    setFreeRoomsOpen(true);
+    setFreeRoomsLoading(true);
+    apiFetch<string[]>("/timetable/campus/free-rooms").then(setFreeRooms).catch(() => setFreeRooms([])).finally(() => setFreeRoomsLoading(false));
+  };
 
   // Live "what's happening right now" — the reference-repo behavior this
   // page is modeled on (y-bow/SaiU-Timetable). Ticks every 30s; that's
@@ -136,9 +190,19 @@ export default function TimetablePage() {
   }, []);
 
   const usingPersonal = (personalEntries?.length ?? 0) > 0;
+  // A lab-group-specific class (lab_group set) only shows for the group the
+  // student picked; anything not lab-group-specific (lab_group null) always
+  // shows regardless of the picker, same as the reference UI's "Same
+  // section as above" default.
+  const labFilteredCampus = (campusEntries || []).filter(
+    (e) => !e.lab_group || !selectedLabGroup || e.lab_group === selectedLabGroup
+  );
+  const electiveDisplayEntries = [...checkedElectives].flatMap((c) => electiveEntries[c] || []);
   const entries: DisplayEntry[] = usingPersonal
     ? personalEntries!.map((e) => ({ ...e, is_cancelled: false }))
-    : (campusEntries || []);
+    : [...labFilteredCampus, ...electiveDisplayEntries];
+
+  const currentSection = sections?.find((s) => s.school === profile?.school && s.section === profile?.section) ?? null;
 
   const sectionOptions = useMemo(() => {
     return (sections || []).map((s) => ({
@@ -339,8 +403,86 @@ export default function TimetablePage() {
         <div className="card mt-4 !p-4 text-sm text-fg-muted">Pick your section above to see your personal schedule.</div>
       )}
 
+      {!usingPersonal && currentSection && currentSection.lab_groups.length > 0 && (
+        <div className="card mt-4 !p-4">
+          <p className="label">Lab group</p>
+          <div className="mt-1.5 flex flex-wrap gap-3">
+            <label className="flex items-center gap-1.5 text-sm text-fg">
+              <input type="radio" name="lab-group" checked={selectedLabGroup === null} onChange={() => setSelectedLabGroup(null)} />
+              Same section as above
+            </label>
+            {currentSection.lab_groups.map((g) => (
+              <label key={g} className="flex items-center gap-1.5 text-sm text-fg">
+                <input type="radio" name="lab-group" checked={selectedLabGroup === g} onChange={() => setSelectedLabGroup(g)} />
+                Section {g} — Combined Lab
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!usingPersonal && electives !== null && electives.length > 0 && (
+        <div className="card mt-4 !p-4">
+          <p className="label">Electives</p>
+          <div className="mt-1.5 space-y-2">
+            {electives.map((elective) => (
+              <div key={elective.course_name}>
+                <label className="flex items-center gap-1.5 text-sm text-fg">
+                  <input
+                    type="checkbox" checked={checkedElectives.has(elective.course_name)}
+                    onChange={() => toggleElective(elective.course_name)}
+                  />
+                  {elective.course_name}
+                </label>
+                {checkedElectives.has(elective.course_name) && elective.sections.length > 1 && (
+                  <div className="mt-1.5 ml-5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">{elective.course_name} section</p>
+                    <select
+                      className="input mt-1 !py-1.5 text-sm"
+                      value={electivePicks[elective.course_name] ?? ""}
+                      onChange={(e) => setElectivePicks((prev) => ({ ...prev, [elective.course_name]: e.target.value }))}
+                    >
+                      <option value="">Select section…</option>
+                      {elective.sections.map((s) => (
+                        <option key={s.section} value={s.section}>
+                          Section {s.section}{s.teacher_name ? ` — ${s.teacher_name}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!usingPersonal && campusEntries !== null && !needsSection && campusEntries.length === 0 && (
         <div className="card mt-8 text-center text-sm text-fg-muted">No classes scheduled yet for your section.</div>
+      )}
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button onClick={openFreeRooms} className="btn-secondary !min-h-9 !px-3 !py-1.5 text-sm">Free rooms right now</button>
+      </div>
+
+      {freeRoomsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setFreeRoomsOpen(false)}>
+          <div className="card max-h-[70vh] w-full max-w-sm overflow-y-auto !p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-fg">Free rooms right now</p>
+              <button onClick={() => setFreeRoomsOpen(false)} className="text-fg-subtle hover:text-fg" aria-label="Close">✕</button>
+            </div>
+            {freeRoomsLoading ? (
+              <div className="mt-4"><PageLoader size="sm" /></div>
+            ) : freeRooms && freeRooms.length > 0 ? (
+              <ul className="mt-3 grid grid-cols-2 gap-1.5 text-sm text-fg">
+                {freeRooms.map((r) => <li key={r} className="rounded bg-ink-900 px-2 py-1">{r}</li>)}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm text-fg-muted">No free rooms found — either every known room is occupied right now, or no timetable has been uploaded yet.</p>
+            )}
+          </div>
+        </div>
       )}
 
       <TimetableChatPanel />
@@ -378,20 +520,35 @@ export default function TimetablePage() {
                 {dayEntries
                   .slice()
                   .sort((a, b) => a.start_time.localeCompare(b.start_time))
-                  .map((e) => (
-                    <div key={e.id} className={`rounded-lg border p-3 ${e.is_cancelled ? "border-red-500/30 bg-red-500/5" : liveNow?.id === e.id ? "border-brand-500/50 bg-brand-500/5" : "border-ink-700 bg-ink-950"}`}>
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-fg">
-                          {e.course_name} {e.course_code && <span className="text-fg-subtle">({e.course_code})</span>}
+                  .map((e) => {
+                    const isDone = !e.is_cancelled && date === todayStr() && toMinutes(e.end_time) <= todaysNowMinutes;
+                    return (
+                      <div
+                        key={e.id}
+                        className={`rounded-lg border p-3 ${
+                          e.is_cancelled ? "border-red-500/30 bg-red-500/5"
+                          : liveNow?.id === e.id ? "border-brand-500/50 bg-brand-500/5"
+                          : isDone ? "border-ink-800 bg-ink-950/50 opacity-60"
+                          : "border-ink-700 bg-ink-950"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-fg">
+                            {e.course_name} {e.course_code && <span className="text-fg-subtle">({e.course_code})</span>}
+                          </p>
+                          {e.is_cancelled ? (
+                            <span className="text-xs font-semibold text-red-700 dark:text-red-400">Cancelled</span>
+                          ) : isDone ? (
+                            <span className="rounded bg-ink-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-fg-subtle">Done</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-xs text-fg-muted">{fmtTime(e.start_time)} – {fmtTime(e.end_time)}</p>
+                        <p className="mt-1 text-xs text-fg-subtle">
+                          {e.room || "TBD"}{e.teacher_name ? ` · ${e.teacher_name}` : ""}{e.is_elective ? " · Elective" : ""}
                         </p>
-                        {e.is_cancelled && <span className="text-xs font-semibold text-red-700 dark:text-red-400">Cancelled</span>}
                       </div>
-                      <p className="mt-1 text-xs text-fg-muted">{fmtTime(e.start_time)} – {fmtTime(e.end_time)}</p>
-                      <p className="mt-1 text-xs text-fg-subtle">
-                        {e.room || "TBD"}{e.teacher_name ? ` · ${e.teacher_name}` : ""}{e.is_elective ? " · Elective" : ""}
-                      </p>
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
             </div>
           ))}

@@ -581,10 +581,19 @@ def _row_key(row: ParsedCampusRow, source: str) -> str:
     # with an uncaught IntegrityError — exactly the case the class docstring
     # ("entries from different sources are tracked separately") promises
     # doesn't happen.
+    #
+    # lab_group is part of the identity too: a course legitimately meets
+    # more than once at the same section/date/start_time when it's split
+    # into parallel lab groups (same course, same slot, different
+    # room/teacher per group — see the LabGroup column). Without lab_group
+    # here, two such rows hash to the identical key and the second upsert
+    # silently overwrites the first instead of creating a second row — a
+    # real lab group's room/teacher just vanishes on upload.
     identity = "|".join([
         source,
         (row.school or "").strip().lower(),
         (row.section or "").strip().lower(),
+        (row.lab_group or "").strip().lower(),
         (row.course_code or row.course_name or "").strip().lower(),
         row.class_date.isoformat(),
         row.start_time.isoformat(),

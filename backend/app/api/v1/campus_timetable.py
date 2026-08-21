@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -20,9 +20,12 @@ from app.models.campus_timetable import (
 from app.models.user import Profile, User
 from app.schemas.auth import MessageResponse
 from app.schemas.campus_timetable import (
+    CampusElectiveOut,
+    CampusElectiveSectionOut,
     CampusImportErrorRow,
     CampusSectionOut,
     CampusSyncResultOut,
+    CampusTeacherOut,
     CampusTimetableEntryOut,
     CampusTimetableSourceOut,
     LiveSyncConfigureIn,
@@ -73,6 +76,8 @@ def _to_sync_result_out(result, error: str | None = None) -> CampusSyncResultOut
 @router.get("", response_model=list[CampusTimetableEntryOut])
 async def list_campus_entries(
     section: str | None = Query(None),
+    teacher: str | None = Query(None),
+    course_name: str | None = Query(None),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
     include_cancelled: bool = Query(False),
@@ -82,6 +87,14 @@ async def list_campus_entries(
     stmt = select(CampusTimetableEntry)
     if section:
         stmt = stmt.where(CampusTimetableEntry.section.ilike(escape_like(section)))
+    if teacher:
+        stmt = stmt.where(CampusTimetableEntry.teacher_name.ilike(escape_like(teacher)))
+    if course_name:
+        # An elective's section numbering is scoped to that elective, not
+        # the student's base section (see CampusElectiveOut/list_campus_electives)
+        # — course_name + section together are what the frontend's elective
+        # sub-section picker needs to fetch just that one elective group.
+        stmt = stmt.where(CampusTimetableEntry.course_name.ilike(escape_like(course_name)))
     if date_from:
         stmt = stmt.where(CampusTimetableEntry.class_date >= date_from)
     if date_to:
@@ -146,6 +159,89 @@ async def list_campus_sections(user: User = Depends(get_current_user), db: Async
             grouped.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "", kv[0][2])
         )
     ]
+
+
+# Every teacher/free-rooms view below is "this week's pattern," not a
+# literal date range — classes recur weekly for months (see
+# campus_timetable_service._GRID_WEEKS_AHEAD), so a 7-day window from
+# today catches exactly one real occurrence of every weekday's slot
+# without the caller needing to know or care about that expansion.
+_WEEK_WINDOW_DAYS = 7
+
+
+@router.get("/teachers", response_model=list[CampusTeacherOut])
+async def list_campus_teachers(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Every teacher with at least one class in the next 7 days, with a
+    weekly class/day count (see CampusTeacherOut) — the search list behind
+    the Teacher Timetable view. A specific teacher's own schedule reuses
+    GET /timetable/campus?teacher=<name>&date_from=...&date_to=... rather
+    than a second, parallel endpoint."""
+    today = date.today()
+    window_end = today + timedelta(days=_WEEK_WINDOW_DAYS)
+    rows = (await db.execute(
+        select(CampusTimetableEntry.teacher_name, func.count(), func.count(func.distinct(CampusTimetableEntry.day_of_week)))
+        .where(
+            CampusTimetableEntry.teacher_name.is_not(None), CampusTimetableEntry.is_cancelled.is_(False),
+            CampusTimetableEntry.class_date >= today, CampusTimetableEntry.class_date < window_end,
+        )
+        .group_by(CampusTimetableEntry.teacher_name)
+        .order_by(CampusTimetableEntry.teacher_name)
+    )).all()
+    return [CampusTeacherOut(teacher_name=name, class_count=count, day_count=days) for name, count, days in rows]
+
+
+@router.get("/electives", response_model=list[CampusElectiveOut])
+async def list_campus_electives(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Every elective course currently in the timetable with its distinct
+    sections (each carrying whichever teacher is on record for it) — lets
+    the frontend offer a per-elective section picker once a student
+    checks that elective on, same shape the reference UI's "Emerging
+    Tools Section" dropdown follows."""
+    rows = (await db.execute(
+        select(CampusTimetableEntry.course_name, CampusTimetableEntry.section, CampusTimetableEntry.teacher_name)
+        .where(CampusTimetableEntry.is_elective.is_(True), CampusTimetableEntry.is_cancelled.is_(False))
+        .distinct()
+    )).all()
+    grouped: dict[str, dict[str, str | None]] = {}
+    for course_name, section, teacher_name in rows:
+        grouped.setdefault(course_name, {})
+        # A (course, section) combination should carry one teacher — if the
+        # data genuinely disagrees across rows, keep whichever was seen
+        # first rather than flip-flopping on dict iteration order.
+        grouped[course_name].setdefault(section, teacher_name)
+    return [
+        CampusElectiveOut(course_name=course_name, sections=[
+            CampusElectiveSectionOut(section=section, teacher_name=teacher_name)
+            for section, teacher_name in sorted(sections.items())
+        ])
+        for course_name, sections in sorted(grouped.items())
+    ]
+
+
+@router.get("/free-rooms", response_model=list[str])
+async def list_free_rooms(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Rooms with no class covering this exact instant right now — the
+    whole timetable's room set minus whichever of them show up occupied
+    today. A room that has simply never been used anywhere in the
+    uploaded timetable isn't a "free room" in any useful sense, so the
+    universe here is real known rooms, not a guess at every room the
+    building might have. Naive server-local time, matching every other
+    "today"/"now" in this file (class_date/start_time/end_time are
+    themselves naive — the timetable feature has never been
+    timezone-aware, see _parse_grid_rows' own date.today() in
+    campus_timetable_service.py)."""
+    now = datetime.now()
+    all_rooms = (await db.execute(
+        select(CampusTimetableEntry.room).where(CampusTimetableEntry.room.is_not(None)).distinct()
+    )).scalars().all()
+    occupied_rooms = (await db.execute(
+        select(CampusTimetableEntry.room).where(
+            CampusTimetableEntry.room.is_not(None), CampusTimetableEntry.is_cancelled.is_(False),
+            CampusTimetableEntry.class_date == now.date(),
+            CampusTimetableEntry.start_time <= now.time(), CampusTimetableEntry.end_time > now.time(),
+        ).distinct()
+    )).scalars().all()
+    return sorted(set(all_rooms) - set(occupied_rooms))
 
 
 @router.get("/source", response_model=CampusTimetableSourceOut)

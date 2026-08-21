@@ -52,6 +52,36 @@ async def test_upload_then_sections_reflects_real_distinct_combinations(client):
     assert soai_a["year_of_study"] == "2"
 
 
+async def test_two_lab_groups_at_the_same_slot_dont_collide_on_upload(client):
+    """Regression test: row_key used to omit lab_group from its identity,
+    so two parallel lab-group sections of the same course meeting at the
+    identical section/date/start_time (different room/teacher per group —
+    a completely normal real-world shape) hashed to the SAME key. The
+    second row's upsert silently overwrote the first instead of creating
+    a second row, so one lab group's room/teacher just vanished. Both
+    must now survive as two distinct rows."""
+    _, admin = await _make_admin(client)
+    csv_bytes = (
+        b"School,Year,Section,LabGroup,Course,CourseId,Date,StartTime,EndTime,Room,Teacher,Elective\n"
+        b"SCDS,3,A,1,Data Structures Lab,CS301L,2027-03-01,11:00,13:00,Lab-1,Dr. Rao,\n"
+        b"SCDS,3,A,2,Data Structures Lab,CS301L,2027-03-01,11:00,13:00,Lab-2,Prof. Iyer,\n"
+    )
+    resp = await client.post(
+        "/timetable/campus/upload",
+        files={"file": ("timetable.csv", csv_bytes, "text/csv")},
+        headers=admin,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["created"] == 2
+
+    entries = (await client.get(
+        "/timetable/campus?section=A&date_from=2027-03-01&date_to=2027-03-01", headers=admin
+    )).json()
+    lab_entries = [e for e in entries if e["course_code"] == "CS301L"]
+    rooms = {e["room"] for e in lab_entries}
+    assert rooms == {"Lab-1", "Lab-2"}
+
+
 async def test_sections_endpoint_requires_auth_but_not_admin(client):
     anon = await client.get("/timetable/campus/sections")
     assert anon.status_code == 401
@@ -274,3 +304,103 @@ async def test_chat_answers_from_the_students_personal_upload(client):
     body = resp.json()
     assert body["provider"] == "mock"
     assert body["answer"]
+
+
+# --- Teacher directory, electives, and free rooms — all derived from
+# "this week's pattern" (a 7-day window from today, or "right now" for
+# free rooms), not the fixed far-future dates most fixtures above use.
+
+
+async def _dynamic_csv(rows_after_header: list[str]) -> bytes:
+    header = "School,Year,Section,LabGroup,Course,CourseId,Date,StartTime,EndTime,Room,Teacher,Elective\n"
+    return (header + "".join(rows_after_header)).encode()
+
+
+async def test_teachers_lists_weekly_class_and_day_counts_not_raw_row_count(client):
+    import datetime as _dt
+
+    _, admin = await _make_admin(client)
+    d1 = (_dt.date.today() + _dt.timedelta(days=1)).isoformat()
+    d2 = (_dt.date.today() + _dt.timedelta(days=2)).isoformat()
+    csv_bytes = await _dynamic_csv([
+        f"SCDS,3,A,,Data Structures,CS301,{d1},09:00,10:00,101,Dr. Rao,\n",
+        f"SCDS,3,A,,Operating Systems,CS401,{d2},09:00,10:00,102,Dr. Rao,\n",
+        # Same teacher, same day as the first row — must still count as 2
+        # distinct classes but only 1 distinct day for that pairing.
+        f"SCDS,3,B,,Linear Algebra,MA201,{d1},11:00,12:00,103,Dr. Rao,\n",
+    ])
+    upload = await client.post("/timetable/campus/upload", files={"file": ("t.csv", csv_bytes, "text/csv")}, headers=admin)
+    assert upload.status_code == 200, upload.text
+
+    resp = await client.get("/timetable/campus/teachers", headers=admin)
+    assert resp.status_code == 200, resp.text
+    rao = next(t for t in resp.json() if t["teacher_name"] == "Dr. Rao")
+    assert rao["class_count"] == 3
+    assert rao["day_count"] == 2
+
+
+async def test_electives_groups_distinct_sections_under_each_course(client):
+    import datetime as _dt
+
+    _, admin = await _make_admin(client)
+    d1 = (_dt.date.today() + _dt.timedelta(days=1)).isoformat()
+    csv_bytes = await _dynamic_csv([
+        f"SCDS,2,1,,Emerging Tools,ET101,{d1},09:00,10:00,201,Arjun Singh,1\n",
+        f"SCDS,2,2,,Emerging Tools,ET101,{d1},10:00,11:00,202,Sonar,1\n",
+        f"SCDS,2,1,,Data Structures,CS301,{d1},11:00,12:00,101,Dr. Rao,\n",  # not an elective
+    ])
+    upload = await client.post("/timetable/campus/upload", files={"file": ("t.csv", csv_bytes, "text/csv")}, headers=admin)
+    assert upload.status_code == 200, upload.text
+
+    resp = await client.get("/timetable/campus/electives", headers=admin)
+    assert resp.status_code == 200, resp.text
+    electives = {e["course_name"] for e in resp.json()}
+    assert "Emerging Tools" in electives
+    assert "Data Structures" not in electives
+
+    et = next(e for e in resp.json() if e["course_name"] == "Emerging Tools")
+    sections = {(s["section"], s["teacher_name"]) for s in et["sections"]}
+    assert sections == {("1", "Arjun Singh"), ("2", "Sonar")}
+
+
+async def test_free_rooms_excludes_rooms_occupied_today_includes_rooms_only_used_on_other_days(client):
+    import datetime as _dt
+
+    _, admin = await _make_admin(client)
+    today = _dt.date.today().isoformat()
+    other_day = (_dt.date.today() + _dt.timedelta(days=3)).isoformat()
+    csv_bytes = await _dynamic_csv([
+        # Covers the whole day today — guaranteed to include "right now"
+        # regardless of what time this test actually runs.
+        f"SCDS,3,A,,All Day Class,CS999,{today},00:00,23:59,OCCUPIED-ROOM,Dr. Rao,\n",
+        # Only ever scheduled on a different date — never occupied today.
+        f"SCDS,3,A,,Some Other Class,CS998,{other_day},09:00,10:00,FREE-ROOM,Dr. Iyer,\n",
+    ])
+    upload = await client.post("/timetable/campus/upload", files={"file": ("t.csv", csv_bytes, "text/csv")}, headers=admin)
+    assert upload.status_code == 200, upload.text
+
+    resp = await client.get("/timetable/campus/free-rooms", headers=admin)
+    assert resp.status_code == 200, resp.text
+    rooms = resp.json()
+    assert "OCCUPIED-ROOM" not in rooms
+    assert "FREE-ROOM" in rooms
+
+
+async def test_list_entries_filters_by_teacher(client):
+    import datetime as _dt
+
+    _, admin = await _make_admin(client)
+    d1 = (_dt.date.today() + _dt.timedelta(days=1)).isoformat()
+    csv_bytes = await _dynamic_csv([
+        f"SCDS,3,A,,Data Structures,CS301,{d1},09:00,10:00,101,Dr. Rao,\n",
+        f"SCDS,3,A,,Linear Algebra,MA201,{d1},10:00,11:00,102,Dr. Iyer,\n",
+    ])
+    upload = await client.post("/timetable/campus/upload", files={"file": ("t.csv", csv_bytes, "text/csv")}, headers=admin)
+    assert upload.status_code == 200, upload.text
+
+    # date_from/date_to scope to just this test's own upload — list_campus_entries
+    # has no default date window (unlike /me), so an unscoped query would also
+    # pick up any other test's "Dr. Rao" rows sharing this session-wide DB.
+    resp = await client.get(f"/timetable/campus?teacher=Dr. Rao&date_from={d1}&date_to={d1}", headers=admin)
+    assert resp.status_code == 200, resp.text
+    assert {e["course_name"] for e in resp.json()} == {"Data Structures"}

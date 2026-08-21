@@ -33,6 +33,7 @@ export function NavBar() {
     ["/elimination", "Elimination", !!user],
     ["/dashboard", "Dashboard", !!user],
     ["/timetable", "Timetable", !!user],
+    ["/timetable/teachers", "Teachers", !!user],
     ["/practice", "Practice", !!user],
     ["/leaderboard", "Ranks", !!user],
     ["/chat", "Chat", !!user],

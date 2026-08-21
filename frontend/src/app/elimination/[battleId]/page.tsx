@@ -13,11 +13,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/
 interface Battle {
   id: string; host_id: string; title: string; topic_id: string; status: string; join_code: string;
   current_round_number: number; winner_id: string | null; started_at: string | null; ended_at: string | null;
+  scheduled_start_at: string | null;
 }
-interface Participant { user_id: string; full_name: string; status: string; eliminated_at_round: number | null; eliminated_reason: string | null }
-interface PersonSearchResult { user_id: string; full_name: string; avatar_url: string | null; relationship: string }
+interface Participant { user_id: string; full_name: string; public_handle: string | null; status: string; eliminated_at_round: number | null; eliminated_reason: string | null }
+interface PersonSearchResult { user_id: string; full_name: string; public_handle: string | null; avatar_url: string | null; relationship: string }
 interface RoundOption { id: string; text: string }
 interface RoundQuestion { id: string; prompt: string; question_type: string; options: RoundOption[] }
+interface CurrentRound { round_number: number; deadline_at: string; question: RoundQuestion; already_answered: boolean; my_is_correct: boolean | null }
 
 type BattleEvent =
   | { event: "battle.started"; battle_id: string }
@@ -54,6 +56,15 @@ export default function EliminationBattlePage() {
   const loadState = useCallback(() => {
     apiFetch<Battle>(`/elimination/battles/${params.battleId}`).then(setBattle).catch(() => setBattle(null));
     apiFetch<Participant[]>(`/elimination/battles/${params.battleId}/participants`).then(setParticipants).catch(() => setParticipants([]));
+    // REST fallback for the current round — the websocket only ever
+    // broadcasts battle.round_released once, at the instant it happens, so
+    // this is what actually recovers the question after a refresh or a
+    // reconnect that landed after that broadcast already fired.
+    apiFetch<CurrentRound | null>(`/elimination/battles/${params.battleId}/round`).then((r) => {
+      if (!r) return;
+      setRound({ number: r.round_number, question: r.question, deadlineAt: r.deadline_at });
+      if (r.already_answered) setMyResult({ round: r.round_number, isCorrect: r.my_is_correct ?? false });
+    }).catch(() => {});
   }, [params.battleId]);
 
   useEffect(() => {
@@ -216,12 +227,22 @@ export default function EliminationBattlePage() {
 
       {battle.status === "lobby" && (
         <div className="mt-6 space-y-6">
+          {battle.scheduled_start_at && (
+            <div className="rounded-lg border border-brand-500/30 bg-brand-500/5 px-4 py-2.5 text-sm text-fg">
+              Scheduled to start {new Date(battle.scheduled_start_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+              {" "}— auto-starts once at least one other player has joined.
+            </div>
+          )}
           <div className="card">
             <h2 className="font-semibold text-fg">Players ({participants.length})</h2>
             <ul className="mt-3 space-y-1.5 text-sm">
               {participants.map((p) => (
                 <li key={p.user_id} className="flex items-center justify-between">
-                  <span className="text-fg">{p.full_name}{p.user_id === battle.host_id ? " (host)" : ""}</span>
+                  <span className="text-fg">
+                    {p.full_name}
+                    {p.public_handle && <span className="text-fg-subtle"> @{p.public_handle}</span>}
+                    {p.user_id === battle.host_id ? " (host)" : ""}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -248,12 +269,15 @@ export default function EliminationBattlePage() {
             <div className="card">
               <h2 className="font-semibold text-fg">Invite friends you follow</h2>
               <p className="mt-1 text-xs text-fg-subtle">Only people you have an accepted connection with show up here — share the room code above for anyone else.</p>
-              <input className="input mt-3" placeholder="Search by name…" value={searchQuery} onChange={(e) => search(e.target.value)} />
+              <input className="input mt-3" placeholder="Search by name or @username…" value={searchQuery} onChange={(e) => search(e.target.value)} />
               {searchResults.length > 0 && (
                 <ul className="mt-2 space-y-1.5">
                   {searchResults.map((r) => (
                     <li key={r.user_id} className="flex items-center justify-between rounded-lg border border-ink-700 px-3 py-2 text-sm">
-                      <span className="text-fg">{r.full_name}</span>
+                      <span className="text-fg">
+                        {r.full_name}
+                        {r.public_handle && <span className="text-fg-subtle"> @{r.public_handle}</span>}
+                      </span>
                       <button onClick={() => invite(r.user_id)} disabled={inviting === r.user_id} className="btn-secondary !px-3 !py-1 text-xs">
                         {inviting === r.user_id ? "Inviting…" : "Invite"}
                       </button>
@@ -333,7 +357,10 @@ export default function EliminationBattlePage() {
             <ul className="mt-3 space-y-1.5 text-sm">
               {participants.map((p) => (
                 <li key={p.user_id} className={`flex items-center justify-between ${p.status === "eliminated" ? "opacity-50 line-through" : ""}`}>
-                  <span className="text-fg">{p.full_name}</span>
+                  <span className="text-fg">
+                    {p.full_name}
+                    {p.public_handle && <span className="text-fg-subtle"> @{p.public_handle}</span>}
+                  </span>
                   <span className="text-xs text-fg-subtle">{p.status === "eliminated" ? `out (round ${p.eliminated_at_round})` : p.status}</span>
                 </li>
               ))}

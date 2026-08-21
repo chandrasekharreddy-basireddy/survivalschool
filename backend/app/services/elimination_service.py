@@ -64,10 +64,18 @@ from app.models.elimination import (
     EliminationParticipant,
     EliminationRound,
 )
-from app.models.user import User
+from app.models.exam_platform import Subject, Topic
+from app.models.user import Profile, User
+from app.services.ai_question_service import (
+    find_or_create_subject,
+    find_or_create_topic,
+    generate_and_persist_questions,
+)
 from app.services.audit_service import record_audit_event
 from app.services.distributed_lock import try_lock
+from app.services.email_service import send_email
 from app.services.notification_service import create_notification
+from app.services.question_validation_service import QuestionValidationError
 from app.services.scoring_service import grade_answer
 from app.services.social_graph_service import has_accepted_connection
 from app.websockets.manager import manager as ws_manager
@@ -76,6 +84,14 @@ logger = structlog.get_logger("survivalschool.elimination")
 
 SWEEP_INTERVAL_SECONDS = 2
 MAX_INVITEES_PER_BATTLE = 50
+# Deliberately smaller than the AI Weekly Exam's 40+10 — a battle only ever
+# needs one question in flight at a time and, per _pick_question below, a
+# question is never repeated within the same battle. A single-elimination
+# bracket of the max 51 players needs at most ~6 rounds if survivors always
+# split evenly; this pool comfortably covers realistic play without the
+# latency/cost of generating a full exam-sized set at battle-creation time.
+ELIMINATION_SINGLE_COUNT = 12
+ELIMINATION_MULTIPLE_COUNT = 6
 # Excludes visually ambiguous characters (0/O, 1/I/L) since this is meant to
 # be read off a phone screen or typed in by hand, not just scanned as a QR.
 _JOIN_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -97,8 +113,45 @@ def _generate_join_code() -> str:
     return "".join(secrets.choice(_JOIN_CODE_ALPHABET) for _ in range(_JOIN_CODE_LENGTH))
 
 
-async def create_battle(db: AsyncSession, host: User, title: str, topic_id: uuid.UUID) -> EliminationBattle:
-    battle = EliminationBattle(host_id=host.id, title=title, topic_id=topic_id, status="lobby", join_code=_generate_join_code())
+async def create_battle(
+    db: AsyncSession, host: User, title: str, subject_name: str, topic_name: str,
+    scheduled_start_at: datetime | None = None,
+) -> EliminationBattle:
+    """The subject/topic are freely typed by the host — same pattern as AI
+    Weekly Exam registration (ai_exam_service.py): resolve/create the real
+    taxonomy rows, then make sure the topic actually has a question pool to
+    draw from. If nothing's there yet (a genuinely new topic, not one an
+    instructor already curated or a prior battle already generated for),
+    the AI generates one now rather than leaving the battle to fail closed
+    only once someone tries to start it."""
+    subject_name, topic_name = subject_name.strip(), topic_name.strip()
+    if not subject_name or not topic_name:
+        raise ValidationAppError("Both subject and topic are required.")
+    if scheduled_start_at is not None and scheduled_start_at <= datetime.now(UTC):
+        raise ValidationAppError("Scheduled start time must be in the future.")
+
+    subject = await find_or_create_subject(db, subject_name)
+    topic = await find_or_create_topic(db, subject.id, topic_name)
+    # Commit now: generate_and_persist_questions runs in its own
+    # AsyncSessionLocal() session (a slow AI call shouldn't hold this
+    # connection open), which can't see an uncommitted subject/topic row —
+    # same reasoning as ai_exam_service.register_for_ai_weekly_exam.
+    await db.commit()
+
+    existing_question_ids = (await db.execute(
+        select(Question.id).where(Question.topic_id == topic.id, Question.is_validated.is_(True))
+    )).scalars().all()
+    if not existing_question_ids:
+        try:
+            await generate_and_persist_questions(topic, ELIMINATION_SINGLE_COUNT, ELIMINATION_MULTIPLE_COUNT)
+        except QuestionValidationError as exc:
+            logger.error("elimination_generation_failed_validation", topic_id=str(topic.id), error=str(exc))
+            raise ValidationAppError(f"Couldn't generate questions for this topic: {exc}") from exc
+
+    battle = EliminationBattle(
+        host_id=host.id, title=title, topic_id=topic.id, status="lobby",
+        join_code=_generate_join_code(), scheduled_start_at=scheduled_start_at,
+    )
     # Collisions are astronomically unlikely at this alphabet/length (32^6 ≈
     # 1.07B combinations) but the unique constraint plus a bounded retry
     # loop makes this correct rather than merely probably-fine.
@@ -183,7 +236,29 @@ async def invite_to_battle(db: AsyncSession, battle: EliminationBattle, inviter:
         body=battle.title, link_url=f"/elimination/{battle.id}",
     )
     await db.commit()
+    await _send_invite_email(db, battle, inviter, invitee)
     return invitation
+
+
+async def _send_invite_email(db: AsyncSession, battle: EliminationBattle, inviter: User, invitee: User) -> None:
+    """Best-effort — an email delivery failure must never fail the invite
+    itself (the in-app notification above already got through)."""
+    topic = await db.get(Topic, battle.topic_id)
+    subject = await db.get(Subject, topic.subject_id) if topic else None
+    inviter_profile = (await db.execute(select(Profile).where(Profile.user_id == inviter.id))).scalar_one_or_none()
+    from app.config import get_settings
+    settings = get_settings()
+    try:
+        await send_email(
+            invitee.email, f"{inviter.full_name} invited you to an elimination battle", "elimination_invite",
+            invitee_name=invitee.full_name, inviter_name=inviter.full_name,
+            inviter_handle=inviter_profile.public_handle if inviter_profile else None,
+            battle_title=battle.title, subject_name=subject.name if subject else "",
+            topic_name=topic.name if topic else "",
+            join_url=f"{settings.FRONTEND_URL}/elimination/join/{battle.join_code}",
+        )
+    except Exception:
+        logger.warning("elimination_invite_email_failed", battle_id=str(battle.id), invitee_id=str(invitee.id), exc_info=True)
 
 
 async def respond_to_invitation(db: AsyncSession, invitation: EliminationInvitation, user: User, accept: bool) -> EliminationInvitation:
@@ -255,15 +330,11 @@ async def release_round(db: AsyncSession, battle: EliminationBattle) -> Eliminat
     return round_
 
 
-async def start_battle(db: AsyncSession, battle: EliminationBattle, host: User) -> EliminationBattle:
-    if host.id != battle.host_id:
-        raise AuthorizationError("Only the host can start this battle.")
-    if battle.status != "lobby":
-        raise ConflictError("This battle has already started.")
-    participants = (await db.execute(select(EliminationParticipant).where(EliminationParticipant.battle_id == battle.id))).scalars().all()
-    if len(participants) < 2:
-        raise ValidationAppError("At least one other player needs to accept an invitation before you can start.")
-
+async def _activate_battle(db: AsyncSession, battle: EliminationBattle, participants: list[EliminationParticipant]) -> None:
+    """The actual state transition, shared by a host manually starting the
+    battle (start_battle, authorization-checked) and the sweep loop
+    auto-starting a scheduled one (_sweep_once, no host in the loop at all
+    — the system is the actor, not a request)."""
     for p in participants:
         p.status = "active"
     battle.status = "active"
@@ -275,12 +346,31 @@ async def start_battle(db: AsyncSession, battle: EliminationBattle, host: User) 
     round_ = await release_round(db, battle)
     if round_ is None:
         # No question bank for this topic — cannot run the battle. Rare
-        # (blocked earlier normally by the create-battle flow validating
-        # the topic has questions), but fail closed rather than leave
-        # participants stuck in "active" with no question ever coming.
+        # now that create_battle generates one up front, but fail closed
+        # rather than leave participants stuck in "active" with no
+        # question ever coming.
         battle.status = "cancelled"
         await db.commit()
         raise ValidationAppError("No questions are available for this topic yet — the battle was cancelled.")
+
+
+async def start_battle(db: AsyncSession, battle: EliminationBattle, host: User) -> EliminationBattle:
+    if host.id != battle.host_id:
+        raise AuthorizationError("Only the host can start this battle.")
+    # Same lock the sweep loop's scheduled auto-start holds while it calls
+    # _activate_battle — without it, a host clicking Start at the exact
+    # instant a scheduled battle's auto-start sweep fires could race it and
+    # double-activate the battle (two round-releases in flight at once).
+    async with try_lock(_battle_lock_key(battle.id), ttl_seconds=10) as got_lock:
+        if not got_lock:
+            raise ConflictError("This battle is being updated — try again in a moment.")
+        await db.refresh(battle)
+        if battle.status != "lobby":
+            raise ConflictError("This battle has already started.")
+        participants = (await db.execute(select(EliminationParticipant).where(EliminationParticipant.battle_id == battle.id))).scalars().all()
+        if len(participants) < 2:
+            raise ValidationAppError("At least one other player needs to accept an invitation before you can start.")
+        await _activate_battle(db, battle, participants)
     return battle
 
 
@@ -422,6 +512,30 @@ async def _sweep_once() -> None:
                 if not got_lock:
                     continue
                 await resolve_round(db, round_.battle_id, round_.id)
+
+        due_battles = (await db.execute(
+            select(EliminationBattle).where(
+                EliminationBattle.status == "lobby",
+                EliminationBattle.scheduled_start_at.is_not(None),
+                EliminationBattle.scheduled_start_at < now,
+            )
+        )).scalars().all()
+        for battle in due_battles:
+            async with try_lock(_battle_lock_key(battle.id), ttl_seconds=10) as got_lock:
+                if not got_lock:
+                    continue
+                participants = (await db.execute(
+                    select(EliminationParticipant).where(EliminationParticipant.battle_id == battle.id)
+                )).scalars().all()
+                if len(participants) < 2:
+                    # Nobody accepted in time — leave it in the lobby rather
+                    # than auto-cancelling; the host can still start it by
+                    # hand the moment a second player joins.
+                    continue
+                try:
+                    await _activate_battle(db, battle, participants)
+                except ValidationAppError:
+                    logger.warning("elimination_scheduled_start_failed", battle_id=str(battle.id))
 
 
 async def elimination_sweep_loop(stop: asyncio.Event) -> None:

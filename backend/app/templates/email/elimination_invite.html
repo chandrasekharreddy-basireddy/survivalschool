@@ -1,0 +1,14 @@
+{% extends "_base.html" %}
+{% block content %}
+<h1 style="color:#ffffff;font-size:22px;margin:0 0 12px;">You're invited to an elimination battle</h1>
+<p>Hi {{ invitee_name }}, <strong>{{ inviter_name }}</strong>{% if inviter_handle %} (@{{ inviter_handle }}){% endif %} invited you to "{{ battle_title }}".</p>
+<table style="margin:20px 0;width:100%;border-collapse:collapse;">
+  <tr><td style="padding:6px 0;color:#9ca3af;font-size:13px;">Subject</td><td style="padding:6px 0;color:#ffffff;font-size:14px;">{{ subject_name }}</td></tr>
+  <tr><td style="padding:6px 0;color:#9ca3af;font-size:13px;">Topic</td><td style="padding:6px 0;color:#ffffff;font-size:14px;">{{ topic_name }}</td></tr>
+  <tr><td style="padding:6px 0;color:#9ca3af;font-size:13px;">Host</td><td style="padding:6px 0;color:#ffffff;font-size:14px;">{{ inviter_name }}{% if inviter_handle %} (@{{ inviter_handle }}){% endif %}</td></tr>
+</table>
+<p style="margin:28px 0;">
+  <a href="{{ join_url }}" style="background:#5b5bff;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;display:inline-block;">Join the battle</a>
+</p>
+<p style="color:#9ca3af;font-size:13px;">One question at a time, a strict 15-second deadline — miss it or answer wrong and you're out.</p>
+{% endblock %}

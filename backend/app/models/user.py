@@ -128,10 +128,19 @@ class Profile(Base, UUIDPk, Timestamped):
     bio: Mapped[str | None] = mapped_column(String(1000))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
     locale: Mapped[str] = mapped_column(String(10), default="en", nullable=False)
-    # Free-text campus section/roll group (e.g. "CSE-3B") — set once by the
-    # student so GET /timetable/campus/me can filter the university-wide
-    # schedule down to just their section without guessing from anything
-    # else on the account.
+    # Which school (SCDS, SOAI, SOB, ...) the student's section below
+    # belongs to — section numbers repeat across schools (see
+    # campus_timetable_service.py's row_key comment: "group identity is
+    # school + section"), so section alone can't disambiguate a student's
+    # actual schedule once more than one school is in the uploaded
+    # timetable. Nullable/optional so existing accounts that only ever set
+    # section keep working exactly as before (my_campus_entries falls back
+    # to matching on section alone when school is unset).
+    school: Mapped[str | None] = mapped_column(String(120))
+    # Free-text campus section/roll group (e.g. "A", "CSE-3B") — set once by
+    # the student, picked from GET /timetable/campus/sections' real options
+    # rather than typed blind, so GET /timetable/campus/me can filter the
+    # university-wide schedule down to just their own classes.
     section: Mapped[str | None] = mapped_column(String(60))
     # Optional, free-text — shown/editable at AI Weekly Exam registration so
     # it only has to be typed once and is auto-filled on every later visit.

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from typing import Literal
 
@@ -14,9 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
-    ConflictError,
     NotFoundError,
-    ValidationAppError,
 )
 from app.database import get_db
 from app.dependencies import get_current_user, require_permission
@@ -24,6 +21,7 @@ from app.models.user import Profile, Role, User
 from app.schemas.auth import MessageResponse, UserOut
 from app.security.passwords import verify_password
 from app.services.gdpr_service import delete_account, export_user_data
+from app.services.profile_service import fallback_handle, set_profile_handle
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -85,13 +83,11 @@ class ProfileOut(BaseModel):
     avatar_url: str | None
     timezone: str
     locale: str
+    school: str | None
     section: str | None
     institute: str | None
 
     model_config = {"from_attributes": True}
-
-
-_HANDLE_PATTERN = re.compile(r"^[a-z0-9_]{3,30}$")
 
 
 class ProfilePatch(BaseModel):
@@ -100,6 +96,7 @@ class ProfilePatch(BaseModel):
     avatar_url: str | None = None
     timezone: str | None = None
     locale: str | None = None
+    school: str | None = None
     section: str | None = None
     institute: str | None = None
 
@@ -107,7 +104,14 @@ class ProfilePatch(BaseModel):
 async def _get_or_create_profile(db: AsyncSession, user: User) -> Profile:
     profile = (await db.execute(select(Profile).where(Profile.user_id == user.id))).scalar_one_or_none()
     if profile is None:
-        profile = Profile(user_id=user.id)
+        # Every account created through POST /auth/register already has a
+        # profile with a real, chosen handle (see create_profile_with_handle)
+        # — this branch only runs for accounts that predate that
+        # requirement. Falls back to a deterministic handle derived from the
+        # user's own id rather than leaving public_handle null, so search/
+        # connections/battle-lobby displays never have to special-case a
+        # handle-less user.
+        profile = Profile(user_id=user.id, public_handle=fallback_handle(user.id))
         db.add(profile)
         await db.commit()
         await db.refresh(profile)
@@ -129,14 +133,7 @@ async def update_my_profile(
 ):
     profile = await _get_or_create_profile(db, user)
     if body.public_handle is not None:
-        handle = body.public_handle.strip().lower()
-        if not _HANDLE_PATTERN.match(handle):
-            raise ValidationAppError("Handles must be 3-30 characters: lowercase letters, numbers, and underscores only.")
-        if handle != profile.public_handle:
-            existing = (await db.execute(select(Profile).where(Profile.public_handle == handle))).scalar_one_or_none()
-            if existing is not None and existing.id != profile.id:
-                raise ConflictError("That handle is already taken.")
-            profile.public_handle = handle
+        await set_profile_handle(db, profile, body.public_handle)
     if body.bio is not None:
         profile.bio = body.bio
     if body.avatar_url is not None:
@@ -145,6 +142,8 @@ async def update_my_profile(
         profile.timezone = body.timezone
     if body.locale is not None:
         profile.locale = body.locale
+    if body.school is not None:
+        profile.school = body.school
     if body.section is not None:
         profile.section = body.section
     if body.institute is not None:

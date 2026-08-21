@@ -3,22 +3,30 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.db_utils import escape_like
 from app.core.exceptions import ValidationAppError
 from app.database import get_db
-from app.dependencies import get_current_user, require_permission
-from app.models.campus_timetable import CampusTimetableEntry, CampusTimetableSource
+from app.dependencies import get_current_user, get_current_verified_user, require_permission
+from app.models.campus_timetable import (
+    CampusTimetableEntry,
+    CampusTimetableSource,
+    PersonalTimetableEntry,
+)
 from app.models.user import Profile, User
+from app.schemas.auth import MessageResponse
 from app.schemas.campus_timetable import (
     CampusImportErrorRow,
+    CampusSectionOut,
     CampusSyncResultOut,
     CampusTimetableEntryOut,
     CampusTimetableSourceOut,
     LiveSyncConfigureIn,
+    PersonalTimetableEntryOut,
+    PersonalUploadResultOut,
 )
 from app.services.audit_service import record_audit_event
 from app.services.campus_timetable_service import (
@@ -27,8 +35,14 @@ from app.services.campus_timetable_service import (
     fetch_and_apply_live_sync,
     parse_campus_rows,
 )
+from app.services.personal_timetable_service import parse_personal_rows, replace_personal_timetable
 
 router = APIRouter(prefix="/timetable/campus", tags=["campus-timetable"])
+# A student's own upload lives under /timetable/me, not /timetable/campus —
+# it's a different concept (personal, single-owner) from the shared campus
+# feed above, and mixing them under one prefix would blur that distinction
+# in the URL itself.
+personal_router = APIRouter(prefix="/timetable/me", tags=["personal-timetable"])
 settings = get_settings()
 
 
@@ -85,6 +99,12 @@ async def my_campus_entries(
     stmt = select(CampusTimetableEntry).where(
         CampusTimetableEntry.section.ilike(escape_like(profile.section)), CampusTimetableEntry.is_cancelled.is_(False)
     )
+    # school disambiguates section numbers that repeat across schools (see
+    # CampusSectionOut) — only applied when the student actually set one,
+    # so an account that predates this field keeps matching on section
+    # alone rather than suddenly seeing nothing.
+    if profile.school:
+        stmt = stmt.where(CampusTimetableEntry.school.ilike(escape_like(profile.school)))
     if date_from:
         stmt = stmt.where(CampusTimetableEntry.class_date >= date_from)
     else:
@@ -93,6 +113,33 @@ async def my_campus_entries(
         stmt = stmt.where(CampusTimetableEntry.class_date <= date_to)
     stmt = stmt.order_by(CampusTimetableEntry.class_date, CampusTimetableEntry.start_time).limit(500)
     return (await db.execute(stmt)).scalars().all()
+
+
+@router.get("/sections", response_model=list[CampusSectionOut])
+async def list_campus_sections(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Every real (school, year, section) combination currently in the
+    timetable, so the frontend can offer a dropdown instead of a student
+    typing a section name blind. Any signed-in user can read this — it's
+    the same information already visible via the timetable itself, just
+    aggregated for picking rather than displaying."""
+    rows = (await db.execute(
+        select(
+            CampusTimetableEntry.school, CampusTimetableEntry.year_of_study,
+            CampusTimetableEntry.section, CampusTimetableEntry.lab_group,
+        ).where(CampusTimetableEntry.is_cancelled.is_(False)).distinct()
+    )).all()
+    grouped: dict[tuple[str | None, str | None, str], set[str]] = {}
+    for school, year_of_study, section, lab_group in rows:
+        key = (school, year_of_study, section)
+        grouped.setdefault(key, set())
+        if lab_group:
+            grouped[key].add(lab_group)
+    return [
+        CampusSectionOut(school=school, year_of_study=year_of_study, section=section, lab_groups=sorted(labs))
+        for (school, year_of_study, section), labs in sorted(
+            grouped.items(), key=lambda kv: (kv[0][0] or "", kv[0][1] or "", kv[0][2])
+        )
+    ]
 
 
 @router.get("/source", response_model=CampusTimetableSourceOut)
@@ -196,3 +243,59 @@ async def disable_live_sync(
     await db.commit()
     await db.refresh(source)
     return source
+
+
+@personal_router.post("/upload", response_model=PersonalUploadResultOut)
+async def upload_my_timetable(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Any student can upload their own CSV/XLSX here — unlike
+    /timetable/campus/upload, which is system.manage-gated because it
+    writes into the one shared institution-wide feed, this only ever
+    touches the uploader's own rows. Wholesale-replaces whatever they
+    uploaded before, same shape/columns as the campus importer (Course,
+    Date, StartTime, EndTime, Room, Teacher, Elective — School/Section/
+    LabGroup/Year are irrelevant here since it's already scoped to one
+    person)."""
+    max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
+    content = await file.read(max_bytes + 1)
+    if len(content) > max_bytes:
+        raise ValidationAppError(f"File exceeds the {settings.MAX_UPLOAD_MB}MB upload limit.")
+
+    rows = parse_personal_rows(file.filename or "", content)
+    result = await replace_personal_timetable(db, user.id, rows)
+    return PersonalUploadResultOut(
+        total_rows=result.total_rows,
+        error_rows=[CampusImportErrorRow(**r) for r in result.error_rows],
+        imported=result.imported,
+    )
+
+
+@personal_router.get("/personal", response_model=list[PersonalTimetableEntryOut])
+async def my_personal_timetable(
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(PersonalTimetableEntry).where(PersonalTimetableEntry.user_id == user.id)
+    if date_from:
+        stmt = stmt.where(PersonalTimetableEntry.class_date >= date_from)
+    else:
+        stmt = stmt.where(PersonalTimetableEntry.class_date >= date.today())
+    if date_to:
+        stmt = stmt.where(PersonalTimetableEntry.class_date <= date_to)
+    stmt = stmt.order_by(PersonalTimetableEntry.class_date, PersonalTimetableEntry.start_time).limit(500)
+    return (await db.execute(stmt)).scalars().all()
+
+
+@personal_router.delete("/personal", response_model=MessageResponse)
+async def clear_my_personal_timetable(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Reverts to the section-filtered campus view (GET /timetable/campus/me)
+    — lets a student undo an upload without waiting for a fresh one to
+    overwrite it."""
+    await db.execute(delete(PersonalTimetableEntry).where(PersonalTimetableEntry.user_id == user.id))
+    await db.commit()
+    return MessageResponse(message="Your uploaded timetable was cleared.")

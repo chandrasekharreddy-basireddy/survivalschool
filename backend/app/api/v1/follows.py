@@ -25,12 +25,19 @@ from app.services.social_graph_service import has_accepted_connection
 router = APIRouter(prefix="/follows", tags=["follows"])
 
 
+async def _handle_for(db: AsyncSession, user_id: uuid.UUID) -> str | None:
+    profile = (await db.execute(select(Profile).where(Profile.user_id == user_id))).scalar_one_or_none()
+    return profile.public_handle if profile else None
+
+
 async def _to_out(db: AsyncSession, req: FollowRequest) -> FollowRequestOut:
     requester = await db.get(User, req.requester_id)
     target = await db.get(User, req.target_id)
     return FollowRequestOut(
         id=req.id, requester_id=req.requester_id, requester_name=requester.full_name if requester else "Unknown",
+        requester_handle=await _handle_for(db, req.requester_id),
         target_id=req.target_id, target_name=target.full_name if target else "Unknown",
+        target_handle=await _handle_for(db, req.target_id),
         status=req.status, created_at=req.created_at, responded_at=req.responded_at,
     )
 
@@ -199,7 +206,9 @@ async def list_connections(user: User = Depends(get_current_user), db: AsyncSess
             continue
         profile = (await db.execute(select(Profile).where(Profile.user_id == other_id))).scalar_one_or_none()
         out.append(ConnectionOut(
-            user_id=other.id, full_name=other.full_name, avatar_url=profile.avatar_url if profile else None,
+            user_id=other.id, full_name=other.full_name,
+            public_handle=profile.public_handle if profile else None,
+            avatar_url=profile.avatar_url if profile else None,
             connected_since=r.responded_at or r.created_at,
         ))
     return out
@@ -236,12 +245,19 @@ async def search_people(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Authenticated-only (not public) — deliberately returns name/avatar,
-    never email, to keep this from being a plain account-lookup-by-email
-    tool for anyone who signs up."""
+    """Authenticated-only (not public) — deliberately returns name/handle/
+    avatar, never email, to keep this from being a plain account-lookup-by-
+    email tool for anyone who signs up. Matches on the unique @handle as
+    well as full name, since the handle is how people are meant to find
+    each other precisely (full names collide; handles never do)."""
     like = f"%{escape_like(q)}%"
     candidates = (await db.execute(
-        select(User).where(User.id != user.id, User.deleted_at.is_(None), User.full_name.ilike(like))
+        select(User)
+        .outerjoin(Profile, Profile.user_id == User.id)
+        .where(
+            User.id != user.id, User.deleted_at.is_(None),
+            or_(User.full_name.ilike(like), Profile.public_handle.ilike(like)),
+        )
         .order_by(User.full_name).limit(limit)
     )).scalars().all()
     if not candidates:
@@ -274,6 +290,7 @@ async def search_people(
     return [
         PersonSearchResultOut(
             user_id=c.id, full_name=c.full_name,
+            public_handle=profiles[c.id].public_handle if c.id in profiles else None,
             avatar_url=profiles[c.id].avatar_url if c.id in profiles else None,
             relationship=_relationship(c.id),
         )

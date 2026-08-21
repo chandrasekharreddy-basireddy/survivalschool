@@ -8,14 +8,13 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatRelative } from "@/lib/format";
 
-interface Subject { id: string; name: string }
-interface Topic { id: string; name: string }
 interface Battle {
   id: string; host_id: string; title: string; topic_id: string; status: string;
   current_round_number: number; winner_id: string | null; started_at: string | null; ended_at: string | null;
+  scheduled_start_at: string | null;
 }
 interface Invitation {
-  id: string; battle_id: string; battle_title: string; inviter_id: string; inviter_name: string;
+  id: string; battle_id: string; battle_title: string; inviter_id: string; inviter_name: string; inviter_handle: string | null;
   invitee_id: string; status: string; created_at: string;
 }
 
@@ -28,11 +27,10 @@ export default function EliminationPage() {
 
   const [battles, setBattles] = useState<Battle[] | null>(null);
   const [invitations, setInvitations] = useState<Invitation[] | null>(null);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [topics, setTopics] = useState<Topic[]>([]);
-  const [subjectId, setSubjectId] = useState("");
-  const [topicId, setTopicId] = useState("");
+  const [subjectName, setSubjectName] = useState("");
+  const [topicName, setTopicName] = useState("");
   const [title, setTitle] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
   const [creating, setCreating] = useState(false);
   const [joinCode, setJoinCode] = useState("");
 
@@ -44,20 +42,19 @@ export default function EliminationPage() {
   useEffect(() => {
     if (!user) return;
     refresh();
-    apiFetch<Subject[]>("/subjects", { auth: false }).then(setSubjects).catch(() => setSubjects([]));
   }, [user]);
 
-  useEffect(() => {
-    if (!subjectId) { setTopics([]); setTopicId(""); return; }
-    apiFetch<Topic[]>(`/subjects/${subjectId}/topics`, { auth: false }).then(setTopics).catch(() => setTopics([]));
-    setTopicId("");
-  }, [subjectId]);
-
   const createBattle = async () => {
-    if (!title.trim() || !topicId) return;
+    if (!title.trim() || !subjectName.trim() || !topicName.trim()) return;
     setCreating(true);
     try {
-      const battle = await apiFetch<Battle>("/elimination/battles", { method: "POST", body: JSON.stringify({ title: title.trim(), topic_id: topicId }) });
+      const battle = await apiFetch<Battle>("/elimination/battles", {
+        method: "POST",
+        body: JSON.stringify({
+          title: title.trim(), subject_name: subjectName.trim(), topic_name: topicName.trim(),
+          scheduled_start_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        }),
+      });
       router.push(`/elimination/${battle.id}`);
     } catch (err) {
       toast.show(err instanceof ApiError ? err.message : "Couldn't create the battle.", "error");
@@ -117,18 +114,23 @@ export default function EliminationPage() {
 
       <div className="card mt-4">
         <h2 className="font-semibold text-fg">Start a new battle</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <select className="input" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
-            <option value="">Subject…</option>
-            {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <select className="input" value={topicId} onChange={(e) => setTopicId(e.target.value)} disabled={!subjectId}>
-            <option value="">Topic…</option>
-            {topics.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
-        </div>
+        <p className="mt-1 text-xs text-fg-subtle">Type any subject and topic — AI generates the question pool for you.</p>
         <input className="input mt-3" placeholder="Battle title" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <button onClick={createBattle} disabled={creating || !title.trim() || !topicId} className="btn-primary mt-3">
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <input className="input" placeholder="Subject (e.g. Computer Science)" value={subjectName} onChange={(e) => setSubjectName(e.target.value)} />
+          <input className="input" placeholder="Topic (e.g. Graph Algorithms)" value={topicName} onChange={(e) => setTopicName(e.target.value)} />
+        </div>
+        <div className="mt-3">
+          <label className="label" htmlFor="scheduled_at">Schedule start (optional)</label>
+          <input
+            id="scheduled_at" type="datetime-local" className="input mt-1.5"
+            value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-fg-subtle">
+            {scheduledAt ? "The battle auto-starts at this time once at least one other player has joined." : "Leave blank to start it yourself whenever you're ready."}
+          </p>
+        </div>
+        <button onClick={createBattle} disabled={creating || !title.trim() || !subjectName.trim() || !topicName.trim()} className="btn-primary mt-3">
           {creating ? "Creating…" : "Create battle"}
         </button>
       </div>
@@ -141,7 +143,9 @@ export default function EliminationPage() {
               <div key={inv.id} className="card !p-4 flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="truncate font-medium text-fg">{inv.battle_title}</p>
-                  <p className="text-xs text-fg-subtle">from {inv.inviter_name} · {formatRelative(inv.created_at)}</p>
+                  <p className="text-xs text-fg-subtle">
+                    from {inv.inviter_name}{inv.inviter_handle ? ` (@${inv.inviter_handle})` : ""} · {formatRelative(inv.created_at)}
+                  </p>
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <button onClick={() => respond(inv.id, true)} className="btn-primary !px-3 !py-1.5 text-sm">Accept</button>

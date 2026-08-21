@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Lora } from "next/font/google";
 import "./globals.css";
 
 // Self-hosted Inter (no external request → CSP-clean, no layout-shift). Exposed
@@ -9,6 +9,17 @@ const inter = Inter({
   display: "swap",
   weight: ["400", "500", "600", "700", "800"],
   variable: "--font-inter",
+});
+
+// A quiet serif for the rare bit of copy that wants to read as written
+// rather than as UI (e.g. the dashboard's daily quote) — exposed as
+// --font-serif via globals.css, same self-hosting pattern as Inter above.
+const lora = Lora({
+  subsets: ["latin"],
+  display: "swap",
+  weight: ["400", "500"],
+  style: ["italic", "normal"],
+  variable: "--font-lora",
 });
 import { AuthProvider } from "@/lib/auth-context";
 import { ToastProvider } from "@/lib/toast";
@@ -58,7 +69,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={inter.variable}>
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${lora.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_THEME_SCRIPT }} />
       </head>

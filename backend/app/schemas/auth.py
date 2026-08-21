@@ -12,6 +12,11 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=10, max_length=128)
     full_name: str = Field(min_length=2, max_length=150)
+    # The account's unique @handle, claimed at signup rather than left for
+    # later — see app.services.profile_service for the actual format/
+    # uniqueness rules; this is just a length guard so an obviously-empty
+    # value fails fast with a field-level error.
+    username: str = Field(min_length=3, max_length=30)
 
     @field_validator("password")
     @classmethod
@@ -127,6 +132,7 @@ class InstructorApplicationCreate(BaseModel):
     email: EmailStr | None = None
     password: str | None = Field(default=None, min_length=10, max_length=128)
     full_name: str | None = Field(default=None, min_length=2, max_length=150)
+    username: str | None = Field(default=None, min_length=3, max_length=30)
     institution: str | None = Field(default=None, max_length=200)
     reason: str = Field(min_length=20, max_length=2000)
 

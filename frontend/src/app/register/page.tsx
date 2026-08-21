@@ -11,6 +11,7 @@ export default function RegisterPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +32,7 @@ export default function RegisterPage() {
       const res = await apiFetch<{ email_delivery_ok: boolean }>("/auth/register", {
         method: "POST",
         auth: false,
-        body: JSON.stringify({ full_name: fullName, email, password }),
+        body: JSON.stringify({ full_name: fullName, username, email, password }),
       });
       setEmailDeliveryOk(res.email_delivery_ok);
       setDone(true);
@@ -94,6 +95,27 @@ export default function RegisterPage() {
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
           />
+        </div>
+        <div>
+          <label className="label" htmlFor="username">
+            Username
+          </label>
+          <input
+            id="username"
+            required
+            minLength={3}
+            maxLength={30}
+            pattern="[a-z0-9_]+"
+            title="Lowercase letters, numbers, and underscores only."
+            className="input mt-1.5"
+            placeholder="e.g. jordan_23"
+            value={username}
+            onChange={(e) => setUsername(e.target.value.toLowerCase())}
+          />
+          <p className="mt-1 text-xs text-fg-subtle">
+            Your unique @handle — how others find and invite you to connect and to elimination battles. 3-30
+            characters: lowercase letters, numbers, and underscores only.
+          </p>
         </div>
         <div>
           <label className="label" htmlFor="email">

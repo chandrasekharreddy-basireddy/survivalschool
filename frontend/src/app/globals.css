@@ -95,6 +95,7 @@
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --font-serif: var(--font-lora), Georgia, "Times New Roman", serif;
   --radius-xl2: 1.1rem;
 }
 

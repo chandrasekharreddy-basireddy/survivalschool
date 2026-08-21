@@ -49,8 +49,8 @@ async def test_register_succeeds_regardless_of_ai_weekly_registration_window_sta
         window.override_until = None
         await db.commit()
 
-    from tests.conftest import unique_email
+    from tests.conftest import unique_email, unique_username
 
     email = unique_email()
-    resp = await client.post("/auth/register", json={"email": email, "password": "Sup3r$ecretPass1", "full_name": "Always Open"})
+    resp = await client.post("/auth/register", json={"email": email, "password": "Sup3r$ecretPass1", "full_name": "Always Open", "username": unique_username()})
     assert resp.status_code == 201, resp.text

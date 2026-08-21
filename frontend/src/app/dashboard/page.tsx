@@ -10,7 +10,16 @@ interface Battle { id: string; title: string; status: string; current_round_numb
 interface Certificate { certificate_number: string }
 interface GamificationStats { total_points: number; current_streak_days: number; longest_streak_days: number; badges: { code: string; name: string; icon: string }[] }
 interface Notification { id: string; title: string; body: string; category: string; read_at: string | null; created_at: string }
-interface DailyChallengeSummary { already_attempted: boolean; my_attempt: { is_correct: boolean; points_awarded: number } | null; current_streak_days: number }
+
+// One quiet line, not a widget — picked once per page load so it doesn't
+// distract from the actual dashboard content below it.
+const QUOTES = [
+  "Discipline is choosing between what you want now and what you want most.",
+  "Small daily wins compound into results no single burst of effort can match.",
+  "The obstacle in the path becomes the path.",
+  "You don't rise to the level of your goals, you fall to the level of your systems.",
+  "Consistency beats intensity when intensity can't be sustained.",
+];
 
 export default function DashboardPage() {
   const { user, loading } = useAuth();
@@ -19,12 +28,7 @@ export default function DashboardPage() {
   const [certificates, setCertificates] = useState<Certificate[] | null>(null);
   const [stats, setStats] = useState<GamificationStats | null>(null);
   const [notifications, setNotifications] = useState<Notification[] | null>(null);
-  const [challenge, setChallenge] = useState<DailyChallengeSummary | null>(null);
-  // Distinct from "still loading" (challenge === null) — /daily-challenge/today
-  // requires a verified email, so an unverified user's fetch legitimately
-  // 403s here; without this the widget got stuck on "Loading…" forever
-  // since a caught error and "hasn't resolved yet" were indistinguishable.
-  const [challengeUnavailable, setChallengeUnavailable] = useState(false);
+  const [quote] = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   useEffect(() => {
     if (!user) return;
@@ -33,9 +37,6 @@ export default function DashboardPage() {
     apiFetch<Certificate[]>("/contests/me/certificates").then(setCertificates).catch(() => setCertificates([]));
     apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => setStats(null));
     apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotifications([]));
-    apiFetch<DailyChallengeSummary>("/daily-challenge/today")
-      .then(setChallenge)
-      .catch(() => setChallengeUnavailable(true));
   }, [user]);
 
   if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">Loading…</div>;
@@ -51,9 +52,10 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
       <h1 className="text-2xl font-bold text-fg">Welcome back, {user.full_name.split(" ")[0]}.</h1>
+      <p className="mt-1.5 font-serif text-sm italic text-fg-subtle">&ldquo;{quote}&rdquo;</p>
       {!user.is_email_verified && (
         <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
-          Verify your email to unlock contests, elimination battles, and the daily challenge. Check your inbox for the link.
+          Verify your email to unlock contests and elimination battles. Check your inbox for the link.
         </div>
       )}
 
@@ -129,29 +131,6 @@ export default function DashboardPage() {
         </div>
 
         <div className="space-y-6">
-          <div className="card">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-fg">Daily challenge</h2>
-              <span className="text-xs text-fg-subtle">🔥 {challenge?.current_streak_days ?? stats?.current_streak_days ?? 0}d</span>
-            </div>
-            {challengeUnavailable ? (
-              <p className="mt-3 text-sm text-fg-subtle">Verify your email to unlock the daily challenge.</p>
-            ) : challenge === null ? (
-              <p className="mt-3 text-sm text-fg-subtle">Loading…</p>
-            ) : challenge.already_attempted ? (
-              <p className="mt-3 text-sm text-fg-muted">
-                {challenge.my_attempt?.is_correct ? `Done for today — you earned ${challenge.my_attempt.points_awarded} points.` : "You've answered today's challenge."}
-              </p>
-            ) : (
-              <p className="mt-3 text-sm text-fg-muted">A new question is waiting — answer it to keep your streak alive.</p>
-            )}
-            {!challengeUnavailable && (
-              <Link href="/daily-challenge" className="btn-primary mt-4 w-full !py-2 text-center text-sm">
-                {challenge?.already_attempted ? "View today's challenge" : "Take today's challenge"}
-              </Link>
-            )}
-          </div>
-
           <div className="card">
             <h2 className="font-semibold text-fg">Your progress</h2>
             {stats === null ? (

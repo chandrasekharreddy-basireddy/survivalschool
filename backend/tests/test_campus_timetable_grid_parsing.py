@@ -162,3 +162,35 @@ def test_multi_sheet_xlsx_parses_every_sheet_not_just_the_first():
     rows = parse_campus_rows("timetable.xlsx", buf.getvalue())
     courses = {r.course_name for r in rows}
     assert courses == {"Data Structures", "Design and Analysis of Algorithms Lab"}
+
+
+# --- Personal upload of a grid/lab-format file: a student's actual copy of
+# "the timetable" is often this same institution-wide spreadsheet, not a
+# pre-filtered personal export — parse_personal_rows must recognize it (not
+# blindly treat row 0 as a header and fail every row with "missing course
+# name", the shape it used to be limited to) and reduce it to just the
+# uploader's own section.
+
+def test_personal_upload_of_a_grid_file_without_a_section_set_gives_a_clear_error():
+    from app.core.exceptions import ValidationAppError
+    from app.services.personal_timetable_service import parse_personal_rows
+
+    try:
+        parse_personal_rows("timetable.csv", GRID_CSV, section=None, school=None)
+        raise AssertionError("expected a ValidationAppError")
+    except ValidationAppError as e:
+        assert "section" in str(e).lower()
+
+
+def test_personal_upload_of_a_grid_file_filters_to_the_students_own_section():
+    from app.services.personal_timetable_service import parse_personal_rows
+
+    rows = parse_personal_rows("timetable.csv", GRID_CSV, section="1", school=None)
+    assert all(r.error is None for r in rows)
+    # Sec 1 explicitly, plus Linear Algebra which carries no section marker
+    # at all and so defaults to "1" (see _parse_grid_rows) — neither
+    # includes Sec 2's Operating Systems.
+    assert {r.course_name for r in rows} == {"Data Structures", "Linear Algebra"}
+
+    other_section = parse_personal_rows("timetable.csv", GRID_CSV, section="2", school=None)
+    assert {r.course_name for r in other_section} == {"Operating Systems"}

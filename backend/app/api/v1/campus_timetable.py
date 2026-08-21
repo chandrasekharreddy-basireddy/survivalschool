@@ -258,16 +258,21 @@ async def upload_my_timetable(
     /timetable/campus/upload, which is system.manage-gated because it
     writes into the one shared institution-wide feed, this only ever
     touches the uploader's own rows. Wholesale-replaces whatever they
-    uploaded before, same shape/columns as the campus importer (Course,
-    Date, StartTime, EndTime, Room, Teacher, Elective — School/Section/
-    LabGroup/Year are irrelevant here since it's already scoped to one
-    person)."""
+    uploaded before. Accepts either a pre-filtered personal file (Course,
+    Date, StartTime, EndTime, Room, Teacher, Elective) or the real
+    institution-wide grid/lab spreadsheet — for the latter, every
+    section's classes get parsed and then reduced to just this student's
+    own via their profile section/school (see parse_personal_rows)."""
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
     content = await file.read(max_bytes + 1)
     if len(content) > max_bytes:
         raise ValidationAppError(f"File exceeds the {settings.MAX_UPLOAD_MB}MB upload limit.")
 
-    rows = parse_personal_rows(file.filename or "", content)
+    profile = (await db.execute(select(Profile).where(Profile.user_id == user.id))).scalar_one_or_none()
+    rows = parse_personal_rows(
+        file.filename or "", content,
+        section=profile.section if profile else None, school=profile.school if profile else None,
+    )
     result = await replace_personal_timetable(db, user.id, rows)
     return PersonalUploadResultOut(
         total_rows=result.total_rows,

@@ -87,3 +87,31 @@ class CampusTimetableEntry(Base, UUIDPk, Timestamped):
     is_elective: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_cancelled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     source: Mapped[str] = mapped_column(String(20), default="upload", nullable=False)  # upload|live_sync
+
+
+class PersonalTimetableEntry(Base, UUIDPk, Timestamped):
+    """A single student's own uploaded schedule — deliberately a separate
+    table from CampusTimetableEntry above, not a "student-scoped upload
+    mode" bolted onto it. The campus table is one shared, institution-wide
+    feed (system.manage-gated for a reason: one bad upload there would
+    corrupt or soft-cancel *everyone's* real classes); a student's own file
+    must never be able to touch that shared data. Each upload wholesale
+    replaces this user's own rows (see replace_personal_timetable) rather
+    than diffing — a personal timetable has exactly one owner and no
+    "someone else might be mid-view of the stale version" concern the
+    campus feed's diff/cancel logic exists to handle.
+    """
+
+    __tablename__ = "personal_timetable_entries"
+    __table_args__ = (Index("ix_personal_timetable_user_date", "user_id", "class_date"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    course_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    course_code: Mapped[str | None] = mapped_column(String(40))
+    class_date: Mapped[date] = mapped_column(Date, nullable=False)
+    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time] = mapped_column(Time, nullable=False)
+    room: Mapped[str | None] = mapped_column(String(100))
+    teacher_name: Mapped[str | None] = mapped_column(String(150))
+    is_elective: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

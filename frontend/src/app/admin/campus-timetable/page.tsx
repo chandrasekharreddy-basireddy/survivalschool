@@ -37,6 +37,7 @@ export default function CampusTimetableAdminPage() {
   const [csvUrl, setCsvUrl] = useState("");
   const [pollMinutes, setPollMinutes] = useState(15);
   const [savingLiveSync, setSavingLiveSync] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const load = () => {
     apiFetch<SourceOut>("/timetable/campus/source").then((s) => {
@@ -117,8 +118,9 @@ export default function CampusTimetableAdminPage() {
         <Link href="/admin" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">Admin console &rarr;</Link>
       </div>
       <p className="mt-1 text-sm text-fg-muted">
-        The university-wide class schedule — separate from each instructor&apos;s own course timetable. Students see
-        their own section&apos;s classes on the Timetable page once they set their section in their profile.
+        The university-wide class schedule — separate from each instructor&apos;s own course timetable. Students pick
+        their section from a real dropdown on the Timetable page (built from whatever&apos;s actually in the file you
+        upload here), or upload their own personal schedule instead if they&apos;d rather not wait for yours.
       </p>
 
       {source && (
@@ -151,16 +153,39 @@ export default function CampusTimetableAdminPage() {
           Room, Teacher, Elective (extra/missing optional columns are fine). Re-uploading diffs against what&apos;s
           already stored — changed rows update, dropped rows are marked cancelled instead of deleted.
         </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <label
+          htmlFor="campus-timetable-file"
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const dropped = e.dataTransfer.files?.[0];
+            if (dropped) setUploadFile(dropped);
+          }}
+          className={`mt-3 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed px-4 py-8 text-center transition ${
+            dragging ? "border-brand-500 bg-brand-500/5" : "border-ink-700 hover:border-ink-600"
+          }`}
+        >
           <input
+            id="campus-timetable-file"
             type="file"
             accept=".csv,.xlsx"
-            className="text-xs text-fg-muted file:mr-2 file:rounded-md file:border-0 file:bg-ink-800 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-fg hover:file:bg-ink-700"
+            className="sr-only"
             onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
           />
+          <p className="text-sm font-medium text-fg">
+            {uploadFile ? uploadFile.name : "Drag & drop a CSV or XLSX file here"}
+          </p>
+          <p className="text-xs text-fg-subtle">{uploadFile ? "Click to choose a different file" : "or click to browse"}</p>
+        </label>
+        <div className="mt-3 flex items-center gap-2">
           <button onClick={upload} disabled={uploading || !uploadFile} className="btn-primary !px-3 !py-1.5 text-sm">
             {uploading ? "Uploading…" : "Upload"}
           </button>
+          {uploadFile && (
+            <button onClick={() => setUploadFile(null)} className="btn-secondary !px-3 !py-1.5 text-sm">Clear</button>
+          )}
         </div>
         {lastResult && lastResult.error_rows.length > 0 && (
           <div className="mt-3 rounded border border-red-500/30 bg-red-500/5 p-2 text-[11px] text-red-800 dark:text-red-300">

@@ -13,11 +13,13 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/
 interface Battle {
   id: string; host_id: string; title: string; topic_id: string; status: string; join_code: string;
   current_round_number: number; winner_id: string | null; started_at: string | null; ended_at: string | null;
+  scheduled_start_at: string | null;
 }
 interface Participant { user_id: string; full_name: string; public_handle: string | null; status: string; eliminated_at_round: number | null; eliminated_reason: string | null }
 interface PersonSearchResult { user_id: string; full_name: string; public_handle: string | null; avatar_url: string | null; relationship: string }
 interface RoundOption { id: string; text: string }
 interface RoundQuestion { id: string; prompt: string; question_type: string; options: RoundOption[] }
+interface CurrentRound { round_number: number; deadline_at: string; question: RoundQuestion; already_answered: boolean; my_is_correct: boolean | null }
 
 type BattleEvent =
   | { event: "battle.started"; battle_id: string }
@@ -54,6 +56,15 @@ export default function EliminationBattlePage() {
   const loadState = useCallback(() => {
     apiFetch<Battle>(`/elimination/battles/${params.battleId}`).then(setBattle).catch(() => setBattle(null));
     apiFetch<Participant[]>(`/elimination/battles/${params.battleId}/participants`).then(setParticipants).catch(() => setParticipants([]));
+    // REST fallback for the current round — the websocket only ever
+    // broadcasts battle.round_released once, at the instant it happens, so
+    // this is what actually recovers the question after a refresh or a
+    // reconnect that landed after that broadcast already fired.
+    apiFetch<CurrentRound | null>(`/elimination/battles/${params.battleId}/round`).then((r) => {
+      if (!r) return;
+      setRound({ number: r.round_number, question: r.question, deadlineAt: r.deadline_at });
+      if (r.already_answered) setMyResult({ round: r.round_number, isCorrect: r.my_is_correct ?? false });
+    }).catch(() => {});
   }, [params.battleId]);
 
   useEffect(() => {
@@ -216,6 +227,12 @@ export default function EliminationBattlePage() {
 
       {battle.status === "lobby" && (
         <div className="mt-6 space-y-6">
+          {battle.scheduled_start_at && (
+            <div className="rounded-lg border border-brand-500/30 bg-brand-500/5 px-4 py-2.5 text-sm text-fg">
+              Scheduled to start {new Date(battle.scheduled_start_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+              {" "}— auto-starts once at least one other player has joined.
+            </div>
+          )}
           <div className="card">
             <h2 className="font-semibold text-fg">Players ({participants.length})</h2>
             <ul className="mt-3 space-y-1.5 text-sm">

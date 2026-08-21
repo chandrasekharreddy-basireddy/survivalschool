@@ -83,6 +83,7 @@ class ProfileOut(BaseModel):
     avatar_url: str | None
     timezone: str
     locale: str
+    school: str | None
     section: str | None
     institute: str | None
 
@@ -95,6 +96,7 @@ class ProfilePatch(BaseModel):
     avatar_url: str | None = None
     timezone: str | None = None
     locale: str | None = None
+    school: str | None = None
     section: str | None = None
     institute: str | None = None
 
@@ -140,6 +142,8 @@ async def update_my_profile(
         profile.timezone = body.timezone
     if body.locale is not None:
         profile.locale = body.locale
+    if body.school is not None:
+        profile.school = body.school
     if body.section is not None:
         profile.section = body.section
     if body.institute is not None:

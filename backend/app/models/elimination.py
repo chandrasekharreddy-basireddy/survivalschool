@@ -61,6 +61,12 @@ class EliminationBattle(Base, UUIDPk, Timestamped):
     winner_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Optional: the host can schedule when the battle should auto-start
+    # instead of clicking Start themselves — see elimination_service.py's
+    # sweep loop, which activates any lobby battle whose scheduled_start_at
+    # has passed and has at least 2 participants. Null means host-started
+    # only, the original behavior.
+    scheduled_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class EliminationInvitation(Base, UUIDPk, Timestamped):

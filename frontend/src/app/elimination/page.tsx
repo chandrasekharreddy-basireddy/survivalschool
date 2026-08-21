@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatRelative } from "@/lib/format";
+import { PageLoader } from "@/components/PageLoader";
 
 interface Battle {
   id: string; host_id: string; title: string; topic_id: string; status: string;
@@ -73,7 +74,7 @@ export default function EliminationPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -159,7 +160,7 @@ export default function EliminationPage() {
 
       <div className="mt-8">
         <h2 className="font-semibold text-fg">Your battles</h2>
-        {battles === null && <p className="mt-2 text-sm text-fg-subtle">Loading…</p>}
+        {battles === null && <p className="mt-2 text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
         {battles !== null && battles.length === 0 && <p className="mt-2 text-sm text-fg-subtle">No battles yet — create one above.</p>}
         <div className="mt-3 space-y-2">
           {battles?.map((b) => (

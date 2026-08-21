@@ -18,6 +18,7 @@ table to keep in sync.
 """
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -66,6 +67,30 @@ def _upcoming_saturday_slot(now_ist: datetime) -> tuple[datetime, datetime, str]
     return starts_at, ends_at, target_date.isoformat()
 
 
+async def _generate_ai_weekly_questions_in_background(contest_id: uuid.UUID, topic: Topic) -> None:
+    """Runs detached from the registration request that created the
+    contest — see the asyncio.create_task call site in
+    get_or_create_ai_weekly_contest. Writes question_ids onto the contest
+    once generation lands; if it fails, the contest is left with an empty
+    question_ids and start_contest_attempt's own guard below catches that
+    rather than serving a broken/empty exam."""
+    try:
+        question_ids = await generate_and_persist_questions(topic, AI_WEEKLY_SINGLE_COUNT, AI_WEEKLY_MULTIPLE_COUNT)
+    except QuestionValidationError as exc:
+        logger.error("ai_weekly_generation_failed_validation", topic_id=str(topic.id), error=str(exc))
+        return
+    except Exception:
+        logger.error("ai_weekly_generation_failed", topic_id=str(topic.id), exc_info=True)
+        return
+
+    from app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as db:
+        contest = await db.get(Contest, contest_id)
+        if contest is not None:
+            contest.question_ids = [str(q) for q in question_ids]
+            await db.commit()
+
+
 async def get_or_create_ai_weekly_contest(db: AsyncSession, topic_id: uuid.UUID) -> Contest:
     topic = await db.get(Topic, topic_id)
     if topic is None:
@@ -78,17 +103,20 @@ async def get_or_create_ai_weekly_contest(db: AsyncSession, topic_id: uuid.UUID)
     if existing is not None:
         return existing
 
-    try:
-        question_ids = await generate_and_persist_questions(topic, AI_WEEKLY_SINGLE_COUNT, AI_WEEKLY_MULTIPLE_COUNT)
-    except QuestionValidationError as exc:
-        logger.error("ai_weekly_generation_failed_validation", topic_id=str(topic_id), error=str(exc))
-        raise ValidationAppError(f"Couldn't generate a valid exam for this topic: {exc}") from exc
-
     contest = Contest(
         title=f"AI Weekly Exam — {topic.name}", description=f"50 questions (40 single-answer + 10 multi-select) on {topic.name}.",
         contest_type="ai_weekly", occurrence_key=occurrence_key, is_auto_generated=True, created_by=None,
         starts_at=starts_at.astimezone(UTC), ends_at=ends_at.astimezone(UTC), duration_seconds=AI_WEEKLY_DURATION_SECONDS,
-        question_ids=[str(q) for q in question_ids], top_n_awarded=3, status="open",
+        # Filled in by the background task kicked off below once generation
+        # lands — NOT awaited inline here. Registration opens Thursday for
+        # a Saturday exam, so there's always a multi-day gap before anyone
+        # could actually start it (start_contest_attempt rejects any
+        # attempt before contest.starts_at); generating 50 questions from a
+        # real AI provider easily exceeds the frontend's/gunicorn's ~30s
+        # request timeout, which was blocking registration itself (the
+        # exact bug reported for elimination battles' smaller 18-question
+        # pool — same root cause, same fix).
+        question_ids=[], top_n_awarded=3, status="open",
         fullscreen_required=True, integrity_monitoring_enabled=True, max_integrity_violations=AI_WEEKLY_MAX_INTEGRITY_VIOLATIONS,
     )
     try:
@@ -97,10 +125,14 @@ async def get_or_create_ai_weekly_contest(db: AsyncSession, topic_id: uuid.UUID)
             await db.flush()
     except IntegrityError:
         # Lost the race to another concurrent registration for the same
-        # topic/week — the questions we just generated are simply unused,
-        # not a correctness problem (Question rows aren't scoped to one
-        # contest). Re-read the winner's row.
+        # topic/week. No generation has been kicked off yet at this point
+        # (that happens below, only for the winning contest row), so
+        # there's nothing wasted to clean up — just re-read the winner's row.
         contest = (await db.execute(select(Contest).where(Contest.occurrence_key == occurrence_key))).scalar_one()
+        await bump_cache_version("contests_list")
+        return contest
+
+    asyncio.create_task(_generate_ai_weekly_questions_in_background(contest.id, topic))
     await bump_cache_version("contests_list")
     return contest
 

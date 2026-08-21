@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { PageLoader } from "@/components/PageLoader";
 
 interface CampusEntry {
   id: string;
@@ -194,7 +195,7 @@ export default function TimetablePage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">

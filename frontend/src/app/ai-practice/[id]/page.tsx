@@ -8,6 +8,7 @@ import remarkGfm from "remark-gfm";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { PageLoader } from "@/components/PageLoader";
 
 interface OptionOut { id: string; text: string; order_index: number }
 interface QuestionOut { id: string; prompt: string; options: OptionOut[] }
@@ -80,7 +81,7 @@ export default function AIPracticeSessionPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) return <div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted">Sign in required.</div>;
   if (error) {
     return (

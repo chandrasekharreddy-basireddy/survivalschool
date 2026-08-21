@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { PageLoader } from "@/components/PageLoader";
 
 interface ContestCertificateOut {
   certificate_number: string;
@@ -24,7 +25,7 @@ export default function MyContestCertificatesPage() {
     apiFetch<ContestCertificateOut[]>("/contests/me/certificates").then(setCerts).catch(() => setCerts([]));
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -40,7 +41,7 @@ export default function MyContestCertificatesPage() {
       <p className="mt-1 text-sm text-fg-muted">Awarded for top-3 finishes in a contest.</p>
 
       {certs === null ? (
-        <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
+        <p className="mt-8 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
       ) : certs.length === 0 ? (
         <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           No contest certificates yet. Finish in the top 3 of a contest to earn one.{" "}

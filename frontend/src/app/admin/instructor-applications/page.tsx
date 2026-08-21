@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { PageLoader } from "@/components/PageLoader";
 
 interface InstructorApplicationOut {
   id: string;
@@ -68,7 +69,7 @@ export default function InstructorApplicationsPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-4xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user || !user.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -103,7 +104,7 @@ export default function InstructorApplicationsPage() {
       </div>
 
       <div className="mt-6 space-y-4">
-        {applications === null && <p className="text-sm text-fg-subtle">Loading…</p>}
+        {applications === null && <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
         {applications !== null && applications.length === 0 && (
           <p className="text-sm text-fg-subtle">No {filter === "all" ? "" : filter} applications.</p>
         )}

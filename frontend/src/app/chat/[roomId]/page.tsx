@@ -8,7 +8,8 @@ import { useToast } from "@/lib/toast";
 import { ChatSocket, ChatEvent } from "@/lib/ws";
 import { formatRelative } from "@/lib/format";
 import { initials } from "@/lib/avatar";
-import { useChatRooms, type RoomOut } from "../layout";
+import { useChatRooms, type RoomOut } from "@/lib/chat-rooms";
+import { PageLoader } from "@/components/PageLoader";
 
 interface MessageOut {
   id: string;
@@ -112,7 +113,7 @@ export default function ChatRoomPage() {
     }
   };
 
-  if (loading) return <div className="flex h-full items-center justify-center text-fg-muted">Loading…</div>;
+  if (loading) return <div className="flex h-full items-center justify-center text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) return null;
 
   const headerName = room ? (room.room_type === "direct" ? room.other_user_name || room.name : room.name) : "";

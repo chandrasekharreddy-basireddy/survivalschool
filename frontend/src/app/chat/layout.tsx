@@ -1,29 +1,13 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
 import { initials } from "@/lib/avatar";
-
-export interface RoomOut {
-  id: string;
-  name: string;
-  room_type: string;
-  other_user_id: string | null;
-  other_user_name: string | null;
-}
-
-// The layout owns the one /chat/rooms fetch for the whole /chat/* subtree;
-// child pages (e.g. the room page) read from this instead of independently
-// re-fetching the full list just to find their own room in it — that used
-// to double both the request count and the backend work on every room visit.
-const ChatRoomsContext = createContext<RoomOut[] | null>(null);
-
-export function useChatRooms(): RoomOut[] | null {
-  return useContext(ChatRoomsContext);
-}
+import { PageLoader } from "@/components/PageLoader";
+import { ChatRoomsContext, type RoomOut } from "@/lib/chat-rooms";
 
 export default function ChatLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -35,7 +19,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
     apiFetch<RoomOut[]>("/chat/rooms").then(setRooms).catch(() => setRooms([]));
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -55,7 +39,7 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
           </Link>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-4">
-          {rooms === null && <p className="px-2 py-4 text-xs text-fg-subtle">Loading…</p>}
+          {rooms === null && <p className="px-2 py-4 text-xs text-fg-subtle"><PageLoader size="sm" /></p>}
           {rooms !== null && rooms.length === 0 && (
             <div className="px-2 py-6 text-center text-xs text-fg-subtle">
               No conversations yet.

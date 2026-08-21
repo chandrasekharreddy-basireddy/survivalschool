@@ -5,6 +5,7 @@ import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { ContestCountdown } from "@/components/ContestCountdown";
+import { PageLoader } from "@/components/PageLoader";
 
 interface Contest {
   id: string;
@@ -64,7 +65,7 @@ export default function ContestsPage() {
 
       <div className="mt-8 space-y-3">
         <h2 className="font-semibold text-fg">All contests</h2>
-        {all === null && <p className="text-sm text-fg-subtle">Loading…</p>}
+        {all === null && <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
         {all !== null && all.length === 0 && <p className="text-sm text-fg-subtle">No contests yet — check back this weekend.</p>}
         {all?.map((c) => (
           <Link key={c.id} href={`/contests/${c.id}`} className="card !p-4 flex items-center justify-between gap-4 transition hover:border-brand-500/50">

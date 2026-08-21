@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { PageLoader } from "@/components/PageLoader";
 
 interface AuditLogOut {
   id: string;
@@ -36,7 +37,7 @@ export default function AuditLogsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user || !user.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">

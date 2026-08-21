@@ -253,6 +253,16 @@ async def start_contest_attempt(contest_id: uuid.UUID, request: Request, user: U
             raise ConflictError("You've already competed in this contest — one attempt per student.")
         # status == "registered": fall through and start the real timed window.
 
+    if not contest.question_ids:
+        # AI Weekly Exam contests are created with an empty question_ids and
+        # filled in by a background task once generation lands (see
+        # ai_exam_service.get_or_create_ai_weekly_contest) — there's always
+        # a multi-day gap between Thursday registration and Saturday's
+        # starts_at in practice, so this should never actually be reachable,
+        # but fail with a clear, retryable message instead of crashing on
+        # an empty question set if it somehow ever is.
+        raise ConflictError("This exam's questions are still being prepared — try again in a moment.")
+
     question_ids = [uuid.UUID(q) for q in contest.question_ids]
     import random
     random.shuffle(question_ids)

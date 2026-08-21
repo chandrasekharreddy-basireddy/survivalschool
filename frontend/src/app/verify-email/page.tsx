@@ -5,10 +5,11 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { PageLoader } from "@/components/PageLoader";
 
 export default function VerifyEmailPage() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted">Loading…</div>}>
+    <Suspense fallback={<div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted"><PageLoader size="md" /></div>}>
       <VerifyEmailInner />
     </Suspense>
   );

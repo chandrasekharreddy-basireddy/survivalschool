@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
+import { PageLoader } from "@/components/PageLoader";
 
 interface Contest { id: string; title: string; starts_at: string; ends_at: string; status: string; question_count: number }
 interface Battle { id: string; title: string; status: string; current_round_number: number }
@@ -39,7 +40,7 @@ export default function DashboardPage() {
     apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotifications([]));
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -67,7 +68,7 @@ export default function DashboardPage() {
               <Link href="/contests" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All contests</Link>
             </div>
             {upcomingContests === null ? (
-              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
+              <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : upcomingContests.length === 0 ? (
               <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
                 Nothing scheduled right now. <Link href="/contests/ai-weekly/register" className="text-brand-600 underline dark:text-brand-400">Register for the AI Weekly Exam</Link> — it opens every Thursday.
@@ -92,7 +93,7 @@ export default function DashboardPage() {
               <Link href="/elimination" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All battles</Link>
             </div>
             {battles === null ? (
-              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
+              <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : battles.length === 0 ? (
               <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
                 No battles yet. <Link href="/elimination" className="text-brand-600 underline dark:text-brand-400">Start one and invite friends</Link>.
@@ -114,7 +115,7 @@ export default function DashboardPage() {
           <div className="card">
             <h2 className="font-semibold text-fg">Recent notifications</h2>
             {notifications === null ? (
-              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
+              <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : notifications.length === 0 ? (
               <p className="mt-4 text-sm text-fg-subtle">You&apos;re all caught up.</p>
             ) : (
@@ -134,7 +135,7 @@ export default function DashboardPage() {
           <div className="card">
             <h2 className="font-semibold text-fg">Your progress</h2>
             {stats === null ? (
-              <p className="mt-4 text-sm text-fg-subtle">Loading…</p>
+              <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : (
               <>
                 <div className="mt-4 grid grid-cols-2 gap-4 text-center">

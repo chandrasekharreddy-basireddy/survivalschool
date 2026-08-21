@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { getPostLoginPath } from "@/lib/roles";
+import { PageLoader } from "@/components/PageLoader";
 
 /** Split auth shell: a brand panel (desktop) beside the form card. Used by the
  *  sign-in and 2FA steps so both feel like one considered screen. */
@@ -110,7 +111,7 @@ export default function LoginPage() {
   };
 
   if (loading || user) {
-    return <div className="page-frame text-fg-muted">Loading…</div>;
+    return <div className="page-frame text-fg-muted"><PageLoader size="md" /></div>;
   }
 
   if (mfaToken) {

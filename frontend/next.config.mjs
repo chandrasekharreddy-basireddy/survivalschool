@@ -43,6 +43,14 @@ const nextConfig = {
 // hashed asset manifest for this build to precache. Disabled in
 // development on purpose — a cached app shell is actively unhelpful while
 // iterating locally (`next dev`), and Serwist recommends this.
+//
+// @serwist/next does not support Turbopack (Next 16's default bundler for
+// both `next dev` and `next build`) — under Turbopack it silently no-ops,
+// producing no public/sw.js at all despite a clean-looking build. That's
+// why package.json's build script passes --webpack explicitly: it's the
+// only thing that actually makes the app installable-with-offline-support
+// rather than just installable-in-name-only via the manifest alone.
+// https://github.com/serwist/serwist/issues/54 tracks real Turbopack support.
 const withSerwist = withSerwistInit({
   swSrc: "src/app/sw.ts",
   swDest: "public/sw.js",

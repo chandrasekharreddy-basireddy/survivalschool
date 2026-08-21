@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { PageLoader } from "@/components/PageLoader";
 
 export default function InstructorApplicationPage() {
   const { user, loading: authLoading } = useAuth();
@@ -47,7 +48,7 @@ export default function InstructorApplicationPage() {
   };
 
   if (authLoading) {
-    return <div className="page-frame text-fg-muted">Loading…</div>;
+    return <div className="page-frame text-fg-muted"><PageLoader size="md" /></div>;
   }
 
   if (done) {

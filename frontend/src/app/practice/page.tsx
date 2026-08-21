@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/format";
+import { PageLoader } from "@/components/PageLoader";
 
 interface Bookmark { id: string; question_id: string; prompt: string; created_at: string }
 interface HistoryItem { id: string; source: string; score_percent: number | null; started_at: string; submitted_at: string | null }
@@ -45,7 +46,7 @@ export default function PracticeHomePage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">

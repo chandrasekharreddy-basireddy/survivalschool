@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { PageLoader } from "@/components/PageLoader";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 const MAX_IMAGE_MB = 25;
@@ -176,7 +177,7 @@ export default function AiAssistantPage() {
     }
   };
 
-  if (loading) return <div className="page-frame text-fg-muted">Loading…</div>;
+  if (loading) return <div className="page-frame text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="page-frame mx-auto max-w-md text-center">

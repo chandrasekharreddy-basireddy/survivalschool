@@ -7,10 +7,22 @@ never course-coupled.
 Drop order is FK-dependency-safe (children before parents). Every new
 foreign key is given an explicit name matching this project's naming
 convention (fk_<table>_<column>_<referred_table>) rather than left for
-Postgres to default-name — see migration c7e2a9f4b016's fix earlier in this
-project's history for exactly why an unnamed constraint created outside
-Base.metadata's naming_convention causes a later migration to fail trying
-to guess its name.
+Postgres to default-name.
+
+The four FKs dropped in step 0 below are NOT new — they were created back
+in the initial_schema migration via a bare sa.ForeignKeyConstraint(...)
+long before this project's databases consistently ran through a naming-
+convention-aware migration chain. A database rebuilt from scratch today
+picks up the fk_<table>_<column>_<referred_table> name (target_metadata's
+naming_convention is live for the whole migration run), but a database
+that evolved incrementally in production predates that and can carry
+Postgres's own default name instead (e.g. ai_conversations_course_context_id_fkey).
+Guessing the name via _fk() and hardcoding it broke exactly this way on
+first deploy against production (constraint "fk_ai_conversations_course_
+context_id_courses" of relation "ai_conversations" does not exist) — see
+migration c7e2a9f4b016's _existing_fk_name() for the original instance of
+this same bug class. Fixed here by looking the name up dynamically instead
+of guessing it, for all four.
 
 Revision ID: f8a1c9e3b6d2
 Revises: e5b8d2f6a9c4
@@ -31,6 +43,17 @@ def _fk(table: str, column: str, referred: str) -> str:
     return f"fk_{table}_{column}_{referred}"
 
 
+def _existing_fk_name(table: str, column: str, referred: str) -> str:
+    """Look up a pre-existing FK's real name instead of assuming it matches
+    _fk() — see the module docstring for why that guess can't be trusted
+    for constraints this migration didn't itself create."""
+    inspector = sa.inspect(op.get_bind())
+    for fk in inspector.get_foreign_keys(table):
+        if fk["referred_table"] == referred and column in fk["constrained_columns"]:
+            return fk["name"]
+    raise RuntimeError(f"no FK found on {table}.{column} -> {referred}")
+
+
 def upgrade() -> None:
     # ---- 0. Drop every FK from a SURVIVING table into `courses` first -----
     # These four tables aren't being dropped themselves — only their
@@ -38,10 +61,10 @@ def upgrade() -> None:
     # (steps 4/6) — but their FK constraint has to be gone before `courses`
     # itself can be dropped in step 1, or Postgres refuses with
     # DependentObjectsStillExistError.
-    op.drop_constraint(_fk("ai_conversations", "course_context_id", "courses"), "ai_conversations", type_="foreignkey")
-    op.drop_constraint(_fk("chat_rooms", "course_id", "courses"), "chat_rooms", type_="foreignkey")
-    op.drop_constraint(_fk("practice_sessions", "course_id", "courses"), "practice_sessions", type_="foreignkey")
-    op.drop_constraint(_fk("questions", "course_id", "courses"), "questions", type_="foreignkey")
+    op.drop_constraint(_existing_fk_name("ai_conversations", "course_context_id", "courses"), "ai_conversations", type_="foreignkey")
+    op.drop_constraint(_existing_fk_name("chat_rooms", "course_id", "courses"), "chat_rooms", type_="foreignkey")
+    op.drop_constraint(_existing_fk_name("practice_sessions", "course_id", "courses"), "practice_sessions", type_="foreignkey")
+    op.drop_constraint(_existing_fk_name("questions", "course_id", "courses"), "questions", type_="foreignkey")
 
     # ---- 1. Drop LMS/course-coupled tables, children first ----------------
     op.drop_table("lesson_resources")

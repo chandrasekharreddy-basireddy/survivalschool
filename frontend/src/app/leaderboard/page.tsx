@@ -35,16 +35,19 @@ export default function LeaderboardPage() {
   const [tab, setTab] = useState<TabKey>("points");
   const [pointsEntries, setPointsEntries] = useState<PointsEntry[] | null>(null);
   const [winsEntries, setWinsEntries] = useState<WinsEntry[] | null>(null);
-  const [error, setError] = useState(false);
+  const [pointsError, setPointsError] = useState(false);
+  const [winsError, setWinsError] = useState(false);
 
   useEffect(() => {
     apiFetch<PointsEntry[]>("/gamification/leaderboard?limit=50", { auth: false })
       .then(setPointsEntries)
-      .catch(() => setError(true));
+      .catch(() => setPointsError(true));
     apiFetch<WinsEntry[]>("/contests/ai-weekly/leaderboard?limit=50", { auth: false })
       .then(setWinsEntries)
-      .catch(() => setError(true));
+      .catch(() => setWinsError(true));
   }, []);
+
+  const error = tab === "points" ? pointsError : winsError;
 
   const entries: { rank: number; student_id: string; name: string; stat: string }[] | null =
     tab === "points"

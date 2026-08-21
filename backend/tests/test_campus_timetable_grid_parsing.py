@@ -84,12 +84,11 @@ LAB_CSV = (
     b"Monday,09:15 AM -  10:10 AM,DAA Sec2 david,\n"
     b",10:15 AM -  11:10 AM,LUNCH BREAK,\n"
     b",11.15 AM - 12.10 PM,DAA Sec 8 Rupam Sah,\n"
-    # A genuinely different, semester-based cell shape ("Sem1" rather than
-    # a numbered section) seen on two of the real workbook's lab sheets —
-    # deliberately NOT guessed at (see _parse_lab_rows' docstring): section
-    # cells that don't match "<prefix> Sec<N> <faculty>" are skipped
-    # rather than treating "Sem1" as if it were a section number.
+    # A genuinely different cell shape seen on two of the real workbook's
+    # lab sheets: no numbered section at all, just a semester marker — see
+    # _parse_lab_section_cell and _LAB_CELL_SEM_RE.
     b",12:15 PM -  12:55 PM,Programming in C LAB - Sem1 - Ujjwal,\n"
+    b",01:15 PM - 01.55 PM,Nothing recognizable here,\n"
 )
 
 
@@ -109,9 +108,10 @@ def test_parse_lab_rows_extracts_section_and_faculty_skips_lunch_and_unrecognize
     rows = parse_campus_rows("lab.csv", LAB_CSV)
     assert all(r.error is None for r in rows)
 
-    # 2 recognized slots (Sec2/david, Sec 8/Rupam Sah) x 8 weeks ahead;
-    # LUNCH BREAK and the unrecognized "Sem1" cell contribute nothing.
-    assert len(rows) == 2 * 8
+    # 3 recognized slots (Sec2/david, Sec 8/Rupam Sah, Sem1/Ujjwal) x 8
+    # weeks ahead; LUNCH BREAK and the genuinely unrecognizable cell
+    # contribute nothing.
+    assert len(rows) == 3 * 8
 
     sec2 = next(r for r in rows if r.section == "2")
     assert sec2.course_name == "Design and Analysis of Algorithms Lab"
@@ -121,6 +121,10 @@ def test_parse_lab_rows_extracts_section_and_faculty_skips_lunch_and_unrecognize
 
     sec8 = next(r for r in rows if r.section == "8")
     assert sec8.teacher_name == "Rupam Sah"
+
+    sem1 = next(r for r in rows if r.section == "Sem1")
+    assert sem1.teacher_name == "Ujjwal"
+    assert sem1.course_name == "Design and Analysis of Algorithms Lab"
 
     assert "Programming in C LAB" not in {r.course_name for r in rows}
 

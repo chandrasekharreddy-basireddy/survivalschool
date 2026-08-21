@@ -25,13 +25,15 @@ _detect_format):
     University workbook ships one grid-format "main schedule" sheet plus
     several of these, one per lab course) — an explicit "Day | Time |
     Section" header, then day/time rows with a single class-slot column
-    holding a combined "<course prefix> Sec<N> <faculty>" cell and no room
-    at all (see _parse_lab_rows). The course itself comes from the sheet's
-    own title row, not from any column. When the uploaded file is an
-    .xlsx workbook with more than one sheet, every sheet is parsed (each
-    independently format-detected) and the results concatenated — a
-    single upload is the only way a user can submit this file, so it has
-    to account for all of its sheets, not just the first.
+    holding a combined section+faculty cell and no room at all (see
+    _parse_lab_rows/_parse_lab_section_cell for the two real cell shapes
+    handled: numbered "Sec<N>" and semester-only "Sem<N>"). The course
+    itself comes from the sheet's own title row, not from any column.
+    When the uploaded file is an .xlsx workbook with more than one sheet,
+    every sheet is parsed (each independently format-detected) and the
+    results concatenated — a single upload is the only way a user can
+    submit this file, so it has to account for all of its sheets, not
+    just the first.
 """
 from __future__ import annotations
 
@@ -329,7 +331,13 @@ def _parse_grid_rows(raw_rows: list[list[str]]) -> list[ParsedCampusRow]:
 
 
 _LAB_TITLE_CODE_RE = re.compile(r"\(([A-Z]{2,}\d{2,})\)")
-_LAB_CELL_RE = re.compile(r"^\S+\s+Sec\.?\s*(\d+)\s*(.*)$", re.IGNORECASE)
+_LAB_CELL_SEC_RE = re.compile(r"^\S+\s+Sec\.?\s*(\d+)\s*(.*)$", re.IGNORECASE)
+# A second, genuinely different cell shape seen on some lab sheets: no
+# numbered section at all, just a semester marker — "Programming in C LAB
+# - Sem1 - Ujjwal", "EFA LAB - Sem1 - Joy". Captured as its literal text
+# ("Sem1"), not translated into a numbered section: that would be guessing
+# at what it actually groups, which nothing in the sheet states.
+_LAB_CELL_SEM_RE = re.compile(r"-\s*(Sem\.?\s*\d+)\s*-\s*(.+)$", re.IGNORECASE)
 
 
 def _lab_course_name_and_code(title: str) -> tuple[str, str | None]:
@@ -344,16 +352,30 @@ def _lab_course_name_and_code(title: str) -> tuple[str, str | None]:
     return re.sub(r"\s*\bSchedule\b.*$", "", title, flags=re.IGNORECASE).strip(), None
 
 
+def _parse_lab_section_cell(cell: str) -> tuple[str, str] | None:
+    """Two real cell shapes, tried in order: "<prefix> Sec<N> <faculty>"
+    (e.g. "DAA Sec2 david") and "<prefix> - Sem<N> - <faculty>" (e.g.
+    "Programming in C LAB - Sem1 - Ujjwal") — see _LAB_CELL_SEM_RE. Neither
+    match: return None rather than guess."""
+    sec_match = _LAB_CELL_SEC_RE.match(cell)
+    if sec_match:
+        return sec_match.group(1), sec_match.group(2).strip()
+    sem_match = _LAB_CELL_SEM_RE.search(cell)
+    if sem_match:
+        return sem_match.group(1), sem_match.group(2).strip()
+    return None
+
+
 def _parse_lab_rows(raw_rows: list[list[str]]) -> list[ParsedCampusRow]:
     """Lab-sheet layout: an explicit "Day | Time | Section" header (see
     _detect_format), then day/time rows with a single class-slot column
-    (col 2) holding a combined "<prefix> Sec<N> <faculty>" cell — e.g.
-    "DAA Sec2 david" or "DAA Sec 8 Rupam Sah" — and, unlike the grid
-    format, no room anywhere in the sheet at all. The course itself comes
-    from the sheet's own title (raw_rows[0][0]), not from any column.
-    Deliberately conservative: a section cell that doesn't match the
-    "<prefix> Sec<N> <faculty>" shape is skipped rather than guessed at,
-    same philosophy as _parse_grid_rows."""
+    (col 2) holding a combined section+faculty cell (see
+    _parse_lab_section_cell for the two shapes handled) — and, unlike the
+    grid format, no room anywhere in the sheet at all. The course itself
+    comes from the sheet's own title (raw_rows[0][0]), not from any
+    column. Deliberately conservative: a section cell matching neither
+    known shape is skipped rather than guessed at, same philosophy as
+    _parse_grid_rows."""
     if not raw_rows:
         return []
     course_name, course_code = _lab_course_name_and_code(raw_rows[0][0] if raw_rows[0] else "")
@@ -387,10 +409,10 @@ def _parse_lab_rows(raw_rows: list[list[str]]) -> list[ParsedCampusRow]:
         if end_time <= start_time:
             continue
 
-        match = _LAB_CELL_RE.match(section_cell)
-        if not match:
+        matched = _parse_lab_section_cell(section_cell)
+        if matched is None:
             continue
-        section, faculty = match.group(1), match.group(2).strip()
+        section, faculty = matched
         for week in range(_GRID_WEEKS_AHEAD):
             parsed.append(ParsedCampusRow(
                 row_number=row_number,

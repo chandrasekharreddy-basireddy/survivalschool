@@ -34,6 +34,7 @@ export default function EliminationPage() {
   const [topicId, setTopicId] = useState("");
   const [title, setTitle] = useState("");
   const [creating, setCreating] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
 
   const refresh = () => {
     apiFetch<Battle[]>("/elimination/battles/me").then(setBattles).catch(() => setBattles([]));
@@ -93,7 +94,28 @@ export default function EliminationPage() {
         you&apos;re out — last one standing wins.
       </p>
 
-      <div className="card mt-6">
+      <div className="card mt-6 !p-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <p className="shrink-0 text-sm font-medium text-fg">Have a room code?</p>
+        <div className="flex flex-1 gap-2">
+          <input
+            className="input flex-1 font-mono uppercase tracking-widest"
+            placeholder="ABC123"
+            maxLength={8}
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => { if (e.key === "Enter" && joinCode.trim()) router.push(`/elimination/join/${joinCode.trim()}`); }}
+          />
+          <button
+            onClick={() => router.push(`/elimination/join/${joinCode.trim()}`)}
+            disabled={!joinCode.trim()}
+            className="btn-secondary shrink-0"
+          >
+            Join
+          </button>
+        </div>
+      </div>
+
+      <div className="card mt-4">
         <h2 className="font-semibold text-fg">Start a new battle</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <select className="input" value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>

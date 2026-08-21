@@ -43,8 +43,8 @@ class ContestAttemptStartOut(BaseModel):
 
 
 class AIWeeklyRegisterIn(BaseModel):
-    subject_id: uuid.UUID
-    topic_id: uuid.UUID
+    subject_name: str = Field(min_length=1, max_length=150)
+    topic_name: str = Field(min_length=1, max_length=150)
 
 
 class AIWeeklyRegisterOut(BaseModel):
@@ -78,6 +78,14 @@ class LeaderboardEntryOut(BaseModel):
     student_name: str
     score_percent: int
     time_taken_seconds: int | None
+
+
+class AIWeeklyWinsLeaderboardEntryOut(BaseModel):
+    rank: int
+    student_id: uuid.UUID
+    public_handle: str | None
+    full_name: str
+    wins: int
 
 
 class ContestCertificateOut(BaseModel):

@@ -184,7 +184,7 @@ async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
             cert = ContestCertificate(
                 certificate_number=_generate_contest_certificate_number(),
                 contest_id=contest.id, student_id=student.id, rank=idx,
-                contest_title=contest.title, score_percent=attempt.score_percent or 0,
+                contest_title=contest.title, contest_type=contest.contest_type, score_percent=attempt.score_percent or 0,
                 expires_at=certificate_expiry(),
             )
             try:
@@ -214,6 +214,7 @@ async def finalize_contest(db: AsyncSession, contest: Contest) -> Contest:
     await db.commit()
     await db.refresh(contest)
     await bump_cache_version("contests_list")
+    await bump_cache_version("ai_weekly_wins_leaderboard")
     await cache_delete(f"contest:{contest.id}:leaderboard")
     logger.info("contest_finalized", contest_id=str(contest.id), participants=len(attempts))
     return contest

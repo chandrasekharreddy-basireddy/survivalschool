@@ -86,6 +86,7 @@ class ProfileOut(BaseModel):
     timezone: str
     locale: str
     section: str | None
+    institute: str | None
 
     model_config = {"from_attributes": True}
 
@@ -100,6 +101,7 @@ class ProfilePatch(BaseModel):
     timezone: str | None = None
     locale: str | None = None
     section: str | None = None
+    institute: str | None = None
 
 
 async def _get_or_create_profile(db: AsyncSession, user: User) -> Profile:
@@ -145,6 +147,8 @@ async def update_my_profile(
         profile.locale = body.locale
     if body.section is not None:
         profile.section = body.section
+    if body.institute is not None:
+        profile.institute = body.institute
     await db.commit()
     await db.refresh(profile)
     return profile

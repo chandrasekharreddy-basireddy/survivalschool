@@ -18,6 +18,7 @@ table to keep in sync.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -30,14 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.models.assessment import Question, QuestionOption
 from app.models.contest import Contest, ContestAttempt
-from app.models.exam_platform import Subject, Topic
+from app.models.exam_platform import Subject, Topic, TopicDifficultyEvaluation, University
 from app.models.user import User
 from app.services.ai_provider import get_ai_provider
 from app.services.cache_service import bump_cache_version
-from app.services.difficulty_service import (
-    MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM,
-    get_current_difficulty,
-)
+from app.services.difficulty_service import MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM
 from app.services.question_validation_service import (
     QuestionValidationError,
     validate_generated_batch,
@@ -51,6 +49,11 @@ AI_WEEKLY_SINGLE_COUNT = 40
 AI_WEEKLY_MULTIPLE_COUNT = 10
 AI_WEEKLY_DURATION_SECONDS = 7200  # 2 hours
 AI_WEEKLY_SLOT_HOUR = 14  # Saturday 14:00-16:00 IST
+# Zero tolerance: a tab switch, a fullscreen exit, a copy/paste, a devtools
+# attempt — any single integrity event auto-submits the attempt immediately
+# with zero credit for whatever's left unanswered. See
+# contests.py::contest_integrity_event / _force_finalize_contest_attempt.
+AI_WEEKLY_MAX_INTEGRITY_VIOLATIONS = 1
 
 
 def _upcoming_saturday_slot(now_ist: datetime) -> tuple[datetime, datetime, str]:
@@ -108,7 +111,7 @@ async def get_or_create_ai_weekly_contest(db: AsyncSession, topic_id: uuid.UUID)
         contest_type="ai_weekly", occurrence_key=occurrence_key, is_auto_generated=True, created_by=None,
         starts_at=starts_at.astimezone(UTC), ends_at=ends_at.astimezone(UTC), duration_seconds=AI_WEEKLY_DURATION_SECONDS,
         question_ids=[str(q) for q in question_ids], top_n_awarded=3, status="open",
-        fullscreen_required=True, integrity_monitoring_enabled=True, max_integrity_violations=3,
+        fullscreen_required=True, integrity_monitoring_enabled=True, max_integrity_violations=AI_WEEKLY_MAX_INTEGRITY_VIOLATIONS,
     )
     try:
         async with db.begin_nested():
@@ -124,23 +127,107 @@ async def get_or_create_ai_weekly_contest(db: AsyncSession, topic_id: uuid.UUID)
     return contest
 
 
-async def register_for_ai_weekly_exam(db: AsyncSession, user: User, subject_id: uuid.UUID, topic_id: uuid.UUID) -> ContestAttempt:
-    subject = await db.get(Subject, subject_id)
-    if subject is None:
-        raise NotFoundError("Subject not found.")
-    topic = await db.get(Topic, topic_id)
-    if topic is None or topic.subject_id != subject_id:
-        raise ValidationAppError("The selected topic does not belong to the selected subject.")
+def _slugify(text: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", text.strip().lower()).strip("-")
+    return slug[:140] or "topic"
+
+
+async def _get_or_create_university(db: AsyncSession) -> University:
+    university = (await db.execute(select(University).where(University.singleton.is_(True)))).scalar_one_or_none()
+    if university is None:
+        university = University(name="Sai University")
+        db.add(university)
+        await db.flush()
+    return university
+
+
+async def _find_or_create_subject(db: AsyncSession, name: str) -> Subject:
+    """Subjects/topics are normally admin-curated (system.manage), but the
+    AI Weekly Exam now takes them as free text from the student — so this
+    creates the taxonomy row transparently on first use rather than
+    bouncing the student through an admin-only endpoint. Matched
+    case-insensitively by slug so "Data Structures" and "data structures"
+    resolve to the same row."""
+    slug = _slugify(name)
+    university = await _get_or_create_university(db)
+    existing = (await db.execute(
+        select(Subject).where(Subject.university_id == university.id, Subject.slug == slug)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    subject = Subject(university_id=university.id, name=name.strip()[:150], slug=slug)
+    try:
+        async with db.begin_nested():
+            db.add(subject)
+            await db.flush()
+    except IntegrityError:
+        subject = (await db.execute(
+            select(Subject).where(Subject.university_id == university.id, Subject.slug == slug)
+        )).scalar_one()
+    return subject
+
+
+async def _find_or_create_topic(db: AsyncSession, subject_id: uuid.UUID, name: str) -> Topic:
+    slug = _slugify(name)
+    existing = (await db.execute(
+        select(Topic).where(Topic.subject_id == subject_id, Topic.slug == slug)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    topic = Topic(subject_id=subject_id, name=name.strip()[:150], slug=slug)
+    try:
+        async with db.begin_nested():
+            db.add(topic)
+            await db.flush()
+    except IntegrityError:
+        topic = (await db.execute(
+            select(Topic).where(Topic.subject_id == subject_id, Topic.slug == slug)
+        )).scalar_one()
+    return topic
+
+
+async def register_for_ai_weekly_exam(db: AsyncSession, user: User, subject_name: str, topic_name: str) -> ContestAttempt:
+    subject_name, topic_name = subject_name.strip(), topic_name.strip()
+    if not subject_name or not topic_name:
+        raise ValidationAppError("Both subject and topic are required.")
 
     window = await get_or_create_window(db)
     if not ai_exam_registration_is_open(datetime.now(UTC), window.override_until):
         raise ConflictError("AI Weekly Exam registration is closed. It opens every Thursday (IST).")
 
-    evaluation = await get_current_difficulty(db, topic_id)
-    if evaluation.difficulty_percent < MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM:
+    subject = await _find_or_create_subject(db, subject_name)
+    topic = await _find_or_create_topic(db, subject.id, topic_name)
+    topic_id = topic.id
+
+    # Always re-evaluated live — never trusted from a prior check-topic call
+    # — since a freely-typed topic has no pre-existing question bank a
+    # formula could score against. See ai_provider.py::evaluate_topic_scope.
+    assessment = await get_ai_provider().evaluate_topic_scope(subject_name, topic_name)
+    await db.execute(
+        TopicDifficultyEvaluation.__table__.update()
+        .where(TopicDifficultyEvaluation.topic_id == topic_id, TopicDifficultyEvaluation.is_current.is_(True))
+        .values(is_current=False)
+    )
+    db.add(TopicDifficultyEvaluation(
+        topic_id=topic_id, difficulty_percent=assessment.difficulty_percent, formula_version="ai-realtime-v1",
+        reason=assessment.reason, sample_size=0,
+    ))
+    # Commit here regardless of outcome: the subject/topic rows must be
+    # durably visible to other connections before get_or_create_ai_weekly_contest
+    # below, which persists AI-generated questions through a SEPARATE
+    # AsyncSessionLocal() session (see _generate_and_persist_questions) —
+    # that session cannot see this one's uncommitted work, so an insert
+    # referencing a subject/topic created-but-not-yet-committed here would
+    # fail its foreign key constraint.
+    await db.commit()
+    if assessment.difficulty_percent < MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM or not assessment.is_appropriate_scope:
         raise ValidationAppError(
-            f"This topic does not currently meet the minimum AI difficulty requirement "
-            f"({evaluation.difficulty_percent}% < {MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM}%)."
+            f"This topic isn't eligible yet: {assessment.reason}",
+            details={
+                "difficulty_percent": assessment.difficulty_percent,
+                "is_appropriate_scope": assessment.is_appropriate_scope,
+                "min_difficulty_percent": MIN_DIFFICULTY_PERCENT_FOR_AI_EXAM,
+            },
         )
 
     contest = await get_or_create_ai_weekly_contest(db, topic_id)

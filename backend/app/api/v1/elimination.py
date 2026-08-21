@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import io
 import uuid
 
+import qrcode
 from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.database import get_db
 from app.dependencies import get_current_verified_user
@@ -16,6 +20,7 @@ from app.schemas.elimination import (
     BattleOut,
     InvitationOut,
     InviteCreate,
+    JoinByCodeIn,
     ParticipantOut,
     SubmitAnswerIn,
     SubmitAnswerOut,
@@ -23,10 +28,13 @@ from app.schemas.elimination import (
 from app.services.elimination_service import (
     create_battle,
     invite_to_battle,
+    join_battle_by_code,
     respond_to_invitation,
     start_battle,
     submit_answer,
 )
+
+settings = get_settings()
 
 router = APIRouter(prefix="/elimination", tags=["elimination"])
 
@@ -50,6 +58,26 @@ async def _require_battle_access(db: AsyncSession, battle: EliminationBattle, us
 async def create_elimination_battle(payload: BattleCreate, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     battle = await create_battle(db, user, payload.title, payload.topic_id)
     return battle
+
+
+@router.post("/battles/join", response_model=BattleOut, status_code=201)
+async def join_elimination_battle_by_code(payload: JoinByCodeIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    """The Free Fire-style room-code join — no invitation or connection
+    required, unlike POST /battles/{id}/invite."""
+    return await join_battle_by_code(db, user, payload.code)
+
+
+@router.get("/battles/{battle_id}/qr", response_class=Response)
+async def elimination_battle_join_qr(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    battle = await db.get(EliminationBattle, battle_id)
+    if battle is None:
+        raise NotFoundError("Battle not found.")
+    await _require_battle_access(db, battle, user)
+    join_url = f"{settings.FRONTEND_URL}/elimination/join/{battle.join_code}"
+    image = qrcode.make(join_url)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return Response(content=buffer.getvalue(), media_type="image/png")
 
 
 @router.get("/battles/me", response_model=list[BattleOut])

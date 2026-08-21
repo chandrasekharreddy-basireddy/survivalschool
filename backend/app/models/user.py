@@ -133,6 +133,9 @@ class Profile(Base, UUIDPk, Timestamped):
     # schedule down to just their section without guessing from anything
     # else on the account.
     section: Mapped[str | None] = mapped_column(String(60))
+    # Optional, free-text — shown/editable at AI Weekly Exam registration so
+    # it only has to be typed once and is auto-filled on every later visit.
+    institute: Mapped[str | None] = mapped_column(String(150))
 
     user: Mapped[User] = relationship(back_populates="profile")
 

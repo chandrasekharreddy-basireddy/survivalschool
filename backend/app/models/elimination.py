@@ -44,10 +44,17 @@ class EliminationBattle(Base, UUIDPk, Timestamped):
         CheckConstraint(
             "status IN ('lobby', 'active', 'completed', 'cancelled')", name="ck_elimination_battle_status"
         ),
+        UniqueConstraint("join_code", name="uq_elimination_battle_join_code"),
     )
 
     host_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+    # Free Fire-style room code: anyone holding it can join the lobby
+    # directly (see elimination_service.join_battle_by_code), deliberately
+    # bypassing the connections-only restriction on invite_to_battle — the
+    # whole point of a shareable code is reaching people who aren't yet
+    # connections in-app.
+    join_code: Mapped[str] = mapped_column(String(8), nullable=False)
     topic_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("topics.id", ondelete="RESTRICT"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), default="lobby", nullable=False)
     current_round_number: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

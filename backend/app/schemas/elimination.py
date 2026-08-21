@@ -21,7 +21,12 @@ class BattleOut(BaseModel):
     winner_id: uuid.UUID | None
     started_at: datetime | None
     ended_at: datetime | None
+    join_code: str
     model_config = {"from_attributes": True}
+
+
+class JoinByCodeIn(BaseModel):
+    code: str = Field(min_length=4, max_length=8)
 
 
 class InviteCreate(BaseModel):

@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError, ValidationAppError
+from app.core.runtime import spawn_background_task
 from app.database import AsyncSessionLocal
 from app.models.assessment import Question
 from app.models.elimination import (
@@ -190,7 +191,7 @@ async def create_battle(
         # waits for generation to land if a host clicks Start before it's
         # ready (see _wait_for_questions), and fails closed if it never
         # does.
-        asyncio.create_task(_generate_questions_in_background(topic))
+        spawn_background_task(_generate_questions_in_background(topic))
 
     battle = EliminationBattle(
         host_id=host.id, title=title, topic_id=topic.id, status="lobby",
@@ -285,14 +286,18 @@ async def invite_to_battle(db: AsyncSession, battle: EliminationBattle, inviter:
 
 
 async def _send_invite_email(db: AsyncSession, battle: EliminationBattle, inviter: User, invitee: User) -> None:
-    """Best-effort — an email delivery failure must never fail the invite
-    itself (the in-app notification above already got through)."""
-    topic = await db.get(Topic, battle.topic_id)
-    subject = await db.get(Subject, topic.subject_id) if topic else None
-    inviter_profile = (await db.execute(select(Profile).where(Profile.user_id == inviter.id))).scalar_one_or_none()
-    from app.config import get_settings
-    settings = get_settings()
+    """Best-effort — a failure anywhere here (a DB read, template
+    rendering, actual delivery) must never fail the invite itself (the
+    in-app notification above already got through). The whole body is
+    covered, not just the send call, since a Topic/Subject/Profile lookup
+    failing here is just as much "email didn't go out" as a delivery
+    failure is."""
     try:
+        topic = await db.get(Topic, battle.topic_id)
+        subject = await db.get(Subject, topic.subject_id) if topic else None
+        inviter_profile = (await db.execute(select(Profile).where(Profile.user_id == inviter.id))).scalar_one_or_none()
+        from app.config import get_settings
+        settings = get_settings()
         await send_email(
             invitee.email, f"{inviter.full_name} invited you to an elimination battle", "elimination_invite",
             invitee_name=invitee.full_name, inviter_name=inviter.full_name,

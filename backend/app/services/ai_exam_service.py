@@ -18,7 +18,6 @@ table to keep in sync.
 """
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -29,6 +28,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
+from app.core.runtime import spawn_background_task
 from app.models.contest import Contest, ContestAttempt
 from app.models.exam_platform import Topic, TopicDifficultyEvaluation
 from app.models.user import User
@@ -132,7 +132,7 @@ async def get_or_create_ai_weekly_contest(db: AsyncSession, topic_id: uuid.UUID)
         await bump_cache_version("contests_list")
         return contest
 
-    asyncio.create_task(_generate_ai_weekly_questions_in_background(contest.id, topic))
+    spawn_background_task(_generate_ai_weekly_questions_in_background(contest.id, topic))
     await bump_cache_version("contests_list")
     return contest
 

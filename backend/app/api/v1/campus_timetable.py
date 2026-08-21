@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.db_utils import escape_like
-from app.core.exceptions import ValidationAppError
+from app.core.exceptions import ServiceUnavailableError, ValidationAppError
 from app.database import get_db
 from app.dependencies import get_current_user, get_current_verified_user, require_permission
 from app.models.campus_timetable import (
@@ -28,6 +29,7 @@ from app.schemas.campus_timetable import (
     PersonalTimetableEntryOut,
     PersonalUploadResultOut,
 )
+from app.services.ai_provider import get_ai_provider
 from app.services.audit_service import record_audit_event
 from app.services.campus_timetable_service import (
     UnsafeUrlError,
@@ -36,6 +38,7 @@ from app.services.campus_timetable_service import (
     parse_campus_rows,
 )
 from app.services.personal_timetable_service import parse_personal_rows, replace_personal_timetable
+from app.services.rate_limit_service import enforce_rate_limit
 
 router = APIRouter(prefix="/timetable/campus", tags=["campus-timetable"])
 # A student's own upload lives under /timetable/me, not /timetable/campus —
@@ -299,3 +302,102 @@ async def clear_my_personal_timetable(user: User = Depends(get_current_user), db
     await db.execute(delete(PersonalTimetableEntry).where(PersonalTimetableEntry.user_id == user.id))
     await db.commit()
     return MessageResponse(message="Your uploaded timetable was cleared.")
+
+
+class TimetableChatRequest(BaseModel):
+    question: str
+
+
+class TimetableChatResponse(BaseModel):
+    answer: str
+    provider: str
+
+
+# How far ahead of today the chat's schedule context reaches — enough for
+# "what's my Friday like" or "when's my next lab" without ballooning the
+# prompt with months of recurring grid-format occurrences.
+_CHAT_SCHEDULE_WINDOW_DAYS = 21
+
+_TIMETABLE_CHAT_SYSTEM_PROMPT = (
+    "You are a timetable assistant for a university student. Answer the student's question using ONLY the "
+    "schedule data provided below ({source_label}) — never invent or guess a class, time, room, or teacher "
+    "that isn't listed there. If the question can't be answered from this data (e.g. it asks about a class, "
+    "date, or detail not present), say plainly that you don't have that information instead of making "
+    "something up. Be concise.\n\nSchedule:\n{schedule_text}"
+)
+
+
+@personal_router.post("/chat", response_model=TimetableChatResponse)
+async def timetable_chat(
+    payload: TimetableChatRequest,
+    user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Answers freeform questions about the student's own live schedule,
+    scoped strictly to their actual parsed timetable data — their personal
+    upload if they have one (same precedence the /timetable page itself
+    uses), otherwise their section's campus feed. The AI only ever sees
+    that real data in its system prompt, with an explicit instruction never
+    to invent anything beyond it."""
+    await enforce_rate_limit(f"timetable-chat:{user.id}", limit=20, window_seconds=3600)
+
+    question = payload.question.strip()
+    if not question:
+        raise ValidationAppError("Ask a question first.")
+    if len(question) > 500:
+        raise ValidationAppError("That question is too long.")
+
+    today = date.today()
+    window_end = today + timedelta(days=_CHAT_SCHEDULE_WINDOW_DAYS)
+
+    personal = (await db.execute(
+        select(PersonalTimetableEntry)
+        .where(
+            PersonalTimetableEntry.user_id == user.id,
+            PersonalTimetableEntry.class_date >= today,
+            PersonalTimetableEntry.class_date <= window_end,
+        )
+        .order_by(PersonalTimetableEntry.class_date, PersonalTimetableEntry.start_time)
+    )).scalars().all()
+
+    if personal:
+        entries: list = personal
+        source_label = "the student's own uploaded personal schedule"
+    else:
+        profile = (await db.execute(select(Profile).where(Profile.user_id == user.id))).scalar_one_or_none()
+        entries = []
+        if profile is not None and profile.section:
+            stmt = select(CampusTimetableEntry).where(
+                CampusTimetableEntry.section.ilike(escape_like(profile.section)),
+                CampusTimetableEntry.is_cancelled.is_(False),
+                CampusTimetableEntry.class_date >= today,
+                CampusTimetableEntry.class_date <= window_end,
+            )
+            if profile.school:
+                stmt = stmt.where(CampusTimetableEntry.school.ilike(escape_like(profile.school)))
+            stmt = stmt.order_by(CampusTimetableEntry.class_date, CampusTimetableEntry.start_time)
+            entries = (await db.execute(stmt)).scalars().all()
+        source_label = "the student's section's campus schedule"
+
+    if not entries:
+        return TimetableChatResponse(
+            answer="I don't have any schedule data for you yet — upload your own timetable or set your section on the timetable page first.",
+            provider="none",
+        )
+
+    schedule_text = "\n".join(
+        f"{e.class_date.isoformat()} ({e.class_date.strftime('%A')}) "
+        f"{e.start_time.strftime('%H:%M')}-{e.end_time.strftime('%H:%M')} {e.course_name} — "
+        f"room {e.room or 'TBD'}{f', {e.teacher_name}' if e.teacher_name else ''}"
+        for e in entries
+    )
+
+    provider = get_ai_provider()
+    response = await provider.chat(
+        [{"role": "user", "content": question}],
+        system_prompt=_TIMETABLE_CHAT_SYSTEM_PROMPT.format(source_label=source_label, schedule_text=schedule_text),
+    )
+    if response.error or not response.content:
+        raise ServiceUnavailableError("The timetable assistant is unavailable right now. Please try again.")
+
+    return TimetableChatResponse(answer=response.content, provider=response.provider)

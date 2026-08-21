@@ -60,6 +60,71 @@ def _parse_xlsx(content: bytes) -> list[dict[str, str]]:
     return out
 
 
+def parse_raw_rows(filename: str, content: bytes) -> list[list[str]]:
+    """Like parse_tabular_file, but returns every row as a plain list of
+    cell strings with NO header-to-dict transformation — for formats where
+    row 0 isn't a header at all (e.g. a "grid" timetable: a title row,
+    then day/time rows with one column per room). Blank cells become "".
+    """
+    lower = (filename or "").lower()
+    if lower.endswith(".csv"):
+        rows = _parse_csv_raw(content)
+    elif lower.endswith(".xlsx"):
+        rows = _parse_xlsx_raw(content)
+    else:
+        raise ValidationAppError("Unsupported file type — upload a .csv or .xlsx file.")
+    if not rows:
+        raise ValidationAppError("The file has no data rows.")
+    return rows
+
+
+def _parse_csv_raw(content: bytes) -> list[list[str]]:
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+    return [[(c or "").strip() for c in row] for row in csv.reader(io.StringIO(text))]
+
+
+def _parse_xlsx_raw(content: bytes) -> list[list[str]]:
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as e:
+        raise ValidationAppError("Couldn't read this file as an Excel workbook.") from e
+    ws = wb.worksheets[0]
+    return _rows_of(ws)
+
+
+def _rows_of(ws) -> list[list[str]]:
+    return [
+        ["" if v is None else str(v).strip() for v in row]
+        for row in ws.iter_rows(values_only=True)
+        if row and any(v is not None for v in row)
+    ]
+
+
+def parse_raw_sheets(filename: str, content: bytes) -> list[list[list[str]]]:
+    """Like parse_raw_rows, but for an .xlsx workbook with more than one
+    sheet, returns every sheet's rows (e.g. a campus timetable spreadsheet
+    that has one grid-format "main schedule" sheet plus several separate
+    per-lab schedule sheets, all needing to come in from one upload). A CSV
+    has only ever the one implicit "sheet"."""
+    lower = (filename or "").lower()
+    if lower.endswith(".csv"):
+        return [_parse_csv_raw(content)]
+    if lower.endswith(".xlsx"):
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        except Exception as e:
+            raise ValidationAppError("Couldn't read this file as an Excel workbook.") from e
+        sheets = [_rows_of(ws) for ws in wb.worksheets]
+        sheets = [rows for rows in sheets if rows]
+        if not sheets:
+            raise ValidationAppError("The file has no data rows.")
+        return sheets
+    raise ValidationAppError("Unsupported file type — upload a .csv or .xlsx file.")
+
+
 def find_column(row: dict[str, str], candidates: list[str]) -> str | None:
     """First non-empty value among a list of acceptable header-name synonyms."""
     for c in candidates:

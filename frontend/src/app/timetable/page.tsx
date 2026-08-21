@@ -5,6 +5,9 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { PageLoader } from "@/components/PageLoader";
+import { TimetableChatPanel } from "@/components/TimetableChatPanel";
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 interface CampusEntry {
   id: string;
@@ -101,6 +104,7 @@ export default function TimetablePage() {
   const [clearing, setClearing] = useState(false);
 
   const [now, setNow] = useState(() => new Date());
+  const [weekdayFilter, setWeekdayFilter] = useState<number | null>(null);
 
   const loadPersonal = () => apiFetch<PersonalEntry[]>("/timetable/me/personal").then(setPersonalEntries).catch(() => setPersonalEntries([]));
   const loadCampus = () => {
@@ -209,6 +213,12 @@ export default function TimetablePage() {
     if (!byDate.has(e.class_date)) byDate.set(e.class_date, []);
     byDate.get(e.class_date)!.push(e);
   }
+
+  // Weekday filter only narrows the list rendered below — the "happening
+  // now"/"up next" highlight always reflects today regardless of it.
+  const filteredByDate = weekdayFilter === null
+    ? byDate
+    : new Map([...byDate].filter(([dateStr]) => new Date(dateStr + "T00:00:00").getDay() === weekdayFilter));
 
   const currentLabel = profile?.section
     ? sectionOptions.find((o) => o.school === profile.school && o.section === profile.section)?.label
@@ -333,9 +343,35 @@ export default function TimetablePage() {
         <div className="card mt-8 text-center text-sm text-fg-muted">No classes scheduled yet for your section.</div>
       )}
 
+      <TimetableChatPanel />
+
       {entries.length > 0 && (
-        <div className="mt-8 space-y-3">
-          {[...byDate.entries()].map(([date, dayEntries]) => (
+        <div className="mt-6 flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setWeekdayFilter(null)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition ${weekdayFilter === null ? "bg-brand-500 text-white" : "bg-ink-900 text-fg-subtle hover:text-fg"}`}
+          >
+            All days
+          </button>
+          {WEEKDAY_LABELS.map((label, idx) => (
+            <button
+              key={label}
+              onClick={() => setWeekdayFilter(weekdayFilter === idx ? null : idx)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition ${weekdayFilter === idx ? "bg-brand-500 text-white" : "bg-ink-900 text-fg-subtle hover:text-fg"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {entries.length > 0 && filteredByDate.size === 0 && (
+        <div className="card mt-4 text-center text-sm text-fg-muted">No classes on {WEEKDAY_LABELS[weekdayFilter!]}.</div>
+      )}
+
+      {entries.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {[...filteredByDate.entries()].map(([date, dayEntries]) => (
             <div key={date} className="card !p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-fg-subtle">{fmtDate(date)}</p>
               <div className="mt-2 space-y-2">

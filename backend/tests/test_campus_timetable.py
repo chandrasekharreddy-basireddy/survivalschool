@@ -7,6 +7,7 @@ from __future__ import annotations
 import pytest
 
 from tests.conftest import auth_headers, grant_role, login
+from tests.test_campus_timetable_grid_parsing import GRID_CSV
 
 pytestmark = pytest.mark.asyncio(loop_scope="session")
 
@@ -198,3 +199,78 @@ async def test_personal_upload_does_not_require_admin(client):
         headers=student,
     )
     assert resp.status_code == 200, resp.text
+
+
+# --- Grid format (real Sai University spreadsheet layout) upload-level
+# idempotency check. See test_campus_timetable_grid_parsing.py for the
+# format-detection and parsing unit tests (sync, no client/DB needed).
+
+
+async def test_grid_upload_is_idempotent_on_reupload(client):
+    _, admin = await _make_admin(client)
+    first = await client.post(
+        "/timetable/campus/upload",
+        files={"file": ("timetable.csv", GRID_CSV, "text/csv")},
+        headers=admin,
+    )
+    assert first.status_code == 200, first.text
+    first_result = first.json()
+    assert first_result["created"] == 24
+    assert first_result["error_rows"] == []
+
+    second = await client.post(
+        "/timetable/campus/upload",
+        files={"file": ("timetable.csv", GRID_CSV, "text/csv")},
+        headers=admin,
+    )
+    assert second.status_code == 200, second.text
+    second_result = second.json()
+    assert second_result["created"] == 0
+    assert second_result["updated"] == 0
+
+
+# --- Timetable chat: scoped strictly to the student's own real, already-
+# parsed schedule data (their personal upload if they have one, else their
+# section's campus feed) — never a free-floating AI chat.
+
+
+async def test_chat_with_no_schedule_data_says_so_without_calling_ai(client):
+    _, student = await auth_headers(client)
+    resp = await client.post("/timetable/me/chat", json={"question": "What's my next class?"}, headers=student)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["provider"] == "none"
+    assert "don't have" in body["answer"].lower()
+
+
+async def test_chat_rejects_empty_question(client):
+    _, student = await auth_headers(client)
+    resp = await client.post("/timetable/me/chat", json={"question": "   "}, headers=student)
+    assert resp.status_code == 422, resp.text
+
+
+async def test_chat_answers_from_the_students_personal_upload(client):
+    # The chat endpoint's schedule window is relative to today, unlike
+    # _PERSONAL_CSV's fixed far-future dates — build one with a near-term
+    # date so it actually falls inside that window.
+    import datetime as _dt
+
+    near_date = (_dt.date.today() + _dt.timedelta(days=2)).isoformat()
+    csv_bytes = (
+        b"Course,CourseId,Date,StartTime,EndTime,Room,Teacher,Elective\n"
+        + f"Operating Systems,CS401,{near_date},09:00,10:00,301,Dr. Nair,\n".encode()
+    )
+
+    _, student = await auth_headers(client)
+    upload = await client.post(
+        "/timetable/me/upload",
+        files={"file": ("mine.csv", csv_bytes, "text/csv")},
+        headers=student,
+    )
+    assert upload.status_code == 200, upload.text
+
+    resp = await client.post("/timetable/me/chat", json={"question": "When is Operating Systems?"}, headers=student)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["provider"] == "mock"
+    assert body["answer"]

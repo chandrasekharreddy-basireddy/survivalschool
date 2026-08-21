@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/format";
+import { PageLoader } from "@/components/PageLoader";
 
 interface HistoryItem { id: string; subject: string; question_count: number; submitted_at: string | null; score_percent: number | null; created_at: string }
 
@@ -40,7 +41,7 @@ export default function AIPracticeHomePage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">

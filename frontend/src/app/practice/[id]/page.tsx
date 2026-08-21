@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { PageLoader } from "@/components/PageLoader";
 
 interface OptionPublic { id: string; text: string; order_index: number }
 interface QuestionPublic { id: string; prompt: string; question_type: string; points: number; options: OptionPublic[] }
@@ -70,7 +71,7 @@ export default function PracticeSessionPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) return <div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted">Sign in required.</div>;
   if (error) {
     return (
@@ -106,7 +107,7 @@ export default function PracticeSessionPage() {
     );
   }
 
-  if (!questions) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (!questions) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">

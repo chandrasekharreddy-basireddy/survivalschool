@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/format";
+import { PageLoader } from "@/components/PageLoader";
 
 interface RegistrationStatus { is_open: boolean; next_open_at: string | null; message: string }
 interface RegisterResult { attempt_id: string; contest_id: string; contest_title: string; starts_at: string; ends_at: string; status: string }
@@ -66,7 +67,7 @@ export default function AiWeeklyRegisterPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">

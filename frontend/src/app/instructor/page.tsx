@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useRole } from "@/lib/use-role";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { PageLoader } from "@/components/PageLoader";
 
 interface Subject { id: string; name: string; slug: string }
 interface Topic { id: string; name: string; slug: string }
@@ -143,7 +144,7 @@ export default function InstructorPage() {
     }
   };
 
-  if (!user) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (!user) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">

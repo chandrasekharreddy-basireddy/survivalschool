@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
+import { PageLoader } from "@/components/PageLoader";
 
 interface HistoryEntry { challenge_date: string; is_correct: boolean; points_awarded: number; answered_at: string }
 
@@ -19,7 +20,7 @@ export default function DailyChallengeHistoryPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your history."));
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -40,7 +41,7 @@ export default function DailyChallengeHistoryPage() {
         {error ? (
           <p className="text-sm text-fg-subtle">{error}</p>
         ) : entries === null ? (
-          <p className="text-sm text-fg-subtle">Loading…</p>
+          <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>
         ) : entries.length === 0 ? (
           <p className="text-sm text-fg-subtle">You haven&apos;t answered a daily challenge yet.</p>
         ) : (

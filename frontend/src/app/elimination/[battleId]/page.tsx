@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { PageLoader } from "@/components/PageLoader";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
@@ -211,7 +212,7 @@ export default function EliminationBattlePage() {
     }
   };
 
-  if (loading || !user) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading || !user) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!battle) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading battle…</div>;
 
   const me = participants.find((p) => p.user_id === user.id);

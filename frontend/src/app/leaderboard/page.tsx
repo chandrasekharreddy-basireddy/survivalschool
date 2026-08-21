@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
+import { PageLoader } from "@/components/PageLoader";
 
 interface PointsEntry {
   rank: number;
@@ -83,7 +84,7 @@ export default function LeaderboardPage() {
       {error && <p className="mt-8 text-sm text-red-700 dark:text-red-400">Couldn&apos;t load the leaderboard right now.</p>}
 
       {entries === null && !error ? (
-        <p className="mt-8 text-sm text-fg-subtle">Loading…</p>
+        <p className="mt-8 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
       ) : entries && entries.length === 0 ? (
         <div className="mt-8 rounded-lg border border-dashed border-ink-700 p-10 text-center text-sm text-fg-subtle">
           {tab === "points" ? "No points earned yet — be the first on the board." : "No AI Weekly Exam wins yet — be the first."}

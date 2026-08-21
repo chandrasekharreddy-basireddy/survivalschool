@@ -6,6 +6,7 @@ import Link from "next/link";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { getPostLoginPath } from "@/lib/roles";
+import { PageLoader } from "@/components/PageLoader";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -44,7 +45,7 @@ export default function RegisterPage() {
   };
 
   if (authLoading || user) {
-    return <div className="page-frame text-fg-muted">Loading…</div>;
+    return <div className="page-frame text-fg-muted"><PageLoader size="md" /></div>;
   }
 
   if (done) {

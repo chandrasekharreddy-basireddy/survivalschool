@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError, apiFetch } from "@/lib/api";
+import { PageLoader } from "@/components/PageLoader";
 
 interface SystemHealth {
   database: boolean;
@@ -42,7 +43,7 @@ export default function AdminDashboardPage() {
     apiFetch<SystemHealth>("/admin/system-health").then(setHealth).catch(() => setHealth(null));
   }, [user]);
 
-  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user || !user.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r))) {
     return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted">You don&apos;t have access to the admin console.</div>;
   }

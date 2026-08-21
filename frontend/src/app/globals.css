@@ -256,6 +256,11 @@
     background-position: 200% 0;
   }
 }
+@keyframes page-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @layer components {
   /* Card — the workhorse surface. Flat: a hairline border does the work, not a
      drop shadow. A whisper of shadow only on hover for lift where it helps. */
@@ -492,6 +497,17 @@
   }
   .timer-ring {
     transition: stroke-dashoffset 1s linear;
+  }
+
+  /* The app's one loading motif — a rounded ring in the three signature
+     hues (brand red, teal, amber), used everywhere something is loading
+     instead of every page inventing its own "Loading…" text. */
+  .page-loader-ring {
+    display: inline-block;
+    border-radius: 9999px;
+    border-style: solid;
+    border-color: rgb(var(--brand)) rgb(var(--accent-2)) rgb(var(--warn)) transparent;
+    animation: page-loader-spin 0.85s linear infinite;
   }
 
   .hairline {

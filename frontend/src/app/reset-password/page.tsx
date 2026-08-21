@@ -3,10 +3,11 @@
 import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import { PageLoader } from "@/components/PageLoader";
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted">Loading…</div>}>
+    <Suspense fallback={<div className="mx-auto max-w-md px-6 py-24 text-center text-fg-muted"><PageLoader size="md" /></div>}>
       <ResetPasswordInner />
     </Suspense>
   );

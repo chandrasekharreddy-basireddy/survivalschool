@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { getPushSupport, isSubscribedToPush, sendTestPush, subscribeToPush, unsubscribeFromPush } from "@/lib/push";
+import { PageLoader } from "@/components/PageLoader";
 
 interface Preferences {
   course_updates: boolean;
@@ -63,7 +64,7 @@ export default function SettingsPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -90,7 +91,7 @@ export default function SettingsPage() {
         <h2 className="font-semibold text-fg">Notification preferences</h2>
         <div className="mt-4 space-y-3">
           {prefs === null ? (
-            <p className="text-sm text-fg-subtle">Loading…</p>
+            <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>
           ) : (
             (Object.keys(LABELS) as (keyof Preferences)[]).map((key) => (
               <label key={key} className="flex items-center justify-between text-sm text-fg-muted">

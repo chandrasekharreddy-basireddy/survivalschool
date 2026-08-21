@@ -8,6 +8,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatRelative } from "@/lib/format";
 import { initials } from "@/lib/avatar";
+import { PageLoader } from "@/components/PageLoader";
 
 interface FollowRequestOut {
   id: string; requester_id: string; requester_name: string; requester_handle: string | null;
@@ -134,7 +135,7 @@ export default function FollowsPage() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user) {
     return (
       <div className="mx-auto max-w-md px-6 py-24 text-center">
@@ -173,7 +174,7 @@ export default function FollowsPage() {
 
       {tab === "connections" && (
         <div className="mt-6 space-y-2">
-          {connections === null && <p className="text-sm text-fg-subtle">Loading…</p>}
+          {connections === null && <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
           {connections !== null && connections.length === 0 && (
             <p className="text-sm text-fg-subtle">No connections yet — find people to follow.</p>
           )}

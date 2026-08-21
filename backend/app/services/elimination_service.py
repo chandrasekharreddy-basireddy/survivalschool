@@ -113,6 +113,44 @@ def _generate_join_code() -> str:
     return "".join(secrets.choice(_JOIN_CODE_ALPHABET) for _ in range(_JOIN_CODE_LENGTH))
 
 
+async def _generate_questions_in_background(topic: Topic) -> None:
+    """Runs detached from the request that created the battle — see the
+    asyncio.create_task call site in create_battle for why this must never
+    be awaited inline. A failure here just means the topic still has zero
+    questions when someone tries to start; _wait_for_questions/start_battle
+    surface that as a normal "couldn't start" error rather than a crash."""
+    try:
+        await generate_and_persist_questions(topic, ELIMINATION_SINGLE_COUNT, ELIMINATION_MULTIPLE_COUNT)
+    except QuestionValidationError as exc:
+        logger.error("elimination_generation_failed_validation", topic_id=str(topic.id), error=str(exc))
+    except Exception:
+        logger.error("elimination_generation_failed", topic_id=str(topic.id), exc_info=True)
+
+
+# How long start_battle waits for a background generation (see above) to
+# land before giving up — comfortably under the frontend's/gunicorn's ~30s
+# request timeout so "waited, then failed closed" never itself times out.
+_QUESTION_GENERATION_WAIT_SECONDS = 18
+_QUESTION_GENERATION_POLL_INTERVAL_SECONDS = 1.5
+
+
+async def _wait_for_questions(db: AsyncSession, topic_id: uuid.UUID) -> None:
+    """Best-effort: if AI generation for this topic is still running in the
+    background, give it a little time to land instead of failing the
+    battle the instant a host clicks Start a few seconds after creating
+    it. Deliberately does NOT hold the per-battle lock while waiting (a
+    long-held lock would outlive its own TTL — see start_battle's comment
+    on why the wait happens before the lock is acquired, not during)."""
+    deadline = asyncio.get_event_loop().time() + _QUESTION_GENERATION_WAIT_SECONDS
+    while True:
+        exists = (await db.execute(
+            select(Question.id).where(Question.topic_id == topic_id, Question.is_validated.is_(True)).limit(1)
+        )).scalar_one_or_none()
+        if exists is not None or asyncio.get_event_loop().time() >= deadline:
+            return
+        await asyncio.sleep(_QUESTION_GENERATION_POLL_INTERVAL_SECONDS)
+
+
 async def create_battle(
     db: AsyncSession, host: User, title: str, subject_name: str, topic_name: str,
     scheduled_start_at: datetime | None = None,
@@ -142,11 +180,17 @@ async def create_battle(
         select(Question.id).where(Question.topic_id == topic.id, Question.is_validated.is_(True))
     )).scalars().all()
     if not existing_question_ids:
-        try:
-            await generate_and_persist_questions(topic, ELIMINATION_SINGLE_COUNT, ELIMINATION_MULTIPLE_COUNT)
-        except QuestionValidationError as exc:
-            logger.error("elimination_generation_failed_validation", topic_id=str(topic.id), error=str(exc))
-            raise ValidationAppError(f"Couldn't generate questions for this topic: {exc}") from exc
+        # Fire-and-forget, NOT awaited: a real AI provider generating a
+        # full question pool can comfortably exceed both the frontend's
+        # request timeout and gunicorn's worker timeout (each ~30s), which
+        # is exactly what was happening here — battle creation, including
+        # the room code/QR the host needs immediately, was blocked behind
+        # this call and timing out outright instead of ever returning. The
+        # battle below is created right away regardless; start_battle()
+        # waits for generation to land if a host clicks Start before it's
+        # ready (see _wait_for_questions), and fails closed if it never
+        # does.
+        asyncio.create_task(_generate_questions_in_background(topic))
 
     battle = EliminationBattle(
         host_id=host.id, title=title, topic_id=topic.id, status="lobby",
@@ -357,6 +401,15 @@ async def _activate_battle(db: AsyncSession, battle: EliminationBattle, particip
 async def start_battle(db: AsyncSession, battle: EliminationBattle, host: User) -> EliminationBattle:
     if host.id != battle.host_id:
         raise AuthorizationError("Only the host can start this battle.")
+    if battle.status != "lobby":
+        raise ConflictError("This battle has already started.")
+    # Outside the lock deliberately (see _wait_for_questions) — this can
+    # take several seconds if create_battle's background generation hasn't
+    # landed yet, and a long-held distributed lock would outlive its own
+    # TTL, opening exactly the double-activation race the lock exists to
+    # prevent. State is re-checked under the lock below regardless.
+    await _wait_for_questions(db, battle.topic_id)
+
     # Same lock the sweep loop's scheduled auto-start holds while it calls
     # _activate_battle — without it, a host clicking Start at the exact
     # instant a scheduled battle's auto-start sweep fires could race it and

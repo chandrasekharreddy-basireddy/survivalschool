@@ -9,6 +9,7 @@ import { useToast } from "@/lib/toast";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { ContestCountdown } from "@/components/ContestCountdown";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
+import { PageLoader } from "@/components/PageLoader";
 
 interface Contest {
   id: string; title: string; description: string; starts_at: string; ends_at: string;
@@ -117,7 +118,7 @@ export default function ContestDetailPage() {
     }
   };
 
-  if (loading || contest === null) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted">Loading…</div>;
+  if (loading || contest === null) return <div className="mx-auto max-w-3xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">

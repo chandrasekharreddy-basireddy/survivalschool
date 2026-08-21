@@ -15,6 +15,7 @@ view would defeat the point of it being personal.
 """
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import date as date_type
@@ -77,6 +78,40 @@ class PersonalUploadResult:
     imported: int = 0
 
 
+def _normalize_section(value: str) -> str:
+    """"sec-4", "Section 4", "SEC04", and a bare "4" all mean the same
+    section — a profile's section value gets typed in by a person, while
+    a real spreadsheet cell's section comes out of _split_class_cell as a
+    bare digit string (see campus_timetable_service._SECTION_RE). An
+    exact string match between those two is too brittle: it silently
+    reduces a real upload to zero rows with no explanation the moment
+    someone's profile says "sec-4" instead of "4" (confirmed happening
+    to a real user). Strips a leading "sec"/"section" label and leading
+    zeros — nothing more exotic than that; this doesn't try to interpret
+    arbitrary free text as a section."""
+    normalized = re.sub(r"^sec(tion)?[\s.\-]*", "", value.strip().lower())
+    return normalized.lstrip("0") or normalized
+
+
+def _require_section(section: str | None) -> str:
+    if not section:
+        raise ValidationAppError(
+            "This file looks like your institution's full timetable spreadsheet, covering every "
+            "section — set your section in your profile first (PATCH /users/me/profile) so we can "
+            "pick out just your own classes, then upload it again."
+        )
+    return _normalize_section(section)
+
+
+def _require_found_something(parsed: list[ParsedPersonalRow], reduced_any_sheet: bool, section: str) -> None:
+    if reduced_any_sheet and not parsed:
+        raise ValidationAppError(
+            f"This file doesn't have any classes for section \"{section}\" — double-check that your "
+            "profile section (Profile settings) matches what the file actually calls your section, "
+            "or that you uploaded the right file."
+        )
+
+
 def parse_personal_rows(
     filename: str, content: bytes, *, section: str | None = None, school: str | None = None,
 ) -> list[ParsedPersonalRow]:
@@ -89,14 +124,21 @@ def parse_personal_rows(
     _personal_rows_from_campus_rows); section/school come from the
     caller's profile lookup, not from the file itself."""
     sheets = parse_raw_sheets(filename, content)
+    section_norm: str | None = None
+    school_norm = school.strip().lower() if school else None
     parsed: list[ParsedPersonalRow] = []
+    reduced_any_sheet = False
     for raw_rows in sheets:
         fmt = _detect_format(raw_rows)
         if fmt in ("grid", "lab"):
+            if section_norm is None:
+                section_norm = _require_section(section)
+            reduced_any_sheet = True
             campus_rows = _parse_grid_rows(raw_rows) if fmt == "grid" else _parse_lab_rows(raw_rows)
-            parsed.extend(_personal_rows_from_campus_rows(campus_rows, section, school))
+            parsed.extend(_personal_rows_from_campus_rows(campus_rows, section_norm, school_norm))
         else:
             parsed.extend(_personal_rows_from_dicts(_dicts_from_raw_rows(raw_rows)))
+    _require_found_something(parsed, reduced_any_sheet, section or "")
     return parsed
 
 
@@ -114,12 +156,18 @@ async def parse_personal_rows_async(
     fallback by looking nothing like a real personal export, so it's
     treated the same way an institution-wide file would be."""
     sheets = parse_raw_sheets(filename, content)
+    section_norm: str | None = None
+    school_norm = school.strip().lower() if school else None
     parsed: list[ParsedPersonalRow] = []
+    reduced_any_sheet = False
     for raw_rows in sheets:
         fmt = _detect_format(raw_rows)
         if fmt in ("grid", "lab"):
+            if section_norm is None:
+                section_norm = _require_section(section)
+            reduced_any_sheet = True
             campus_rows = _parse_grid_rows(raw_rows) if fmt == "grid" else _parse_lab_rows(raw_rows)
-            parsed.extend(_personal_rows_from_campus_rows(campus_rows, section, school))
+            parsed.extend(_personal_rows_from_campus_rows(campus_rows, section_norm, school_norm))
             continue
         dict_rows = _personal_rows_from_dicts(_dicts_from_raw_rows(raw_rows))
         if not dict_rows:
@@ -129,7 +177,14 @@ async def parse_personal_rows_async(
             parsed.extend(dict_rows)
             continue
         ai_campus_rows = await _ai_extract_sheet(raw_rows, get_ai_provider())
-        parsed.extend(_personal_rows_from_campus_rows(ai_campus_rows, section, school) if ai_campus_rows else dict_rows)
+        if ai_campus_rows:
+            if section_norm is None:
+                section_norm = _require_section(section)
+            reduced_any_sheet = True
+            parsed.extend(_personal_rows_from_campus_rows(ai_campus_rows, section_norm, school_norm))
+        else:
+            parsed.extend(dict_rows)
+    _require_found_something(parsed, reduced_any_sheet, section or "")
     return parsed
 
 
@@ -171,19 +226,13 @@ def _personal_rows_from_dicts(raw_rows: list[dict[str, str]]) -> list[ParsedPers
 
 
 def _personal_rows_from_campus_rows(
-    campus_rows: list[ParsedCampusRow], section: str | None, school: str | None,
+    campus_rows: list[ParsedCampusRow], section_norm: str, school_norm: str | None,
 ) -> list[ParsedPersonalRow]:
-    if not section:
-        raise ValidationAppError(
-            "This file looks like your institution's full timetable spreadsheet, covering every "
-            "section — set your section in your profile first (PATCH /users/me/profile) so we can "
-            "pick out just your own classes, then upload it again."
-        )
-    section_norm = section.strip().lower()
-    school_norm = school.strip().lower() if school else None
+    """section_norm/school_norm are already normalized (see
+    _normalize_section) — callers do that once per upload, not per row."""
     parsed: list[ParsedPersonalRow] = []
     for r in campus_rows:
-        if (r.section or "").strip().lower() != section_norm:
+        if _normalize_section(r.section or "") != section_norm:
             continue
         # Same opt-in behavior as the shared campus feed's own /me filter
         # (see campus_timetable.py's my_campus_entries): only applied when

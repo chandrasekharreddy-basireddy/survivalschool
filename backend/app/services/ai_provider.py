@@ -1,6 +1,7 @@
 """AIProvider abstraction."""
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -13,6 +14,15 @@ import structlog
 from app.config import get_settings
 
 logger = structlog.get_logger("survivalschool.ai")
+
+# See the retry loop in SarvamAIProvider.chat() — Sarvam intermittently
+# returns a 2xx with completely empty message content for an otherwise
+# ordinary request, confirmed in production on a benign topic. 2 total
+# attempts, 1.5s apart, is enough to ride out what looks like transient
+# upstream flakiness without meaningfully slowing down the common
+# first-attempt-succeeds case or piling up retries under real load.
+_EMPTY_RESPONSE_RETRY_ATTEMPTS = 2
+_EMPTY_RESPONSE_RETRY_DELAY_SECONDS = 1.5
 
 
 @dataclass
@@ -262,40 +272,58 @@ class SarvamAIProvider(AIProvider):
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         start = time.perf_counter()
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(
-                    f"{self.base_url}{endpoint}",
-                    headers=headers,
-                    json={"model": model, "messages": payload_messages, "max_tokens": max_tokens},
-                )
-                if resp.status_code >= 400:
-                    body = resp.text[:500]
-                    logger.error("sarvam_call_failed", status=resp.status_code, model=model, body=body)
-                    return AIResponse(content="", provider=self.name, tokens_used=None,
-                                       latency_ms=int((time.perf_counter() - start) * 1000),
-                                       error=f"Sarvam {resp.status_code}: {body}")
-                data = resp.json()
-                try:
-                    content = data["choices"][0]["message"]["content"]
-                except (KeyError, IndexError, TypeError) as exc:
-                    logger.error("sarvam_invalid_response", model=model, error=type(exc).__name__)
-                    return AIResponse(content="", provider=self.name, tokens_used=None,
-                                       latency_ms=int((time.perf_counter() - start) * 1000),
-                                       error="Sarvam returned a response without message content.")
-                if not isinstance(content, str) or not content.strip():
-                    logger.error("sarvam_empty_response", model=model)
-                    return AIResponse(content="", provider=self.name, tokens_used=None,
-                                       latency_ms=int((time.perf_counter() - start) * 1000),
-                                       error="Sarvam returned empty message content.")
-                tokens = data.get("usage", {}).get("total_tokens")
-        except Exception as exc:
-            logger.error("sarvam_call_failed", model=model, error=str(exc))
-            return AIResponse(content="", provider=self.name, tokens_used=None,
-                               latency_ms=int((time.perf_counter() - start) * 1000), error=str(exc))
+        last_error = "Sarvam returned empty message content."
+        # Confirmed in production: Sarvam intermittently returns a 2xx with
+        # a completely empty message.content for an entirely ordinary
+        # request (observed on a benign topic — "OOP"/"python" — ruling out
+        # a content-filter refusal). No documented cause; retrying once,
+        # same request, is the pragmatic mitigation for what looks like
+        # transient upstream flakiness rather than something this app's
+        # request shape controls. Not retried for a definite 4xx/5xx —
+        # those are far more likely to just fail again identically.
+        for attempt in range(_EMPTY_RESPONSE_RETRY_ATTEMPTS):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    resp = await client.post(
+                        f"{self.base_url}{endpoint}",
+                        headers=headers,
+                        json={"model": model, "messages": payload_messages, "max_tokens": max_tokens},
+                    )
+                    if resp.status_code >= 400:
+                        body = resp.text[:500]
+                        logger.error("sarvam_call_failed", status=resp.status_code, model=model, body=body)
+                        return AIResponse(content="", provider=self.name, tokens_used=None,
+                                           latency_ms=int((time.perf_counter() - start) * 1000),
+                                           error=f"Sarvam {resp.status_code}: {body}")
+                    data = resp.json()
+                    try:
+                        choice = data["choices"][0]
+                        content = choice["message"]["content"]
+                    except (KeyError, IndexError, TypeError) as exc:
+                        logger.error("sarvam_invalid_response", model=model, error=type(exc).__name__, raw_body=str(data)[:1000])
+                        return AIResponse(content="", provider=self.name, tokens_used=None,
+                                           latency_ms=int((time.perf_counter() - start) * 1000),
+                                           error="Sarvam returned a response without message content.")
+                    if isinstance(content, str) and content.strip():
+                        tokens = data.get("usage", {}).get("total_tokens")
+                        return AIResponse(content=content, provider=self.name, tokens_used=tokens,
+                                          latency_ms=int((time.perf_counter() - start) * 1000))
+                    logger.error(
+                        "sarvam_empty_response", model=model, attempt=attempt + 1,
+                        finish_reason=choice.get("finish_reason"), raw_body=str(data)[:1000],
+                    )
+            except Exception as exc:
+                logger.error("sarvam_call_failed", model=model, attempt=attempt + 1, error=str(exc))
+                last_error = str(exc)
+                # A network/timeout exception is exactly the kind of
+                # transient failure the retry exists for too — fall
+                # through to the next attempt rather than giving up on
+                # attempt 1.
+            if attempt < _EMPTY_RESPONSE_RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_EMPTY_RESPONSE_RETRY_DELAY_SECONDS)
 
-        return AIResponse(content=content, provider=self.name, tokens_used=tokens,
-                          latency_ms=int((time.perf_counter() - start) * 1000))
+        return AIResponse(content="", provider=self.name, tokens_used=None,
+                           latency_ms=int((time.perf_counter() - start) * 1000), error=last_error)
 
     async def generate_questions(self, subject: str, count: int) -> list[GeneratedMCQ]:
         system_prompt = (

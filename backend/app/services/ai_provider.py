@@ -76,7 +76,8 @@ class AIProvider(ABC):
 
     @abstractmethod
     async def chat(
-        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None
+        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None,
+        max_tokens: int = 2048,
     ) -> AIResponse:
         ...
 
@@ -121,7 +122,8 @@ class MockAIProvider(AIProvider):
     name = "mock"
 
     async def chat(
-        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None
+        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None,
+        max_tokens: int = 2048,
     ) -> AIResponse:
         start = time.perf_counter()
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
@@ -196,6 +198,20 @@ class MockAIProvider(AIProvider):
         return []
 
 
+def _question_generation_max_tokens(count: int) -> int:
+    """The fixed 2048-token cap this used to always request is nowhere
+    near enough for a full batch of MCQ/MSQ JSON — Sarvam was silently
+    truncating mid-response for anything beyond a handful of questions
+    (confirmed in production: "Unterminated string..." JSON parse
+    failures and empty responses for exactly this call), which is why
+    elimination battles and the AI Weekly Exam kept ending up with zero
+    generated questions and getting cancelled. ~180 tokens/question is a
+    generous real-world budget for a prompt + up to 6 options each; the
+    12000 ceiling stays comfortably under typical chat-completion API
+    output limits rather than risking the request itself being rejected."""
+    return min(12000, max(2048, count * 180 + 400))
+
+
 class SarvamAIProvider(AIProvider):
     name = "sarvam"
 
@@ -208,7 +224,8 @@ class SarvamAIProvider(AIProvider):
         self.timeout = settings.AI_REQUEST_TIMEOUT_SECONDS
 
     async def chat(
-        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None
+        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None,
+        max_tokens: int = 2048,
     ) -> AIResponse:
         if not self.api_key:
             return AIResponse(content="", provider=self.name, tokens_used=None, latency_ms=0,
@@ -250,7 +267,7 @@ class SarvamAIProvider(AIProvider):
                 resp = await client.post(
                     f"{self.base_url}{endpoint}",
                     headers=headers,
-                    json={"model": model, "messages": payload_messages, "max_tokens": 2048},
+                    json={"model": model, "messages": payload_messages, "max_tokens": max_tokens},
                 )
                 if resp.status_code >= 400:
                     body = resp.text[:500]
@@ -292,7 +309,7 @@ class SarvamAIProvider(AIProvider):
         )
         response = await self.chat(
             [{"role": "user", "content": f"Generate exactly {count} multiple-choice practice questions about: {subject}"}],
-            system_prompt=system_prompt,
+            system_prompt=system_prompt, max_tokens=_question_generation_max_tokens(count),
         )
         if response.error:
             raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
@@ -339,7 +356,7 @@ class SarvamAIProvider(AIProvider):
                 f"Generate exactly {single_count} single-answer multiple-choice questions and exactly "
                 f"{multiple_count} multi-select questions about: {topic}. Total {single_count + multiple_count} questions."
             )}],
-            system_prompt=system_prompt,
+            system_prompt=system_prompt, max_tokens=_question_generation_max_tokens(single_count + multiple_count),
         )
         if response.error:
             raise AIGenerationError(f"Sarvam AI request failed: {response.error}")

@@ -217,6 +217,32 @@ async def create_battle(
     return battle
 
 
+async def _add_participant_if_room(db: AsyncSession, battle: EliminationBattle, user_id: uuid.UUID) -> None:
+    """Shared by join_battle_by_code and respond_to_invitation's accept
+    path — a battle can be joined by either route, so both need the exact
+    same capacity guard, not two independently-maintained copies of it.
+    Lock-guarded: a plain read-count-then-insert (what this used to be, in
+    join_battle_by_code only) lets two concurrent joins both pass the
+    check and push the battle past MAX_INVITEES_PER_BATTLE + 1. Does not
+    commit — the caller's own commit covers this alongside whatever else
+    it's doing in the same transaction (e.g. respond_to_invitation's
+    invitation.status change)."""
+    async with try_lock(_battle_lock_key(battle.id), ttl_seconds=10) as got_lock:
+        if not got_lock:
+            raise ConflictError("This battle is being updated — try again in a moment.")
+        existing = (await db.execute(
+            select(EliminationParticipant).where(EliminationParticipant.battle_id == battle.id, EliminationParticipant.user_id == user_id)
+        )).scalar_one_or_none()
+        if existing is not None:
+            return
+        participant_count = (await db.execute(
+            select(EliminationParticipant.id).where(EliminationParticipant.battle_id == battle.id)
+        )).scalars().all()
+        if len(participant_count) >= MAX_INVITEES_PER_BATTLE + 1:
+            raise ConflictError(f"This battle is full ({MAX_INVITEES_PER_BATTLE + 1} players max).")
+        db.add(EliminationParticipant(battle_id=battle.id, user_id=user_id, status="ready"))
+
+
 async def join_battle_by_code(db: AsyncSession, user: User, code: str) -> EliminationBattle:
     """The Free Fire-style path: anyone holding the room code joins
     directly, no invitation or prior connection required — that's the
@@ -230,19 +256,7 @@ async def join_battle_by_code(db: AsyncSession, user: User, code: str) -> Elimin
     if battle.status != "lobby":
         raise ConflictError("This battle has already started or finished.")
 
-    existing = (await db.execute(
-        select(EliminationParticipant).where(EliminationParticipant.battle_id == battle.id, EliminationParticipant.user_id == user.id)
-    )).scalar_one_or_none()
-    if existing is not None:
-        return battle
-
-    participant_count = (await db.execute(
-        select(EliminationParticipant.id).where(EliminationParticipant.battle_id == battle.id)
-    )).scalars().all()
-    if len(participant_count) >= MAX_INVITEES_PER_BATTLE + 1:
-        raise ConflictError(f"This battle is full ({MAX_INVITEES_PER_BATTLE + 1} players max).")
-
-    db.add(EliminationParticipant(battle_id=battle.id, user_id=user.id, status="ready"))
+    await _add_participant_if_room(db, battle, user.id)
     await db.commit()
     return battle
 
@@ -320,11 +334,13 @@ async def respond_to_invitation(db: AsyncSession, invitation: EliminationInvitat
     if accept:
         battle = await db.get(EliminationBattle, invitation.battle_id)
         if battle is not None and battle.status == "lobby":
-            existing_participant = (await db.execute(
-                select(EliminationParticipant).where(EliminationParticipant.battle_id == battle.id, EliminationParticipant.user_id == user.id)
-            )).scalar_one_or_none()
-            if existing_participant is None:
-                db.add(EliminationParticipant(battle_id=battle.id, user_id=user.id, status="ready"))
+            # Same capacity guard join_battle_by_code enforces — previously
+            # missing here, so a full battle (already at the cap via room-
+            # code joins) could still be pushed over it by an invitee
+            # accepting late. Raising here aborts the whole transaction,
+            # so invitation.status above rolls back to "pending" too rather
+            # than leaving an "accepted" invitation with no participant row.
+            await _add_participant_if_room(db, battle, user.id)
     await db.commit()
     await db.refresh(invitation)
     return invitation
@@ -397,9 +413,15 @@ async def _activate_battle(db: AsyncSession, battle: EliminationBattle, particip
         # No question bank for this topic — cannot run the battle. Rare
         # now that create_battle generates one up front, but fail closed
         # rather than leave participants stuck in "active" with no
-        # question ever coming.
+        # question ever coming. The battle.started broadcast above already
+        # reached every connected client (including non-host participants
+        # who have no other way to learn the outcome — the host's own
+        # request just gets this exception, but nobody else does), so a
+        # matching battle.cancelled broadcast is the only thing that gets
+        # them out of "waiting for a question that's never coming."
         battle.status = "cancelled"
         await db.commit()
+        await ws_manager.broadcast(await _battle_channel(battle.id), {"event": "battle.cancelled", "battle_id": str(battle.id)})
         raise ValidationAppError("No questions are available for this topic yet — the battle was cancelled.")
 
 

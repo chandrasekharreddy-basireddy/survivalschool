@@ -140,6 +140,95 @@ async def test_join_by_code_rejects_once_battle_has_started(client):
     assert late.status_code == 409, late.text
 
 
+async def test_join_by_code_rejects_once_battle_is_full(client, monkeypatch):
+    import app.services.elimination_service as elimination_service
+    monkeypatch.setattr(elimination_service, "MAX_INVITEES_PER_BATTLE", 1)  # cap = host + 1
+
+    _, host = await auth_headers(client)
+    battle = await _create_battle(client, host, "Small Room")
+    _, first = await auth_headers(client)
+    joined = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=first)
+    assert joined.status_code == 201, joined.text
+
+    _, second = await auth_headers(client)
+    full = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second)
+    assert full.status_code == 409, full.text
+
+
+async def test_accepting_an_invitation_also_rejects_once_battle_is_full(client, monkeypatch):
+    """respond_to_invitation used to add the accepting user as a participant
+    with no capacity check at all — a battle already filled up to the cap
+    via room-code joins could still be pushed past it by a late invite
+    accept. Same cap enforced on both paths now."""
+    import app.services.elimination_service as elimination_service
+    monkeypatch.setattr(elimination_service, "MAX_INVITEES_PER_BATTLE", 1)  # cap = host + 1
+
+    host_email, host = await auth_headers(client)
+    host_id = (await client.get("/auth/me", headers=host)).json()["id"]
+    invitee_email, invitee = await auth_headers(client)
+    invitee_id = (await client.get("/auth/me", headers=invitee)).json()["id"]
+    await _connect(client, host, host_id, invitee, invitee_id)
+
+    battle = await _create_battle(client, host, "Small Room Invite")
+    invited = await client.post(f"/elimination/battles/{battle['id']}/invite", json={"invitee_id": invitee_id}, headers=host)
+    assert invited.status_code == 201, invited.text
+    invitation_id = invited.json()["id"]
+
+    # Fill the battle to the cap via room code before the invitee gets to it.
+    _, filler = await auth_headers(client)
+    filled = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=filler)
+    assert filled.status_code == 201, filled.text
+
+    accept = await client.post(f"/elimination/invitations/{invitation_id}/accept", headers=invitee)
+    assert accept.status_code == 409, accept.text
+
+    participants = (await client.get(f"/elimination/battles/{battle['id']}/participants", headers=host)).json()
+    assert len(participants) == 2  # host + filler only — invitee was never added
+
+
+async def test_starting_with_no_questions_broadcasts_cancellation_not_just_a_db_flag(client, monkeypatch):
+    """_activate_battle fails closed (battle.status = "cancelled") if its
+    topic somehow has no question bank left at activation time — but only
+    the host's own request used to learn that; every other already-
+    connected participant had no way to find out their "battle.started"
+    just turned into nothing, since nothing broadcast the cancellation.
+    Verifies both halves: the DB ends up cancelled, and a battle.cancelled
+    event goes out over the same channel battle.started did."""
+    from sqlalchemy import delete
+
+    import app.services.elimination_service as elimination_service
+    from app.database import AsyncSessionLocal
+    from app.models.assessment import Question
+
+    broadcasts: list[dict] = []
+    orig_broadcast = elimination_service.ws_manager.broadcast
+
+    async def _spy_broadcast(room_id, message, **kwargs):
+        broadcasts.append(message)
+        return await orig_broadcast(room_id, message, **kwargs)
+
+    monkeypatch.setattr(elimination_service.ws_manager, "broadcast", _spy_broadcast)
+
+    _, host = await auth_headers(client)
+    battle = await _create_battle(client, host, "Doomed Battle")
+    _, second_player = await auth_headers(client)
+    joined = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second_player)
+    assert joined.status_code == 201, joined.text
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Question).where(Question.topic_id == battle["topic_id"]))
+        await db.commit()
+
+    started = await client.post(f"/elimination/battles/{battle['id']}/start", headers=host)
+    assert started.status_code == 422, started.text
+
+    check = await client.get(f"/elimination/battles/{battle['id']}", headers=host)
+    assert check.json()["status"] == "cancelled"
+
+    events = [b["event"] for b in broadcasts if b.get("battle_id") == battle["id"]]
+    assert events == ["battle.started", "battle.cancelled"]
+
+
 async def test_scheduled_start_auto_starts_the_battle(client):
     """No host click needed once scheduled_start_at has passed — the sweep
     loop (elimination_service._sweep_once, run every SWEEP_INTERVAL_SECONDS

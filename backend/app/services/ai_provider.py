@@ -222,6 +222,64 @@ def _question_generation_max_tokens(count: int) -> int:
     return min(12000, max(2048, count * 180 + 400))
 
 
+def _parse_single_questions(raw_content: str) -> list[GeneratedMCQ]:
+    raw = raw_content.strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
+    if not isinstance(data, list) or not data:
+        raise AIGenerationError("Sarvam AI returned an empty or malformed question list.")
+
+    questions: list[GeneratedMCQ] = []
+    for item in data:
+        if not isinstance(item, dict) or "prompt" not in item or "options" not in item:
+            raise AIGenerationError("Sarvam AI returned a question missing required fields.")
+        options = item["options"]
+        if not isinstance(options, list) or len(options) < 2:
+            raise AIGenerationError("Sarvam AI returned a question with fewer than 2 options.")
+        if sum(1 for o in options if isinstance(o, dict) and o.get("is_correct") is True) != 1:
+            raise AIGenerationError("Sarvam AI returned a question without exactly one correct option.")
+        questions.append(GeneratedMCQ(
+            prompt=str(item["prompt"]),
+            options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
+        ))
+    return questions
+
+
+def _parse_mixed_questions(raw_content: str) -> list[GeneratedMCQ]:
+    raw = raw_content.strip()
+    raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
+    if not isinstance(data, list) or not data:
+        raise AIGenerationError("Sarvam AI returned an empty or malformed question list.")
+
+    questions: list[GeneratedMCQ] = []
+    for item in data:
+        if not isinstance(item, dict) or "prompt" not in item or "options" not in item:
+            raise AIGenerationError("Sarvam AI returned a question missing required fields.")
+        qtype = item.get("question_type")
+        if qtype not in ("single", "multiple"):
+            raise AIGenerationError(f"Sarvam AI returned an invalid question_type: {qtype!r}.")
+        options = item["options"]
+        if not isinstance(options, list) or len(options) < 2:
+            raise AIGenerationError("Sarvam AI returned a question with fewer than 2 options.")
+        correct_count = sum(1 for o in options if isinstance(o, dict) and o.get("is_correct") is True)
+        if qtype == "single" and correct_count != 1:
+            raise AIGenerationError("Sarvam AI returned a 'single' question without exactly one correct option.")
+        if qtype == "multiple" and (correct_count < 1 or correct_count >= len(options)):
+            raise AIGenerationError("Sarvam AI returned a 'multiple' question without a valid mix of correct/incorrect options.")
+        questions.append(GeneratedMCQ(
+            prompt=str(item["prompt"]), question_type=qtype,
+            options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
+        ))
+    return questions
+
+
 class SarvamAIProvider(AIProvider):
     name = "sarvam"
 
@@ -335,36 +393,29 @@ class SarvamAIProvider(AIProvider):
             '{"text": "...", "is_correct": false}]}. '
             "Exactly one option per question must have is_correct true. Do not include any other keys or text."
         )
-        response = await self.chat(
-            [{"role": "user", "content": f"Generate exactly {count} multiple-choice practice questions about: {subject}"}],
-            system_prompt=system_prompt, max_tokens=_question_generation_max_tokens(count),
-        )
-        if response.error:
-            raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+        user_message = {"role": "user", "content": f"Generate exactly {count} multiple-choice practice questions about: {subject}"}
+        max_tokens = _question_generation_max_tokens(count)
 
-        raw = response.content.strip()
-        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
-        if not isinstance(data, list) or not data:
-            raise AIGenerationError("Sarvam AI returned an empty or malformed question list.")
-
-        questions: list[GeneratedMCQ] = []
-        for item in data:
-            if not isinstance(item, dict) or "prompt" not in item or "options" not in item:
-                raise AIGenerationError("Sarvam AI returned a question missing required fields.")
-            options = item["options"]
-            if not isinstance(options, list) or len(options) < 2:
-                raise AIGenerationError("Sarvam AI returned a question with fewer than 2 options.")
-            if sum(1 for o in options if isinstance(o, dict) and o.get("is_correct") is True) != 1:
-                raise AIGenerationError("Sarvam AI returned a question without exactly one correct option.")
-            questions.append(GeneratedMCQ(
-                prompt=str(item["prompt"]),
-                options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
-            ))
-        return questions
+        # Confirmed in production: Sarvam sometimes returns a genuinely
+        # truncated/invalid-JSON response even at a comfortable max_tokens
+        # budget (well under the requested limit — this isn't the
+        # max_tokens exhaustion the scaling above fixes). chat() already
+        # retries on an empty/errored response; this outer retry covers
+        # the case chat() itself can't see: content came back non-empty
+        # but doesn't parse or validate as real questions.
+        last_error: Exception = AIGenerationError("Sarvam AI request failed.")
+        for attempt in range(_EMPTY_RESPONSE_RETRY_ATTEMPTS):
+            try:
+                response = await self.chat([user_message], system_prompt=system_prompt, max_tokens=max_tokens)
+                if response.error:
+                    raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+                return _parse_single_questions(response.content)
+            except AIGenerationError as exc:
+                last_error = exc
+                logger.warning("sarvam_question_generation_retry", attempt=attempt + 1, error=str(exc))
+            if attempt < _EMPTY_RESPONSE_RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_EMPTY_RESPONSE_RETRY_DELAY_SECONDS)
+        raise last_error
 
     async def generate_mixed_questions(self, topic: str, single_count: int, multiple_count: int) -> list[GeneratedMCQ]:
         system_prompt = (
@@ -379,45 +430,31 @@ class SarvamAIProvider(AIProvider):
             "question, so it must have at least one wrong option to be a real question). Every question needs "
             "2-6 options. Do not include any other keys or text."
         )
-        response = await self.chat(
-            [{"role": "user", "content": (
-                f"Generate exactly {single_count} single-answer multiple-choice questions and exactly "
-                f"{multiple_count} multi-select questions about: {topic}. Total {single_count + multiple_count} questions."
-            )}],
-            system_prompt=system_prompt, max_tokens=_question_generation_max_tokens(single_count + multiple_count),
-        )
-        if response.error:
-            raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+        user_message = {"role": "user", "content": (
+            f"Generate exactly {single_count} single-answer multiple-choice questions and exactly "
+            f"{multiple_count} multi-select questions about: {topic}. Total {single_count + multiple_count} questions."
+        )}
+        max_tokens = _question_generation_max_tokens(single_count + multiple_count)
 
-        raw = response.content.strip()
-        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise AIGenerationError("Sarvam AI did not return valid JSON.") from exc
-        if not isinstance(data, list) or not data:
-            raise AIGenerationError("Sarvam AI returned an empty or malformed question list.")
-
-        questions: list[GeneratedMCQ] = []
-        for item in data:
-            if not isinstance(item, dict) or "prompt" not in item or "options" not in item:
-                raise AIGenerationError("Sarvam AI returned a question missing required fields.")
-            qtype = item.get("question_type")
-            if qtype not in ("single", "multiple"):
-                raise AIGenerationError(f"Sarvam AI returned an invalid question_type: {qtype!r}.")
-            options = item["options"]
-            if not isinstance(options, list) or len(options) < 2:
-                raise AIGenerationError("Sarvam AI returned a question with fewer than 2 options.")
-            correct_count = sum(1 for o in options if isinstance(o, dict) and o.get("is_correct") is True)
-            if qtype == "single" and correct_count != 1:
-                raise AIGenerationError("Sarvam AI returned a 'single' question without exactly one correct option.")
-            if qtype == "multiple" and (correct_count < 1 or correct_count >= len(options)):
-                raise AIGenerationError("Sarvam AI returned a 'multiple' question without a valid mix of correct/incorrect options.")
-            questions.append(GeneratedMCQ(
-                prompt=str(item["prompt"]), question_type=qtype,
-                options=[(str(o["text"]), bool(o.get("is_correct", False))) for o in options],
-            ))
-        return questions
+        # See generate_questions' matching loop — confirmed in production
+        # on this exact call site: Sarvam can return a truncated/invalid-
+        # JSON response well under the requested max_tokens budget, which
+        # chat()'s own empty-response retry can't see (the content wasn't
+        # empty, just malformed). Retrying the whole call again is what
+        # actually recovered it in practice.
+        last_error: Exception = AIGenerationError("Sarvam AI request failed.")
+        for attempt in range(_EMPTY_RESPONSE_RETRY_ATTEMPTS):
+            try:
+                response = await self.chat([user_message], system_prompt=system_prompt, max_tokens=max_tokens)
+                if response.error:
+                    raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+                return _parse_mixed_questions(response.content)
+            except AIGenerationError as exc:
+                last_error = exc
+                logger.warning("sarvam_question_generation_retry", attempt=attempt + 1, error=str(exc))
+            if attempt < _EMPTY_RESPONSE_RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_EMPTY_RESPONSE_RETRY_DELAY_SECONDS)
+        raise last_error
 
     async def evaluate_topic_scope(self, subject: str, topic: str) -> TopicScopeAssessment:
         system_prompt = (

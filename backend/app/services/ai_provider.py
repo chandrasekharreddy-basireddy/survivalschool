@@ -209,17 +209,73 @@ class MockAIProvider(AIProvider):
 
 
 def _question_generation_max_tokens(count: int) -> int:
-    """The fixed 2048-token cap this used to always request is nowhere
-    near enough for a full batch of MCQ/MSQ JSON — Sarvam was silently
-    truncating mid-response for anything beyond a handful of questions
-    (confirmed in production: "Unterminated string..." JSON parse
-    failures and empty responses for exactly this call), which is why
-    elimination battles and the AI Weekly Exam kept ending up with zero
-    generated questions and getting cancelled. ~180 tokens/question is a
-    generous real-world budget for a prompt + up to 6 options each; the
-    12000 ceiling stays comfortably under typical chat-completion API
-    output limits rather than risking the request itself being rejected."""
-    return min(12000, max(2048, count * 180 + 400))
+    """Superseded by the batching in generate_questions/
+    generate_mixed_questions below — kept only because it's still a
+    reasonable per-batch token budget and existing tests reference it.
+    Two things confirmed directly against the live API (with a real key,
+    debugging the exact "no questions available" production failure) that
+    a bigger max_tokens value alone could never fix: (1) sarvam-105b is a
+    reasoning model that burns a large, largely fixed chunk of its output
+    budget on chain-of-thought BEFORE writing any answer — even a trivial
+    "say hello" prompt consumed 500-3000+ reasoning tokens — so a request
+    for a full 18- or 50-question batch was mostly reasoning tokens with
+    barely any left for the actual JSON, hence the truncated/empty
+    responses; (2) the account's own subscription tier hard-caps
+    max_tokens at 4096 regardless of what's requested — a >4096 request
+    is rejected outright with a 400, not gracefully degraded, so the
+    12000 this used to return was never actually usable in the first
+    place. The real fix is generating a handful of questions per request
+    instead of one huge one — see _MAX_QUESTIONS_PER_BATCH."""
+    return min(4096, max(2048, count * 180 + 400))
+
+
+# Empirically verified against the live Sarvam API (real subscription
+# key, the exact "OOP"/elimination-battle prompt shape): a batch of 5
+# questions reliably completes in ~15-25s using well under half the
+# account's 4096-token max_tokens ceiling, even accounting for the
+# model's reasoning-token overhead. Generating in small batches run
+# concurrently (bounded, so as not to hammer the API) both fits the
+# hard per-request token cap and keeps total wall-clock time reasonable
+# for the 18-50 questions a real battle/exam needs — this already runs
+# as a detached background task (see elimination_service.py's
+# spawn_background_task), so a batch taking tens of seconds is fine.
+_MAX_QUESTIONS_PER_BATCH = 5
+_MAX_CONCURRENT_BATCHES = 3
+_BATCH_MAX_TOKENS = 4000
+
+# Confirmed live: separate batches for the same topic can independently
+# generate the same obvious question (e.g. two different batches for
+# "Object-Oriented Programming" both wrote "What is abstraction in
+# object-oriented programming?"). 2 top-up rounds is enough to clear a
+# handful of collisions without piling up extra API calls if a topic is
+# so narrow the model keeps colliding.
+_DEDUPE_TOP_UP_ATTEMPTS = 2
+
+
+def _chunk_counts(total: int, batch_size: int) -> list[int]:
+    """[18, 5] -> [5, 5, 5, 3]. Empty list for a non-positive total."""
+    if total <= 0:
+        return []
+    full, remainder = divmod(total, batch_size)
+    chunks = [batch_size] * full
+    if remainder:
+        chunks.append(remainder)
+    return chunks
+
+
+def _batch_hint(idx: int, total: int) -> str:
+    """Appended to a batch's user prompt when a request was split into more
+    than one call. validate_generated_batch() (question_validation_service.py)
+    rejects the aggregate result outright if any two questions — even from
+    different batches — end up with the same prompt text; nudging each batch
+    toward a different angle makes that collision materially less likely
+    without adding any cross-batch coordination."""
+    if total <= 1:
+        return ""
+    return (
+        f" This is part {idx + 1} of {total} of a larger set — focus on different sub-aspects than the other "
+        "parts would, to avoid generating duplicate questions across parts."
+    )
 
 
 def _parse_single_questions(raw_content: str) -> list[GeneratedMCQ]:
@@ -383,6 +439,77 @@ class SarvamAIProvider(AIProvider):
         return AIResponse(content="", provider=self.name, tokens_used=None,
                            latency_ms=int((time.perf_counter() - start) * 1000), error=last_error)
 
+    async def _generate_batch_with_retry(
+        self, *, user_content: str, system_prompt: str, max_tokens: int, parse_fn,
+    ) -> list[GeneratedMCQ]:
+        """One batch's worth of the outer retry loop generate_questions and
+        generate_mixed_questions used to run inline for their single big
+        request — factored out so both can reuse it per-batch. chat()
+        already retries on an empty/errored response; this covers what
+        chat() itself can't see: content came back non-empty but doesn't
+        parse or validate as real questions (confirmed in production on
+        this exact call site)."""
+        user_message = {"role": "user", "content": user_content}
+        last_error: Exception = AIGenerationError("Sarvam AI request failed.")
+        for attempt in range(_EMPTY_RESPONSE_RETRY_ATTEMPTS):
+            try:
+                response = await self.chat([user_message], system_prompt=system_prompt, max_tokens=max_tokens)
+                if response.error:
+                    raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
+                return parse_fn(response.content)
+            except AIGenerationError as exc:
+                last_error = exc
+                logger.warning("sarvam_question_generation_retry", attempt=attempt + 1, error=str(exc))
+            if attempt < _EMPTY_RESPONSE_RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(_EMPTY_RESPONSE_RETRY_DELAY_SECONDS)
+        raise last_error
+
+    @staticmethod
+    async def _run_batches(coros: list) -> list[GeneratedMCQ]:
+        """Runs every batch coroutine concurrently, bounded to
+        _MAX_CONCURRENT_BATCHES at a time so a large question count (the AI
+        Weekly Exam's 50) doesn't fire a burst of simultaneous requests at
+        the account, then flattens the per-batch results in order. A
+        failure in any single batch (AIGenerationError, after that batch's
+        own retries) propagates and fails the whole generation — a partial
+        question pool is not a usable one."""
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_BATCHES)
+
+        async def _bounded(coro):
+            async with semaphore:
+                return await coro
+
+        results = await asyncio.gather(*[_bounded(c) for c in coros])
+        flattened: list[GeneratedMCQ] = []
+        for batch in results:
+            flattened.extend(batch)
+        return flattened
+
+    @staticmethod
+    def _dedupe_keep_first(questions: list[GeneratedMCQ]) -> tuple[list[GeneratedMCQ], dict[str, int]]:
+        """Cross-batch duplicate prompts are a real, observed risk of
+        running several independent generation calls for the same topic —
+        confirmed live: two separate batches for an "Object-Oriented
+        Programming" topic both produced the exact question "What is
+        abstraction in object-oriented programming?". validate_generated_
+        batch() (question_validation_service.py) rejects the WHOLE
+        aggregate outright on any duplicate prompt, so this keeps the
+        first occurrence of each normalized prompt (same normalization
+        validate_generated_batch itself uses) and reports how many of
+        each type were dropped, so the caller can request exactly that
+        many replacements instead of failing the whole generation."""
+        seen: set[str] = set()
+        kept: list[GeneratedMCQ] = []
+        removed = {"single": 0, "multiple": 0}
+        for q in questions:
+            key = q.prompt.strip().lower()
+            if key in seen:
+                removed[q.question_type] += 1
+                continue
+            seen.add(key)
+            kept.append(q)
+        return kept, removed
+
     async def generate_questions(self, subject: str, count: int) -> list[GeneratedMCQ]:
         system_prompt = (
             "You are a question-generation engine for a university practice tool. "
@@ -393,29 +520,54 @@ class SarvamAIProvider(AIProvider):
             '{"text": "...", "is_correct": false}]}. '
             "Exactly one option per question must have is_correct true. Do not include any other keys or text."
         )
-        user_message = {"role": "user", "content": f"Generate exactly {count} multiple-choice practice questions about: {subject}"}
-        max_tokens = _question_generation_max_tokens(count)
+        # Generating the full count in one request is what caused the
+        # production "no questions available" failures: confirmed live
+        # against the real API that sarvam-105b (a reasoning model) burns a
+        # large, largely fixed chunk of any max_tokens budget on internal
+        # chain-of-thought before writing the actual JSON, and the
+        # account's subscription tier hard-caps max_tokens at 4096
+        # regardless of what's requested — a single request for a full
+        # question count could never reliably fit. Small batches run
+        # concurrently do.
+        batches = _chunk_counts(count, _MAX_QUESTIONS_PER_BATCH)
+        coros = [
+            self._generate_batch_with_retry(
+                user_content=(
+                    f"Generate exactly {batch_count} multiple-choice practice questions about: {subject}."
+                    + _batch_hint(idx, len(batches))
+                ),
+                system_prompt=system_prompt,
+                max_tokens=_BATCH_MAX_TOKENS,
+                parse_fn=_parse_single_questions,
+            )
+            for idx, batch_count in enumerate(batches)
+        ]
+        questions = await self._run_batches(coros)
 
-        # Confirmed in production: Sarvam sometimes returns a genuinely
-        # truncated/invalid-JSON response even at a comfortable max_tokens
-        # budget (well under the requested limit — this isn't the
-        # max_tokens exhaustion the scaling above fixes). chat() already
-        # retries on an empty/errored response; this outer retry covers
-        # the case chat() itself can't see: content came back non-empty
-        # but doesn't parse or validate as real questions.
-        last_error: Exception = AIGenerationError("Sarvam AI request failed.")
-        for attempt in range(_EMPTY_RESPONSE_RETRY_ATTEMPTS):
-            try:
-                response = await self.chat([user_message], system_prompt=system_prompt, max_tokens=max_tokens)
-                if response.error:
-                    raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
-                return _parse_single_questions(response.content)
-            except AIGenerationError as exc:
-                last_error = exc
-                logger.warning("sarvam_question_generation_retry", attempt=attempt + 1, error=str(exc))
-            if attempt < _EMPTY_RESPONSE_RETRY_ATTEMPTS - 1:
-                await asyncio.sleep(_EMPTY_RESPONSE_RETRY_DELAY_SECONDS)
-        raise last_error
+        # See _dedupe_keep_first — separate batches can independently land
+        # on the same obvious question for a topic. Top up with exactly the
+        # dropped count, telling the model what to avoid, rather than
+        # failing the whole generation over a handful of collisions.
+        for _ in range(_DEDUPE_TOP_UP_ATTEMPTS):
+            questions, removed = self._dedupe_keep_first(questions)
+            shortfall = removed["single"] + removed["multiple"]
+            if not shortfall:
+                return questions
+            existing = ", ".join(f'"{q.prompt}"' for q in questions[:30])
+            top_up = await self._generate_batch_with_retry(
+                user_content=(
+                    f"Generate exactly {shortfall} multiple-choice practice questions about: {subject}. "
+                    f"Do not repeat any of these already-used questions: {existing}."
+                ),
+                system_prompt=system_prompt, max_tokens=_BATCH_MAX_TOKENS, parse_fn=_parse_single_questions,
+            )
+            questions = questions + top_up
+        questions, removed = self._dedupe_keep_first(questions)
+        if removed["single"] + removed["multiple"]:
+            raise AIGenerationError(
+                "Sarvam AI kept generating duplicate questions across batches and could not reach the requested count."
+            )
+        return questions
 
     async def generate_mixed_questions(self, topic: str, single_count: int, multiple_count: int) -> list[GeneratedMCQ]:
         system_prompt = (
@@ -430,31 +582,84 @@ class SarvamAIProvider(AIProvider):
             "question, so it must have at least one wrong option to be a real question). Every question needs "
             "2-6 options. Do not include any other keys or text."
         )
-        user_message = {"role": "user", "content": (
-            f"Generate exactly {single_count} single-answer multiple-choice questions and exactly "
-            f"{multiple_count} multi-select questions about: {topic}. Total {single_count + multiple_count} questions."
-        )}
-        max_tokens = _question_generation_max_tokens(single_count + multiple_count)
+        # See generate_questions above for why this is batched rather than
+        # one request scaled to single_count + multiple_count (up to 50 for
+        # the AI Weekly Exam, 18 for an elimination battle) — that single
+        # big request is exactly what kept producing truncated/empty
+        # responses in production. Each type is chunked separately (rather
+        # than mixing types within one batch) so every batch's prompt can
+        # ask for one question_type only, keeping each request simple and
+        # predictable to parse.
+        single_batches = _chunk_counts(single_count, _MAX_QUESTIONS_PER_BATCH)
+        multiple_batches = _chunk_counts(multiple_count, _MAX_QUESTIONS_PER_BATCH)
+        total_batches = len(single_batches) + len(multiple_batches)
 
-        # See generate_questions' matching loop — confirmed in production
-        # on this exact call site: Sarvam can return a truncated/invalid-
-        # JSON response well under the requested max_tokens budget, which
-        # chat()'s own empty-response retry can't see (the content wasn't
-        # empty, just malformed). Retrying the whole call again is what
-        # actually recovered it in practice.
-        last_error: Exception = AIGenerationError("Sarvam AI request failed.")
-        for attempt in range(_EMPTY_RESPONSE_RETRY_ATTEMPTS):
-            try:
-                response = await self.chat([user_message], system_prompt=system_prompt, max_tokens=max_tokens)
-                if response.error:
-                    raise AIGenerationError(f"Sarvam AI request failed: {response.error}")
-                return _parse_mixed_questions(response.content)
-            except AIGenerationError as exc:
-                last_error = exc
-                logger.warning("sarvam_question_generation_retry", attempt=attempt + 1, error=str(exc))
-            if attempt < _EMPTY_RESPONSE_RETRY_ATTEMPTS - 1:
-                await asyncio.sleep(_EMPTY_RESPONSE_RETRY_DELAY_SECONDS)
-        raise last_error
+        coros = [
+            self._generate_batch_with_retry(
+                user_content=(
+                    f"Generate exactly {batch_count} single-answer multiple-choice questions "
+                    f"(question_type \"single\") about: {topic}." + _batch_hint(idx, total_batches)
+                ),
+                system_prompt=system_prompt,
+                max_tokens=_BATCH_MAX_TOKENS,
+                parse_fn=_parse_mixed_questions,
+            )
+            for idx, batch_count in enumerate(single_batches)
+        ]
+        coros += [
+            self._generate_batch_with_retry(
+                user_content=(
+                    f"Generate exactly {batch_count} multi-select select-all-that-apply questions "
+                    f"(question_type \"multiple\") about: {topic}."
+                    + _batch_hint(len(single_batches) + idx, total_batches)
+                ),
+                system_prompt=system_prompt,
+                max_tokens=_BATCH_MAX_TOKENS,
+                parse_fn=_parse_mixed_questions,
+            )
+            for idx, batch_count in enumerate(multiple_batches)
+        ]
+        questions = await self._run_batches(coros)
+
+        # See _dedupe_keep_first — confirmed live against this exact call
+        # shape (12 single + 6 multiple on "Object-Oriented Programming")
+        # that separate batches can independently land on the same obvious
+        # question for a topic. Top up with exactly the dropped count per
+        # type, telling the model what to avoid, rather than failing the
+        # whole elimination battle / AI Weekly Exam pool over a handful of
+        # collisions.
+        for _ in range(_DEDUPE_TOP_UP_ATTEMPTS):
+            questions, removed = self._dedupe_keep_first(questions)
+            if not removed["single"] and not removed["multiple"]:
+                return questions
+            existing = ", ".join(f'"{q.prompt}"' for q in questions[:30])
+            top_up_coros = []
+            if removed["single"]:
+                top_up_coros.append(self._generate_batch_with_retry(
+                    user_content=(
+                        f"Generate exactly {removed['single']} single-answer multiple-choice questions "
+                        f"(question_type \"single\") about: {topic}. Do not repeat any of these already-used "
+                        f"questions: {existing}."
+                    ),
+                    system_prompt=system_prompt, max_tokens=_BATCH_MAX_TOKENS, parse_fn=_parse_mixed_questions,
+                ))
+            if removed["multiple"]:
+                top_up_coros.append(self._generate_batch_with_retry(
+                    user_content=(
+                        f"Generate exactly {removed['multiple']} multi-select select-all-that-apply questions "
+                        f"(question_type \"multiple\") about: {topic}. Do not repeat any of these already-used "
+                        f"questions: {existing}."
+                    ),
+                    system_prompt=system_prompt, max_tokens=_BATCH_MAX_TOKENS, parse_fn=_parse_mixed_questions,
+                ))
+            top_up = await self._run_batches(top_up_coros)
+            questions = questions + top_up
+        questions, removed = self._dedupe_keep_first(questions)
+        if removed["single"] or removed["multiple"]:
+            raise AIGenerationError(
+                "Sarvam AI kept generating duplicate questions across batches and could not reach the requested count."
+            )
+        return questions
 
     async def evaluate_topic_scope(self, subject: str, topic: str) -> TopicScopeAssessment:
         system_prompt = (

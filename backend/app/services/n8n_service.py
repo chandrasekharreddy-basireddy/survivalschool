@@ -43,7 +43,15 @@ async def emit_event(event_type: str, payload: dict) -> None:
             resp = await client.post(
                 f"{settings.N8N_WEBHOOK_BASE_URL.rstrip('/')}/webhook/survivalschool/events",
                 json=body,
-                headers={"x-n8n-webhook-secret": settings.N8N_WEBHOOK_SECRET},
+                # The n8n workflow's webhook trigger enforces header auth on a
+                # header literally named "X-Webhook-Secret" (its own Header
+                # Auth credential's configured header name) — this used to
+                # send a completely different header name
+                # ("x-n8n-webhook-secret"), which n8n correctly rejects with
+                # 403 since the header it's checking for is simply never
+                # present. Confirmed live: every single emit_event call in
+                # production has 403'd since this was first wired up.
+                headers={"X-Webhook-Secret": settings.N8N_WEBHOOK_SECRET},
             )
             resp.raise_for_status()
         logger.info("n8n_event_emitted", event_type=event_type)

@@ -78,13 +78,18 @@ async def test_generate_mixed_questions_splits_a_large_count_into_batches(monkey
     calls = []
 
     async def fake_chat(messages, *, system_prompt=None, image_data_url=None, max_tokens=2048):
+        call_index = len(calls)
         calls.append({"max_tokens": max_tokens, "content": messages[0]["content"]})
         # Reply with as many questions as the batch's own prompt asked for,
-        # so the aggregate count below can be checked precisely.
+        # so the aggregate count below can be checked precisely. Prompts are
+        # salted with the call index so two same-sized batches (e.g. two
+        # 5-question "single" batches for single_count=12) don't produce
+        # identical prompt text — that's a fake-data artifact, not the
+        # real duplicate-generation scenario the dedupe tests cover below.
         requested = int(messages[0]["content"].split("Generate exactly ")[1].split(" ")[0])
         qtype = "multiple" if "multi-select" in messages[0]["content"] else "single"
         payload = json.dumps([
-            {"prompt": f"Q{i}-{qtype}", "question_type": qtype,
+            {"prompt": f"Q{call_index}-{i}-{qtype}", "question_type": qtype,
              "options": [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}]}
             for i in range(requested)
         ])
@@ -104,10 +109,11 @@ async def test_generate_questions_splits_a_large_count_into_batches(monkeypatch)
     calls = []
 
     async def fake_chat(messages, *, system_prompt=None, image_data_url=None, max_tokens=2048):
+        call_index = len(calls)
         calls.append(max_tokens)
         requested = int(messages[0]["content"].split("Generate exactly ")[1].split(" ")[0])
         payload = json.dumps([
-            {"prompt": f"Q{i}", "options": [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}]}
+            {"prompt": f"Q{call_index}-{i}", "options": [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}]}
             for i in range(requested)
         ])
         return AIResponse(content=payload, provider="sarvam", tokens_used=10, latency_ms=5)

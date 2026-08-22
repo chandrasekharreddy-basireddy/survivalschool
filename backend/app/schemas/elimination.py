@@ -27,6 +27,7 @@ class BattleOut(BaseModel):
     ended_at: datetime | None
     scheduled_start_at: datetime | None
     join_code: str
+    chat_room_id: uuid.UUID | None
     model_config = {"from_attributes": True}
 
 
@@ -65,6 +66,14 @@ class SubmitAnswerIn(BaseModel):
 
 class SubmitAnswerOut(BaseModel):
     is_correct: bool
+    eliminated: bool
+
+
+class IntegrityViolationIn(BaseModel):
+    violation_type: str = Field(max_length=30)
+
+
+class IntegrityViolationOut(BaseModel):
     eliminated: bool
 
 

@@ -186,19 +186,28 @@ async def test_accepting_an_invitation_also_rejects_once_battle_is_full(client, 
     assert len(participants) == 2  # host + filler only — invitee was never added
 
 
-async def test_starting_with_no_questions_broadcasts_cancellation_not_just_a_db_flag(client, monkeypatch):
-    """_activate_battle fails closed (battle.status = "cancelled") if its
-    topic somehow has no question bank left at activation time — but only
-    the host's own request used to learn that; every other already-
-    connected participant had no way to find out their "battle.started"
-    just turned into nothing, since nothing broadcast the cancellation.
-    Verifies both halves: the DB ends up cancelled, and a battle.cancelled
-    event goes out over the same channel battle.started did."""
+async def test_starting_with_no_questions_yet_is_retryable_not_a_permanent_cancellation(client, monkeypatch):
+    """Regression test for a real production failure: generation for a full
+    elimination-battle question pool is batched to fit Sarvam's account
+    token cap (see ai_provider.py) and confirmed live to take 60-190s —
+    comfortably past _wait_for_questions's 18s wait, which is the ordinary
+    case for a host starting soon after creating a battle, not a rare one.
+    start_battle must NOT fall through to _activate_battle's hard-cancel
+    path in that case (that used to turn "still generating" into
+    permanently dead with no retry possible) — it must return a retryable
+    error and leave the battle in "lobby" so a retry once generation lands
+    can still succeed. No battle.started/battle.cancelled broadcast should
+    fire either, since activation never actually starts."""
     from sqlalchemy import delete
 
     import app.services.elimination_service as elimination_service
     from app.database import AsyncSessionLocal
-    from app.models.assessment import Question
+    from app.models.assessment import Question, QuestionOption
+    from app.models.exam_platform import Subject, Topic
+
+    # Keep the wait short so this test doesn't need the real 18s.
+    monkeypatch.setattr(elimination_service, "_QUESTION_GENERATION_WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(elimination_service, "_QUESTION_GENERATION_POLL_INTERVAL_SECONDS", 0.05)
 
     broadcasts: list[dict] = []
     orig_broadcast = elimination_service.ws_manager.broadcast
@@ -210,7 +219,7 @@ async def test_starting_with_no_questions_broadcasts_cancellation_not_just_a_db_
     monkeypatch.setattr(elimination_service.ws_manager, "broadcast", _spy_broadcast)
 
     _, host = await auth_headers(client)
-    battle = await _create_battle(client, host, "Doomed Battle")
+    battle = await _create_battle(client, host, "Slow-Generating Battle")
     _, second_player = await auth_headers(client)
     joined = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second_player)
     assert joined.status_code == 201, joined.text
@@ -223,7 +232,80 @@ async def test_starting_with_no_questions_broadcasts_cancellation_not_just_a_db_
     assert started.status_code == 422, started.text
 
     check = await client.get(f"/elimination/battles/{battle['id']}", headers=host)
-    assert check.json()["status"] == "cancelled"
+    assert check.json()["status"] == "lobby", check.json()
+
+    events = [b["event"] for b in broadcasts if b.get("battle_id") == battle["id"]]
+    assert events == []
+
+    # And once generation actually lands, a retry succeeds normally —
+    # confirms this really is retryable, not just "doesn't crash".
+    async with AsyncSessionLocal() as db:
+        topic_row = await db.get(Topic, uuid_mod.UUID(battle["topic_id"]))
+        subject_row = await db.get(Subject, topic_row.subject_id)
+        question = Question(
+            subject_id=subject_row.id, topic_id=topic_row.id, prompt="Q1", question_type="single",
+            is_ai_generated=False, is_validated=True,
+        )
+        db.add(question)
+        await db.flush()
+        db.add(QuestionOption(question_id=question.id, text="A", is_correct=True, order_index=0))
+        db.add(QuestionOption(question_id=question.id, text="B", is_correct=False, order_index=1))
+        await db.commit()
+
+    retried = await client.post(f"/elimination/battles/{battle['id']}/start", headers=host)
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["status"] == "active"
+
+
+async def test_sweep_loop_auto_start_still_cancels_and_broadcasts_when_truly_out_of_questions(client, monkeypatch):
+    """The manual-host path (start_battle, tested above) now retries instead
+    of cancelling when generation just hasn't finished yet — but the sweep
+    loop's scheduled auto-start (_sweep_once -> _activate_battle, no host
+    request to return a retryable error to) still needs to fail closed for
+    a topic that genuinely has no questions, and still needs to tell every
+    connected participant via a battle.cancelled broadcast, not just flip a
+    DB column only the sweep loop itself sees."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import delete
+
+    import app.services.elimination_service as elimination_service
+    from app.database import AsyncSessionLocal
+    from app.models.assessment import Question
+    from app.services.elimination_service import _sweep_once
+
+    broadcasts: list[dict] = []
+    orig_broadcast = elimination_service.ws_manager.broadcast
+
+    async def _spy_broadcast(room_id, message, **kwargs):
+        broadcasts.append(message)
+        return await orig_broadcast(room_id, message, **kwargs)
+
+    monkeypatch.setattr(elimination_service.ws_manager, "broadcast", _spy_broadcast)
+
+    _, host = await auth_headers(client)
+    subject_name, topic_name = _unique_subject_topic()
+    resp = await client.post("/elimination/battles", json={
+        "title": "Scheduled Doomed Battle", "subject_name": subject_name, "topic_name": topic_name,
+        "scheduled_start_at": (datetime.now(UTC) + timedelta(seconds=1)).isoformat(),
+    }, headers=host)
+    assert resp.status_code == 201, resp.text
+    battle = resp.json()
+
+    _, second_player = await auth_headers(client)
+    joined = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second_player)
+    assert joined.status_code == 201, joined.text
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(Question).where(Question.topic_id == battle["topic_id"]))
+        await db.commit()
+
+    import asyncio
+    await asyncio.sleep(1.5)
+    await _sweep_once()
+
+    check = await client.get(f"/elimination/battles/{battle['id']}", headers=host)
+    assert check.json()["status"] == "cancelled", check.json()
 
     events = [b["event"] for b in broadcasts if b.get("battle_id") == battle["id"]]
     assert events == ["battle.started", "battle.cancelled"]

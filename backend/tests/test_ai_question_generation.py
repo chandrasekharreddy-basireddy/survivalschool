@@ -264,3 +264,34 @@ async def test_persistent_duplicates_raise_instead_of_returning_too_few(monkeypa
     monkeypatch.setattr(provider, "chat", always_duplicate_chat)
     with pytest.raises(AIGenerationError, match="duplicate"):
         await provider.generate_mixed_questions("Topic", single_count=2, multiple_count=0)
+
+
+async def test_a_transient_failure_in_one_top_up_type_does_not_discard_the_others_success(monkeypatch):
+    """Regression test for a real failure confirmed against the live
+    Sarvam API on the AI Weekly Exam shape (40 single + 10 multiple): the
+    "single" top-up batch succeeded but the "multiple" top-up batch
+    transiently failed (empty response, exhausting chat()'s own retries).
+    asyncio.gather without return_exceptions used to propagate that one
+    failure and discard the other 49 already-valid questions along with
+    it, aborting the entire generation. A transient failure on one type's
+    top-up must not cost the other type's already-successful result."""
+    provider = SarvamAIProvider()
+    multi_top_up_failures = {"count": 0}
+
+    async def flaky_multi_top_up(messages, *, system_prompt=None, image_data_url=None, max_tokens=2048):
+        content = messages[0]["content"]
+        qtype = "multiple" if "multi-select" in content else "single"
+        is_top_up = "Do not repeat" in content
+        if qtype == "multiple" and is_top_up and multi_top_up_failures["count"] < 1:
+            multi_top_up_failures["count"] += 1
+            return AIResponse(content="", provider="sarvam", tokens_used=0, latency_ms=1, error="transient")
+        prompt = "Same dup" if not is_top_up else f"Unique {qtype} {multi_top_up_failures['count']}-{len(content)}"
+        payload = json.dumps([
+            {"prompt": prompt, "question_type": qtype,
+             "options": [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}]},
+        ])
+        return AIResponse(content=payload, provider="sarvam", tokens_used=10, latency_ms=5)
+
+    monkeypatch.setattr(provider, "chat", flaky_multi_top_up)
+    questions = await provider.generate_mixed_questions("Topic", single_count=1, multiple_count=1)
+    assert len(questions) == 2

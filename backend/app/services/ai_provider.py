@@ -554,13 +554,23 @@ class SarvamAIProvider(AIProvider):
             if not shortfall:
                 return questions
             existing = ", ".join(f'"{q.prompt}"' for q in questions[:30])
-            top_up = await self._generate_batch_with_retry(
-                user_content=(
-                    f"Generate exactly {shortfall} multiple-choice practice questions about: {subject}. "
-                    f"Do not repeat any of these already-used questions: {existing}."
-                ),
-                system_prompt=system_prompt, max_tokens=_BATCH_MAX_TOKENS, parse_fn=_parse_single_questions,
-            )
+            try:
+                top_up = await self._generate_batch_with_retry(
+                    user_content=(
+                        f"Generate exactly {shortfall} multiple-choice practice questions about: {subject}. "
+                        f"Do not repeat any of these already-used questions: {existing}."
+                    ),
+                    system_prompt=system_prompt, max_tokens=_BATCH_MAX_TOKENS, parse_fn=_parse_single_questions,
+                )
+            except AIGenerationError as exc:
+                # The top-up request is just another Sarvam call and can
+                # fail transiently like any other (confirmed live: an
+                # empty-response failure here used to abort the entire
+                # generation even though every other question was already
+                # valid). Treat it as "this round topped up nothing" and
+                # let the loop retry rather than losing the whole pool.
+                logger.warning("sarvam_top_up_batch_failed", error=str(exc))
+                continue
             questions = questions + top_up
         questions, removed = self._dedupe_keep_first(questions)
         if removed["single"] + removed["multiple"]:
@@ -652,8 +662,20 @@ class SarvamAIProvider(AIProvider):
                     ),
                     system_prompt=system_prompt, max_tokens=_BATCH_MAX_TOKENS, parse_fn=_parse_mixed_questions,
                 ))
-            top_up = await self._run_batches(top_up_coros)
-            questions = questions + top_up
+            # Not self._run_batches (asyncio.gather without
+            # return_exceptions) — a transient failure on just the
+            # "multiple" top-up must not discard an already-succeeded
+            # "single" top-up in the same round (confirmed live: an
+            # empty-response failure on one top-up batch used to abort the
+            # entire generation, losing 49 already-valid questions along
+            # with it). Keep whatever succeeded; the outer loop retries
+            # what's still missing.
+            top_up_results = await asyncio.gather(*top_up_coros, return_exceptions=True)
+            for result in top_up_results:
+                if isinstance(result, Exception):
+                    logger.warning("sarvam_top_up_batch_failed", error=str(result))
+                    continue
+                questions = questions + result
         questions, removed = self._dedupe_keep_first(questions)
         if removed["single"] or removed["multiple"]:
             raise AIGenerationError(

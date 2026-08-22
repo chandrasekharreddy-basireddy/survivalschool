@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
@@ -9,8 +9,8 @@ import { useToast } from "@/lib/toast";
 import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { BattleChat } from "@/components/elimination/BattleChat";
+import { EliminationSocket, EliminationEvent } from "@/lib/ws";
 
-const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
 interface Battle {
@@ -56,8 +56,6 @@ export default function EliminationBattlePage() {
   const [winnerId, setWinnerId] = useState<string | null | undefined>(undefined);
   const [now, setNow] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-
-  const wsRef = useRef<WebSocket | null>(null);
   const me = participants.find((p) => p.user_id === user?.id);
 
   const loadState = useCallback(() => {
@@ -122,48 +120,73 @@ export default function EliminationBattlePage() {
     }
   };
 
+  // Connects as soon as the battle exists — deliberately NOT gated on
+  // battle.status === "active". Regression fix for a real bug: gating the
+  // connection on already being "active" is circular for anyone sitting in
+  // the lobby (host included, right after clicking Start) — the only way to
+  // *learn* the battle went active was this same socket, which never opened
+  // because status wasn't "active" yet. That's why round 1 (and, for a
+  // participant who never had a connection at all, every subsequent event)
+  // was getting missed entirely, recoverable only by a manual refresh.
+  // EliminationSocket also auto-reconnects with backoff (see lib/ws.ts) —
+  // the plain WebSocket this replaced had no reconnect logic at all, so any
+  // transient drop (network blip, backgrounded tab, a brief server hiccup)
+  // silently killed live updates for the rest of the battle.
   useEffect(() => {
     if (!user || !battle) return;
     const token = getAccessToken();
     if (!token) return;
-    const ws = new WebSocket(`${WS_BASE}/ws/elimination/${params.battleId}?token=${encodeURIComponent(token)}`);
-    wsRef.current = ws;
-    ws.onmessage = (msg) => {
-      try {
-        const evt = JSON.parse(msg.data) as BattleEvent;
-        if (evt.event === "battle.started") {
-          setBattle((b) => (b ? { ...b, status: "active" } : b));
-        } else if (evt.event === "battle.round_released") {
-          setRound({ number: evt.round_number, question: evt.question, deadlineAt: evt.deadline_at });
-          setSelected([]);
-          setMyResult(null);
-          setEliminatedThisRound([]);
-        } else if (evt.event === "battle.answer_result") {
-          if (evt.user_id === user.id) setMyResult({ round: evt.round_number, isCorrect: evt.is_correct });
-        } else if (evt.event === "battle.round_resolved") {
-          setEliminatedThisRound(evt.eliminated_user_ids);
-          loadState();
-        } else if (evt.event === "battle.completed") {
-          setWinnerId(evt.winner_user_id);
-          setBattle((b) => (b ? { ...b, status: "completed" } : b));
-          loadState();
-        } else if (evt.event === "battle.cancelled") {
-          setBattle((b) => (b ? { ...b, status: "cancelled" } : b));
-        } else if (evt.event === "battle.participant_eliminated") {
-          // Instant, no waiting for the next round_resolved broadcast —
-          // an integrity-violation elimination can happen mid-round, not
-          // just at round boundaries, so the players list needs to reflect
-          // it the moment it happens for everyone watching.
-          loadState();
-        }
-      } catch {
-        /* ignore malformed frames */
+    const socket = new EliminationSocket(params.battleId, token);
+    socket.connect();
+
+    const unsubscribe = socket.on((raw: EliminationEvent) => {
+      const evt = raw as unknown as BattleEvent;
+      if (evt.event === "battle.started") {
+        setBattle((b) => (b ? { ...b, status: "active" } : b));
+        loadState();
+      } else if (evt.event === "battle.round_released") {
+        setRound({ number: evt.round_number, question: evt.question, deadlineAt: evt.deadline_at });
+        setSelected([]);
+        setMyResult(null);
+        setEliminatedThisRound([]);
+      } else if (evt.event === "battle.answer_result") {
+        if (evt.user_id === user.id) setMyResult({ round: evt.round_number, isCorrect: evt.is_correct });
+      } else if (evt.event === "battle.round_resolved") {
+        setEliminatedThisRound(evt.eliminated_user_ids);
+        loadState();
+      } else if (evt.event === "battle.completed") {
+        setWinnerId(evt.winner_user_id);
+        setBattle((b) => (b ? { ...b, status: "completed" } : b));
+        loadState();
+      } else if (evt.event === "battle.cancelled") {
+        setBattle((b) => (b ? { ...b, status: "cancelled" } : b));
+      } else if (evt.event === "battle.participant_eliminated") {
+        // Instant, no waiting for the next round_resolved broadcast —
+        // an integrity-violation elimination can happen mid-round, not
+        // just at round boundaries, so the players list needs to reflect
+        // it the moment it happens for everyone watching.
+        loadState();
       }
+    });
+
+    // A reconnect (after a drop) can land after events were missed while
+    // disconnected — re-sync full state every time the connection
+    // re-opens, not just on first mount, so a flaky connection self-heals
+    // instead of drifting from the server's actual state.
+    const unsubReconnect = socket.onReconnect(() => loadState());
+
+    return () => {
+      unsubscribe();
+      unsubReconnect();
+      socket.close();
     };
-    return () => ws.close();
-    // Reconnect only when the battle identity/status transitions into "active" the first time.
+    // Deliberately keyed on battle?.id, not the whole battle object — this
+    // connection must stay open across every status/participant/round
+    // change for the SAME battle; reconnecting on every state update
+    // (which the object reference changes on) would tear down and reopen
+    // the socket constantly instead of once per battle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, battle?.status === "active", params.battleId]);
+  }, [user, battle?.id, params.battleId, loadState]);
 
   const search = async (q: string) => {
     setSearchQuery(q);

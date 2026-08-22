@@ -55,6 +55,7 @@ export default function EliminationBattlePage() {
   const [eliminatedThisRound, setEliminatedThisRound] = useState<string[]>([]);
   const [winnerId, setWinnerId] = useState<string | null | undefined>(undefined);
   const [now, setNow] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const me = participants.find((p) => p.user_id === user?.id);
@@ -189,7 +190,17 @@ export default function EliminationBattlePage() {
     }
   };
 
+  // Browsers only honor requestFullscreen() called directly inside a user
+  // gesture's own call stack — not from a later effect, and not reliably
+  // after an `await` either. This must be the very first thing a click
+  // handler does, synchronously, before any async work.
+  const enterFullscreen = () => {
+    if (document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+    document.documentElement.requestFullscreen().catch(() => {});
+  };
+
   const start = async () => {
+    enterFullscreen();
     setStarting(true);
     try {
       await apiFetch(`/elimination/battles/${params.battleId}/start`, { method: "POST" });
@@ -222,14 +233,21 @@ export default function EliminationBattlePage() {
     [params.battleId, toast, loadState],
   );
 
-  // Enter fullscreen the moment the battle goes active, for every
-  // still-active participant — a host who was already fullscreen from the
-  // lobby doesn't need this, but anyone who joined via a plain link and
-  // hasn't triggered a fullscreen gesture yet does.
+  useEffect(() => {
+    const track = () => setIsFullscreen(!!document.fullscreenElement);
+    track();
+    document.addEventListener("fullscreenchange", track);
+    return () => document.removeEventListener("fullscreenchange", track);
+  }, []);
+
+  // Best-effort fallback for the moment the battle goes active — browsers
+  // usually block this (no user gesture in this call stack), so the real
+  // path is the explicit "Enter fullscreen" button in the lobby below and
+  // the direct call inside start()'s own click handler. This just covers
+  // the rare browser lenient enough to allow it.
   useEffect(() => {
     if (battle?.status !== "active" || me?.status !== "active") return;
-    if (document.fullscreenElement || !document.documentElement.requestFullscreen) return;
-    document.documentElement.requestFullscreen().catch(() => {});
+    enterFullscreen();
   }, [battle?.status, me?.status]);
 
   const toggleOption = (optionId: string) => {
@@ -270,6 +288,20 @@ export default function EliminationBattlePage() {
 
       {battle.status === "lobby" && (
         <div className="mt-6 space-y-6">
+          <div className={`card border ${isFullscreen ? "border-emerald-500/40" : "border-amber-500/40"}`}>
+            <h2 className="font-semibold text-fg">Exam environment</h2>
+            <p className="mt-1 text-xs text-fg-subtle">
+              This battle is integrity-monitored — once it starts, leaving fullscreen, switching tabs, or copy/paste eliminates you immediately, no warning. Get into fullscreen now so you&apos;re not caught out the moment it begins.
+            </p>
+            <button
+              onClick={enterFullscreen}
+              disabled={isFullscreen}
+              className={`mt-3 w-full ${isFullscreen ? "btn-secondary" : "btn-primary"}`}
+            >
+              {isFullscreen ? "Fullscreen ready ✓" : "Enter fullscreen"}
+            </button>
+          </div>
+
           {battle.scheduled_start_at && (
             <div className="rounded-lg border border-brand-500/30 bg-brand-500/5 px-4 py-2.5 text-sm text-fg">
               Scheduled to start {new Date(battle.scheduled_start_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}

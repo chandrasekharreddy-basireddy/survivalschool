@@ -135,20 +135,33 @@ _QUESTION_GENERATION_WAIT_SECONDS = 18
 _QUESTION_GENERATION_POLL_INTERVAL_SECONDS = 1.5
 
 
-async def _wait_for_questions(db: AsyncSession, topic_id: uuid.UUID) -> None:
+async def _wait_for_questions(db: AsyncSession, topic_id: uuid.UUID) -> bool:
     """Best-effort: if AI generation for this topic is still running in the
     background, give it a little time to land instead of failing the
     battle the instant a host clicks Start a few seconds after creating
     it. Deliberately does NOT hold the per-battle lock while waiting (a
     long-held lock would outlive its own TTL — see start_battle's comment
-    on why the wait happens before the lock is acquired, not during)."""
+    on why the wait happens before the lock is acquired, not during).
+
+    Returns whether a question actually showed up — generate_and_persist_
+    questions commits the whole pool in a single transaction at the end
+    (see ai_question_service.py), so this is all-or-nothing: either the
+    full pool exists or none of it does, never a partial pool. Sarvam's
+    real-world generation latency (batched to fit its 4096-token cap,
+    confirmed live at 60-190s for a full elimination/AI-Weekly pool — see
+    ai_provider.py) routinely exceeds this wait, so callers MUST treat a
+    False return as "still working, try again shortly", never as a
+    permanent failure — see start_battle."""
     deadline = asyncio.get_event_loop().time() + _QUESTION_GENERATION_WAIT_SECONDS
     while True:
         exists = (await db.execute(
             select(Question.id).where(Question.topic_id == topic_id, Question.is_validated.is_(True)).limit(1)
         )).scalar_one_or_none()
-        if exists is not None or asyncio.get_event_loop().time() >= deadline:
-            return
+        if exists is not None:
+            return True
+        if asyncio.get_event_loop().time() >= deadline:
+            return False
+        await asyncio.sleep(_QUESTION_GENERATION_POLL_INTERVAL_SECONDS)
         await asyncio.sleep(_QUESTION_GENERATION_POLL_INTERVAL_SECONDS)
 
 
@@ -189,8 +202,10 @@ async def create_battle(
         # this call and timing out outright instead of ever returning. The
         # battle below is created right away regardless; start_battle()
         # waits for generation to land if a host clicks Start before it's
-        # ready (see _wait_for_questions), and fails closed if it never
-        # does.
+        # ready (see _wait_for_questions), and returns a retryable error
+        # (not a permanent cancellation) if it still isn't ready by then —
+        # generation keeps running in the background regardless, so a
+        # retry a bit later succeeds.
         spawn_background_task(_generate_questions_in_background(topic))
 
     battle = EliminationBattle(
@@ -410,10 +425,16 @@ async def _activate_battle(db: AsyncSession, battle: EliminationBattle, particip
     await ws_manager.broadcast(await _battle_channel(battle.id), {"event": "battle.started", "battle_id": str(battle.id)})
     round_ = await release_round(db, battle)
     if round_ is None:
-        # No question bank for this topic — cannot run the battle. Rare
-        # now that create_battle generates one up front, but fail closed
-        # rather than leave participants stuck in "active" with no
-        # question ever coming. The battle.started broadcast above already
+        # No question bank for this topic — cannot run the battle. The
+        # manual-host path (start_battle) already refuses to reach this
+        # point when generation just hasn't finished yet (see
+        # _wait_for_questions's return value there) — by the time we're
+        # here, the host path only hits this for a genuinely dead topic.
+        # This remains the only path for the sweep loop's scheduled
+        # auto-start (_sweep_once), which has no host request to return a
+        # retryable error to, so fail closed rather than leave
+        # participants stuck in "active" with no question ever coming.
+        # The battle.started broadcast above already
         # reached every connected client (including non-host participants
         # who have no other way to learn the outcome — the host's own
         # request just gets this exception, but nobody else does), so a
@@ -435,7 +456,20 @@ async def start_battle(db: AsyncSession, battle: EliminationBattle, host: User) 
     # landed yet, and a long-held distributed lock would outlive its own
     # TTL, opening exactly the double-activation race the lock exists to
     # prevent. State is re-checked under the lock below regardless.
-    await _wait_for_questions(db, battle.topic_id)
+    questions_ready = await _wait_for_questions(db, battle.topic_id)
+    if not questions_ready:
+        # Confirmed live: full-pool generation (batched to fit Sarvam's
+        # token cap — see ai_provider.py) routinely takes well past this
+        # wait, so this is the ordinary case for a host clicking Start
+        # soon after creating a battle, not a failure. Raise a retryable
+        # error and leave the battle in "lobby" — do NOT fall through to
+        # _activate_battle, whose no-question path permanently cancels
+        # the battle, which would turn "still generating" into "dead,
+        # unretriable" for what is now the common case rather than the
+        # rare one that hard-cancel path was designed for.
+        raise ValidationAppError(
+            "Questions are still being generated for this battle — try starting again in about a minute."
+        )
 
     # Same lock the sweep loop's scheduled auto-start holds while it calls
     # _activate_battle — without it, a host clicking Start at the exact

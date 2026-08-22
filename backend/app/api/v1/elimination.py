@@ -27,6 +27,8 @@ from app.schemas.elimination import (
     BattleCreate,
     BattleOut,
     CurrentRoundOut,
+    IntegrityViolationIn,
+    IntegrityViolationOut,
     InvitationOut,
     InviteCreate,
     JoinByCodeIn,
@@ -40,6 +42,7 @@ from app.services.elimination_service import (
     create_battle,
     invite_to_battle,
     join_battle_by_code,
+    report_integrity_violation,
     respond_to_invitation,
     start_battle,
     submit_answer,
@@ -245,3 +248,9 @@ async def start_elimination_battle(battle_id: uuid.UUID, user: User = Depends(ge
 async def submit_battle_answer(battle_id: uuid.UUID, payload: SubmitAnswerIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     result = await submit_answer(db, battle_id, user, payload.selected_option_ids)
     return SubmitAnswerOut(**result)
+
+
+@router.post("/battles/{battle_id}/integrity-violation", response_model=IntegrityViolationOut)
+async def report_battle_integrity_violation(battle_id: uuid.UUID, payload: IntegrityViolationIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    result = await report_integrity_violation(db, battle_id, user, payload.violation_type)
+    return IntegrityViolationOut(**result)

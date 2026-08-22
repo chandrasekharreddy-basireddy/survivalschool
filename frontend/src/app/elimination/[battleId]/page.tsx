@@ -7,6 +7,8 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { PageLoader } from "@/components/PageLoader";
+import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
+import { BattleChat } from "@/components/elimination/BattleChat";
 
 const WS_BASE = process.env.NEXT_PUBLIC_WS_BASE_URL || "ws://localhost:8000";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
@@ -14,7 +16,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/
 interface Battle {
   id: string; host_id: string; title: string; topic_id: string; status: string; join_code: string;
   current_round_number: number; winner_id: string | null; started_at: string | null; ended_at: string | null;
-  scheduled_start_at: string | null;
+  scheduled_start_at: string | null; chat_room_id: string | null;
 }
 interface Participant { user_id: string; full_name: string; public_handle: string | null; status: string; eliminated_at_round: number | null; eliminated_reason: string | null }
 interface PersonSearchResult { user_id: string; full_name: string; public_handle: string | null; avatar_url: string | null; relationship: string }
@@ -28,7 +30,8 @@ type BattleEvent =
   | { event: "battle.answer_result"; battle_id: string; user_id: string; round_number: number; is_correct: boolean }
   | { event: "battle.round_resolved"; battle_id: string; round_number: number; eliminated_user_ids: string[]; survivors_remaining: number }
   | { event: "battle.completed"; battle_id: string; winner_user_id: string | null }
-  | { event: "battle.cancelled"; battle_id: string };
+  | { event: "battle.cancelled"; battle_id: string }
+  | { event: "battle.participant_eliminated"; battle_id: string; user_id: string; round_number: number; reason: string };
 
 export default function EliminationBattlePage() {
   const params = useParams<{ battleId: string }>();
@@ -54,6 +57,7 @@ export default function EliminationBattlePage() {
   const [now, setNow] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const me = participants.find((p) => p.user_id === user?.id);
 
   const loadState = useCallback(() => {
     apiFetch<Battle>(`/elimination/battles/${params.battleId}`).then(setBattle).catch(() => setBattle(null));
@@ -144,6 +148,12 @@ export default function EliminationBattlePage() {
           loadState();
         } else if (evt.event === "battle.cancelled") {
           setBattle((b) => (b ? { ...b, status: "cancelled" } : b));
+        } else if (evt.event === "battle.participant_eliminated") {
+          // Instant, no waiting for the next round_resolved broadcast —
+          // an integrity-violation elimination can happen mid-round, not
+          // just at round boundaries, so the players list needs to reflect
+          // it the moment it happens for everyone watching.
+          loadState();
         }
       } catch {
         /* ignore malformed frames */
@@ -191,6 +201,37 @@ export default function EliminationBattlePage() {
     }
   };
 
+  // Zero-tolerance, unlike the contest/AI-Weekly-Exam integrity path (see
+  // ExamIntegrityGuard's other usage) which counts violations toward a
+  // threshold before auto-submitting — a live head-to-head battle has no
+  // "partial credit" fallback the way a written exam does, so a single
+  // reported violation eliminates the participant immediately.
+  const reportIntegrityEvent = useCallback(
+    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click") => {
+      apiFetch<{ eliminated: boolean }>(`/elimination/battles/${params.battleId}/integrity-violation`, {
+        method: "POST", body: JSON.stringify({ violation_type: eventType }),
+      })
+        .then((res) => {
+          if (res.eliminated) {
+            toast.show("You left the exam environment — you've been eliminated.", "error");
+            loadState();
+          }
+        })
+        .catch(() => {});
+    },
+    [params.battleId, toast, loadState],
+  );
+
+  // Enter fullscreen the moment the battle goes active, for every
+  // still-active participant — a host who was already fullscreen from the
+  // lobby doesn't need this, but anyone who joined via a plain link and
+  // hasn't triggered a fullscreen gesture yet does.
+  useEffect(() => {
+    if (battle?.status !== "active" || me?.status !== "active") return;
+    if (document.fullscreenElement || !document.documentElement.requestFullscreen) return;
+    document.documentElement.requestFullscreen().catch(() => {});
+  }, [battle?.status, me?.status]);
+
   const toggleOption = (optionId: string) => {
     if (!round) return;
     if (round.question.question_type === "multiple") {
@@ -215,10 +256,8 @@ export default function EliminationBattlePage() {
     }
   };
 
-  if (loading || !user) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
-  if (!battle) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted">Loading battle…</div>;
+  if (loading || !user || !battle) return <div className="mx-auto max-w-2xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
 
-  const me = participants.find((p) => p.user_id === user.id);
   const isHost = battle.host_id === user.id;
   const secondsLeft = round && now > 0 ? Math.max(0, Math.ceil((new Date(round.deadlineAt).getTime() - now) / 1000)) : 0;
   const alreadyAnswered = myResult !== null && round !== null && myResult.round === round.number;
@@ -296,14 +335,32 @@ export default function EliminationBattlePage() {
             </div>
           )}
           {!isHost && <p className="text-sm text-fg-subtle">Waiting for the host to start the battle…</p>}
+
+          {battle.chat_room_id && <BattleChat roomId={battle.chat_room_id} />}
         </div>
       )}
 
       {battle.status === "active" && (
+        <ExamIntegrityGuard
+          enabled={me?.status === "active"}
+          fullscreenRequired={true}
+          onIntegrityEvent={reportIntegrityEvent}
+        >
         <div className="mt-6 space-y-4">
+          {me?.status === "active" && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              This battle is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste eliminates you immediately, no warning.
+            </p>
+          )}
           {me?.status === "eliminated" ? (
             <div className="card text-center border-red-500/40">
-              <p className="text-sm font-medium text-red-700 dark:text-red-400">You&apos;ve been eliminated ({me.eliminated_reason === "timeout" ? "ran out of time" : "wrong answer"}).</p>
+              <p className="text-sm font-medium text-red-700 dark:text-red-400">
+                You&apos;ve been eliminated (
+                {me.eliminated_reason === "timeout" ? "ran out of time"
+                  : me.eliminated_reason === "integrity_violation" ? "left the exam environment"
+                  : "wrong answer"}
+                ).
+              </p>
               <p className="mt-1 text-xs text-fg-subtle">Round {me.eliminated_at_round}. Watching the rest of the battle live below.</p>
             </div>
           ) : null}
@@ -370,7 +427,10 @@ export default function EliminationBattlePage() {
               ))}
             </ul>
           </div>
+
+          {battle.chat_room_id && <BattleChat roomId={battle.chat_room_id} />}
         </div>
+        </ExamIntegrityGuard>
       )}
 
       {battle.status === "completed" && (

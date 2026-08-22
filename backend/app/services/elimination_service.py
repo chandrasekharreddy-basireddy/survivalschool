@@ -66,6 +66,7 @@ from app.models.elimination import (
     EliminationRound,
 )
 from app.models.exam_platform import Subject, Topic
+from app.models.social import ChatMember, ChatRoom
 from app.models.user import Profile, User
 from app.services.ai_question_service import (
     find_or_create_subject,
@@ -226,6 +227,25 @@ async def create_battle(
     else:
         raise ConflictError("Couldn't allocate a battle room code — please try again.")
     db.add(EliminationParticipant(battle_id=battle.id, user_id=host.id, status="ready"))
+
+    # Every battle gets its own chat room, reusing the same ChatRoom/
+    # ChatMember/ChatMessage models and /ws/chat/{room_id} socket the
+    # standalone chat inbox already uses (see api/v1/chat.py,
+    # websockets/chat.py) — no new persistence or websocket plumbing
+    # needed for live chat during a battle, just a new room_type this app
+    # hasn't used before ("battle", alongside the existing "direct").
+    # Every other participant gets added as a member in
+    # _add_participant_if_room below, at the same moment they join the
+    # battle itself, so room membership always exactly matches battle
+    # participation.
+    # ChatRoom.name is String(150); BattleCreate allows a title up to 200 —
+    # truncate rather than let a long-but-valid title 500 the request.
+    chat_room = ChatRoom(name=title[:150], room_type="battle", created_by=host.id)
+    db.add(chat_room)
+    await db.flush()
+    db.add(ChatMember(room_id=chat_room.id, user_id=host.id, role="member"))
+    battle.chat_room_id = chat_room.id
+
     await record_audit_event(db, actor_id=host.id, action="elimination.battle_created", resource_type="elimination_battle", resource_id=str(battle.id))
     await db.commit()
     await db.refresh(battle)
@@ -256,6 +276,8 @@ async def _add_participant_if_room(db: AsyncSession, battle: EliminationBattle, 
         if len(participant_count) >= MAX_INVITEES_PER_BATTLE + 1:
             raise ConflictError(f"This battle is full ({MAX_INVITEES_PER_BATTLE + 1} players max).")
         db.add(EliminationParticipant(battle_id=battle.id, user_id=user_id, status="ready"))
+        if battle.chat_room_id is not None:
+            db.add(ChatMember(room_id=battle.chat_room_id, user_id=user_id, role="member"))
 
 
 async def join_battle_by_code(db: AsyncSession, user: User, code: str) -> EliminationBattle:
@@ -554,6 +576,68 @@ async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, sele
             await resolve_round(db, battle_id, round_.id)
 
         return {"is_correct": is_correct, "eliminated": not is_correct}
+
+
+async def report_integrity_violation(db: AsyncSession, battle_id: uuid.UUID, user: User, violation_type: str) -> dict:
+    """Zero-tolerance by design, unlike the AI Weekly Exam/contest path
+    (see ExamIntegrityGuard's contest usage), which counts violations and
+    only auto-submits past a threshold. A live head-to-head elimination
+    battle has no meaningful "partial credit" state to fall back to the
+    way a written exam does — leaving fullscreen or switching tabs during
+    a 15-second-deadline round is exactly the kind of advantage (looking
+    up an answer, texting a teammate) the format can't tolerate at all,
+    so any single reported violation eliminates instantly, same
+    mechanism as a wrong answer."""
+    async with try_lock(_battle_lock_key(battle_id), ttl_seconds=10) as got_lock:
+        if not got_lock:
+            raise ConflictError("This battle is being updated — try again in a moment.")
+
+        battle = await db.get(EliminationBattle, battle_id)
+        if battle is None or battle.status != "active":
+            raise NotFoundError("Battle not found or not active.")
+        participant = (await db.execute(
+            select(EliminationParticipant).where(EliminationParticipant.battle_id == battle_id, EliminationParticipant.user_id == user.id)
+        )).scalar_one_or_none()
+        if participant is None:
+            raise NotFoundError("You're not a participant in this battle.")
+        if participant.status != "active":
+            # Already eliminated/winner/etc — nothing to do, and definitely
+            # not an error (a straggler violation event from a tab that's
+            # already been told it's over is routine, not exceptional).
+            return {"eliminated": participant.status == "eliminated"}
+
+        participant.status = "eliminated"
+        participant.eliminated_at_round = battle.current_round_number
+        participant.eliminated_reason = "integrity_violation"
+        await db.commit()
+
+        logger.warning(
+            "elimination_integrity_violation", battle_id=str(battle_id), user_id=str(user.id),
+            violation_type=violation_type, round_number=battle.current_round_number,
+        )
+        await ws_manager.broadcast(await _battle_channel(battle_id), {
+            "event": "battle.participant_eliminated", "battle_id": str(battle_id), "user_id": str(user.id),
+            "round_number": battle.current_round_number, "reason": "integrity_violation",
+        })
+
+        round_ = (await db.execute(
+            select(EliminationRound).where(EliminationRound.battle_id == battle_id, EliminationRound.round_number == battle.current_round_number)
+        )).scalar_one_or_none()
+        if round_ is not None and round_.resolved_at is None:
+            # Same early-resolve check submit_answer's early-resolve path
+            # uses — an eliminated participant is no longer "active", so
+            # if everyone else already answered this round, their
+            # elimination is what was actually blocking resolution.
+            active_participants = (await db.execute(
+                select(EliminationParticipant).where(EliminationParticipant.battle_id == battle_id, EliminationParticipant.status == "active")
+            )).scalars().all()
+            answered_participant_ids = set((await db.execute(
+                select(EliminationAnswer.participant_id).where(EliminationAnswer.round_id == round_.id)
+            )).scalars().all())
+            if all(p.id in answered_participant_ids for p in active_participants):
+                await resolve_round(db, battle_id, round_.id)
+
+        return {"eliminated": True}
 
 
 async def resolve_round(db: AsyncSession, battle_id: uuid.UUID, round_id: uuid.UUID) -> None:

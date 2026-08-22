@@ -67,6 +67,15 @@ class EliminationBattle(Base, UUIDPk, Timestamped):
     # has passed and has at least 2 participants. Null means host-started
     # only, the original behavior.
     scheduled_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Every battle gets one of these at creation (see
+    # elimination_service.create_battle) — reuses the existing chat_rooms/
+    # chat_members/chat_messages tables and /ws/chat/{room_id} socket
+    # rather than building a separate persistence/websocket path for
+    # battle chat. Nullable only because it's set right after the row is
+    # first inserted (needs the battle's own id to exist as created_by
+    # context isn't required, but the FK ordering is simpler this way);
+    # every battle created through create_battle always has one.
+    chat_room_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_rooms.id", ondelete="SET NULL"))
 
 
 class EliminationInvitation(Base, UUIDPk, Timestamped):

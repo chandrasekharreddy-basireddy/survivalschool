@@ -400,3 +400,120 @@ async def test_current_round_is_gated_like_participants(client):
     _, stranger = await auth_headers(client)
     forbidden = await client.get(f"/elimination/battles/{battle['id']}/round", headers=stranger)
     assert forbidden.status_code == 403, forbidden.text
+
+
+async def test_create_battle_provisions_a_chat_room_and_adds_the_host(client):
+    """Every battle gets its own chat room (reusing the general chat_rooms/
+    chat_members tables — see elimination_service.create_battle) so live
+    chat works without any separate persistence path."""
+    from sqlalchemy import select
+
+    from app.database import AsyncSessionLocal
+    from app.models.social import ChatMember, ChatRoom
+
+    _, host = await auth_headers(client)
+    host_id = (await client.get("/auth/me", headers=host)).json()["id"]
+    battle = await _create_battle(client, host, "Chat Room Battle")
+    assert battle["chat_room_id"] is not None
+
+    async with AsyncSessionLocal() as db:
+        room = await db.get(ChatRoom, uuid_mod.UUID(battle["chat_room_id"]))
+        assert room is not None
+        assert room.room_type == "battle"
+        member = (await db.execute(
+            select(ChatMember).where(ChatMember.room_id == room.id, ChatMember.user_id == uuid_mod.UUID(host_id))
+        )).scalar_one_or_none()
+        assert member is not None
+
+
+async def test_joining_a_battle_adds_the_joiner_to_its_chat_room(client):
+    from sqlalchemy import select
+
+    from app.database import AsyncSessionLocal
+    from app.models.social import ChatMember
+
+    _, host = await auth_headers(client)
+    battle = await _create_battle(client, host, "Chat Join Battle")
+
+    _, second_player = await auth_headers(client)
+    second_id = (await client.get("/auth/me", headers=second_player)).json()["id"]
+    joined = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second_player)
+    assert joined.status_code == 201, joined.text
+
+    async with AsyncSessionLocal() as db:
+        member = (await db.execute(
+            select(ChatMember).where(
+                ChatMember.room_id == uuid_mod.UUID(battle["chat_room_id"]), ChatMember.user_id == uuid_mod.UUID(second_id),
+            )
+        )).scalar_one_or_none()
+        assert member is not None
+
+    # And the battle's chat room behaves like any other room through the
+    # general chat REST API — no special-casing needed.
+    messages = await client.get(f"/chat/rooms/{battle['chat_room_id']}/messages", headers=second_player)
+    assert messages.status_code == 200, messages.text
+
+
+async def test_integrity_violation_eliminates_the_participant_immediately(client):
+    """Zero-tolerance, unlike the contest/AI-Weekly-Exam integrity path
+    (violation-count threshold before auto-submit) — a single reported
+    violation eliminates instantly, same as a wrong answer."""
+    _, host = await auth_headers(client)
+    battle = await _create_battle(client, host, "Integrity Battle")
+    host_id = (await client.get("/auth/me", headers=host)).json()["id"]
+
+    _, second_player = await auth_headers(client)
+    joined = await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second_player)
+    assert joined.status_code == 201, joined.text
+
+    started = await client.post(f"/elimination/battles/{battle['id']}/start", headers=host)
+    assert started.status_code == 200, started.text
+
+    violation = await client.post(
+        f"/elimination/battles/{battle['id']}/integrity-violation", json={"violation_type": "fullscreen_exit"}, headers=second_player,
+    )
+    assert violation.status_code == 200, violation.text
+    assert violation.json() == {"eliminated": True}
+
+    participants = (await client.get(f"/elimination/battles/{battle['id']}/participants", headers=host)).json()
+    second = next(p for p in participants if p["user_id"] != host_id)
+    assert second["status"] == "eliminated"
+    assert second["eliminated_reason"] == "integrity_violation"
+
+
+async def test_integrity_violation_from_a_non_participant_is_rejected(client):
+    _, host = await auth_headers(client)
+    battle = await _create_battle(client, host, "Integrity Stranger Battle")
+
+    _, second_player = await auth_headers(client)
+    await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second_player)
+    await client.post(f"/elimination/battles/{battle['id']}/start", headers=host)
+
+    _, stranger = await auth_headers(client)
+    resp = await client.post(
+        f"/elimination/battles/{battle['id']}/integrity-violation", json={"violation_type": "tab_blur"}, headers=stranger,
+    )
+    assert resp.status_code == 404, resp.text
+
+
+async def test_integrity_violation_on_an_already_eliminated_participant_is_a_safe_no_op(client):
+    """A straggler violation event from a tab that already knows it's over
+    (e.g. the browser's fullscreenchange fires after the player already
+    lost on a wrong answer) must not error."""
+    _, host = await auth_headers(client)
+    battle = await _create_battle(client, host, "Integrity Double Battle")
+
+    _, second_player = await auth_headers(client)
+    await client.post("/elimination/battles/join", json={"code": battle["join_code"]}, headers=second_player)
+    await client.post(f"/elimination/battles/{battle['id']}/start", headers=host)
+
+    first = await client.post(
+        f"/elimination/battles/{battle['id']}/integrity-violation", json={"violation_type": "copy"}, headers=second_player,
+    )
+    assert first.status_code == 200, first.text
+
+    second = await client.post(
+        f"/elimination/battles/{battle['id']}/integrity-violation", json={"violation_type": "paste"}, headers=second_player,
+    )
+    assert second.status_code == 200, second.text
+    assert second.json() == {"eliminated": True}

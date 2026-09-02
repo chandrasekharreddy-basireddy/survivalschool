@@ -73,6 +73,17 @@ export default function AiAssistantPage() {
   // already put in `messages` — a real race that was silently dropping the
   // just-sent message and its image.
   const skipNextHistoryFetchRef = useRef(false);
+  // Tracks the live activeId inside send()'s closure — send() captures
+  // activeId as a local at call time, but if the user clicks "+ New
+  // conversation" while the request is still in flight, activeId moves on
+  // without send() knowing. Comparing against this ref when the response
+  // lands (rather than trusting the closed-over value) stops that reply
+  // from being appended to whatever conversation happens to be open by
+  // then instead of the one it actually belongs to.
+  const activeIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   useEffect(() => {
     if (!user) return;
@@ -167,9 +178,15 @@ export default function AiAssistantPage() {
       } else {
         res = await apiFetch(`/ai/conversations/${convoId}/messages`, { method: "POST", body: JSON.stringify({ content }) });
       }
-      setMessages((prev) => [...prev, res.reply]);
-      setTypingId(res.reply.id);
-      setTypedLength(0);
+      if (convoId === activeIdRef.current) {
+        setMessages((prev) => [...prev, res.reply]);
+        setTypingId(res.reply.id);
+        setTypedLength(0);
+      }
+      // else: the user switched to a different (or new) conversation while
+      // this was in flight. The reply is already saved server-side — it'll
+      // show up the next time they open that conversation and its history
+      // gets fetched, rather than getting appended to whatever's open now.
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "The AI tutor is unavailable right now.");
     } finally {

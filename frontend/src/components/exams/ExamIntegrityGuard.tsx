@@ -15,7 +15,6 @@ const BLOCKED_KEYS = new Set(["F12", "PrintScreen"]);
 
 export function ExamIntegrityGuard({ enabled, fullscreenRequired, onIntegrityEvent, children }: Props) {
   const lastEventRef = useRef<string>("");
-  const debounceRef = useRef<number | null>(null);
 
   const report = (type: IntegrityEventType) => {
     const now = Date.now();
@@ -78,7 +77,6 @@ export function ExamIntegrityGuard({ enabled, fullscreenRequired, onIntegrityEve
       document.removeEventListener("cut", cut, true);
       document.removeEventListener("contextmenu", contextMenu, true);
       document.removeEventListener("keydown", keyDown, true);
-      if (debounceRef.current) window.clearTimeout(debounceRef.current);
     };
   }, [enabled, fullscreenRequired, onIntegrityEvent]);
 

@@ -37,7 +37,14 @@ export default function CertificateViewPage() {
     const url = window.location.href;
     const title = cert?.contest_title ? `Survival School certificate — ${cert.contest_title}` : "Survival School certificate";
     if (navigator.share) {
-      await navigator.share({ title, text: `${cert?.student_full_name ?? "Student"} earned a verified Survival School certificate.`, url });
+      try {
+        await navigator.share({ title, text: `${cert?.student_full_name ?? "Student"} earned a verified Survival School certificate.`, url });
+      } catch (err) {
+        // AbortError is the standard rejection when the user dismisses the
+        // native share sheet — a normal cancel, not a real failure. Anything
+        // else falls through to the clipboard-copy fallback below.
+        if (err instanceof Error && err.name === "AbortError") return;
+      }
       return;
     }
     await navigator.clipboard.writeText(url);

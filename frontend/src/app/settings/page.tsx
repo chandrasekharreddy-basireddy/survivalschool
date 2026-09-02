@@ -85,6 +85,7 @@ export default function SettingsPage() {
           <div className="flex justify-between"><dt className="text-fg-subtle">Email</dt><dd className="text-fg">{user.email}</dd></div>
           <div className="flex justify-between"><dt className="text-fg-subtle">Email verified</dt><dd className="text-fg">{user.is_email_verified ? "Yes" : "No"}</dd></div>
         </dl>
+        <UsernameSection />
       </div>
 
       <div className="card mt-6">
@@ -120,6 +121,86 @@ export default function SettingsPage() {
       </div>
 
       <DataPrivacySection />
+    </div>
+  );
+}
+
+function UsernameSection() {
+  const toast = useToast();
+  const [handle, setHandle] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<{ public_handle: string | null }>("/users/me/profile")
+      .then((p) => { setHandle(p.public_handle); setInput(p.public_handle || ""); })
+      .catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setError(null);
+    const normalized = input.trim().toLowerCase();
+    if (!/^[a-z0-9_]{3,30}$/.test(normalized)) {
+      setError("3-30 characters: lowercase letters, numbers, and underscores only.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await apiFetch<{ public_handle: string | null }>("/users/me/profile", {
+        method: "PATCH",
+        body: JSON.stringify({ public_handle: normalized }),
+      });
+      setHandle(updated.public_handle);
+      setInput(updated.public_handle || "");
+      setEditing(false);
+      toast.show("Username updated.", "success");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update your username.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 border-t border-ink-700 pt-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-fg">Username</p>
+          <p className="text-xs text-fg-subtle">Your unique @handle — how others find and invite you.</p>
+        </div>
+        {!editing && (
+          <button onClick={() => setEditing(true)} className="btn-secondary shrink-0 !py-1.5 text-sm">
+            {handle ? "Change" : "Set username"}
+          </button>
+        )}
+      </div>
+      {!editing ? (
+        <p className="mt-2 text-sm text-fg-muted">{handle ? `@${handle}` : "Not set yet."}</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          <input
+            className="input"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="e.g. jordan_23"
+            maxLength={30}
+          />
+          {error && <p role="alert" className="text-xs font-medium text-danger">{error}</p>}
+          <div className="flex gap-2">
+            <button onClick={save} disabled={saving || !input.trim()} className="btn-primary !py-1.5 text-sm">
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => { setEditing(false); setInput(handle || ""); setError(null); }}
+              className="btn-secondary !py-1.5 text-sm"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -266,7 +347,7 @@ function DataPrivacySection() {
       <div className="mt-4 flex items-center justify-between border-b border-ink-700 pb-4">
         <div>
           <p className="text-sm font-medium text-fg">Export my data</p>
-          <p className="text-xs text-fg-subtle">A JSON file with your profile, courses, quiz/exam history, certificates, points, and more.</p>
+          <p className="text-xs text-fg-subtle">A JSON file with your profile, contest and practice history, certificates, points, and more.</p>
         </div>
         <button onClick={exportData} disabled={exporting} className="btn-secondary shrink-0">
           {exporting ? "Preparing…" : "Download"}

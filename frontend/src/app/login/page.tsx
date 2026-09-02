@@ -17,7 +17,7 @@ function AuthShell({ children }: { children: ReactNode }) {
     <div className="mx-auto grid min-h-[calc(100dvh-var(--shell-h))] max-w-6xl items-center gap-8 px-4 py-12 lg:grid-cols-2 lg:gap-16">
       <aside className="hidden border-r border-ink-700 pr-16 lg:block">
         <p className="text-sm font-medium text-fg-subtle">Survival School</p>
-        <h2 className="mt-3 max-w-xs">One account for your courses, exams, and certificates.</h2>
+        <h2 className="mt-3 max-w-xs">One account for your exams, practice, and certificates.</h2>
         <p className="mt-4 max-w-sm text-sm text-fg-muted">
           Sign in to pick up where you left off. Students, instructors, and admins use the same sign-in — you&rsquo;ll land
           on the right home for your role.
@@ -128,10 +128,10 @@ export default function LoginPage() {
               <input
                 id="mfa-code"
                 autoFocus
-                inputMode="numeric"
+                autoCapitalize="characters"
                 className="input mt-1.5 font-mono text-lg tracking-[0.3em]"
                 placeholder="123456"
-                maxLength={10}
+                maxLength={16}
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value)}
               />

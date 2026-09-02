@@ -35,7 +35,7 @@ export const metadata: Metadata = {
     template: "%s · Survival School",
   },
   description:
-    "Survival School is a competitive, MCQ-driven learning platform: courses, AI-conducted weekend exams, live leaderboards, and verifiable certificates.",
+    "Survival School is a competitive, MCQ-driven learning platform: AI-conducted weekend exams, live elimination battles, leaderboards, and verifiable certificates.",
   applicationName: "Survival School",
   appleWebApp: {
     capable: true,

@@ -38,7 +38,7 @@ interface GamificationStats {
 
 interface CertificateOut {
   certificate_number: string;
-  course_title: string;
+  contest_title: string;
 }
 
 export default function ProfilePage() {
@@ -57,7 +57,7 @@ export default function ProfilePage() {
     if (!user) return;
     apiFetch<Profile>("/users/me/profile").then((p) => { setProfile(p); setBio(p.bio || ""); setSection(p.section || ""); }).catch(() => {});
     apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => {});
-    apiFetch<CertificateOut[]>("/certificates/me").then(setCerts).catch(() => setCerts([]));
+    apiFetch<CertificateOut[]>("/contests/me/certificates").then(setCerts).catch(() => setCerts([]));
   }, [user]);
 
   const onAvatarSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -212,11 +212,11 @@ export default function ProfilePage() {
         <div className="card mt-6">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-fg">Certificates</h2>
-            <Link href="/certificates/me" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">View all</Link>
+            <Link href="/contests/certificates" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">View all</Link>
           </div>
           <ul className="mt-3 space-y-2">
             {certs.slice(0, 3).map((c) => (
-              <li key={c.certificate_number} className="text-sm text-fg-muted">{c.course_title}</li>
+              <li key={c.certificate_number} className="text-sm text-fg-muted">{c.contest_title}</li>
             ))}
           </ul>
         </div>

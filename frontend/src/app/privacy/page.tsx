@@ -17,7 +17,7 @@ export default function PrivacyPage() {
           <p className="mt-2">
             To run your account we store your name, email address, and a hashed password (Argon2id — we never
             store or see your plaintext password). If you use two-factor authentication we store the TOTP secret
-            and hashed backup codes. Your course enrolments, quiz and exam attempts, chat messages, and certificate
+            and hashed backup codes. Your contest and practice attempts, chat messages, and certificate
             records are stored so the platform can grade, rank, and issue credentials to you.
           </p>
         </section>
@@ -25,18 +25,18 @@ export default function PrivacyPage() {
         <section>
           <h2>Exam integrity signals</h2>
           <p className="mt-2">
-            During a proctored exam we log integrity events on the device you&rsquo;re using — tab switches,
-            fullscreen exits, and similar signals — tied to that attempt. These are visible to your course
-            instructor for review. Grading itself always happens on our servers; nothing about your score is
-            decided in your browser.
+            During a proctored exam or elimination battle we log integrity events on the device you&rsquo;re
+            using — tab switches, fullscreen exits, and similar signals — tied to that attempt. These are
+            visible to staff with contest-management permissions for review. Grading itself always happens on
+            our servers; nothing about your score is decided in your browser.
           </p>
         </section>
 
         <section>
           <h2>Who can see your data</h2>
           <p className="mt-2">
-            Instructors of courses you&rsquo;re enrolled in can see your progress and attempts for their own
-            course. Admins can see account-level information for support and moderation. We don&rsquo;t sell your
+            Staff with contest-management permissions can see flagged attempts and results for contests they
+            manage. Admins can see account-level information for support and moderation. We don&rsquo;t sell your
             data, and we don&rsquo;t share it with third parties beyond the services that keep the platform
             running (email delivery, file storage, and our AI provider for tutoring features and exam-question
             generation).

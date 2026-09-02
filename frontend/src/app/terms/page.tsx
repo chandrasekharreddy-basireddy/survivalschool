@@ -14,9 +14,9 @@ export default function TermsPage() {
         <section>
           <h2>Registration</h2>
           <p className="mt-2">
-            New accounts can be created during the weekly registration window, which opens every Thursday (IST).
-            Outside that window, registration is closed and the platform will tell you when it next opens. This
-            applies to new student sign-ups only — existing accounts can sign in at any time.
+            Account sign-up is open every day. The AI Weekly Exam has its own separate registration window,
+            open every Thursday (IST) — outside that window the platform will tell you when it next opens.
+            Existing accounts can sign in at any time.
           </p>
         </section>
 
@@ -33,9 +33,9 @@ export default function TermsPage() {
         <section>
           <h2>Certificates</h2>
           <p className="mt-2">
-            A certificate is issued automatically to the top-scoring students in a graded exam who pass the
-            course&rsquo;s pass mark. Every certificate has a public verification page and a QR code — anyone,
-            including an employer, can check it&rsquo;s genuine without needing an account.
+            A certificate is issued automatically to the top-ranked students once a graded contest closes. Every
+            certificate has a public verification page and a QR code — anyone, including an employer, can check
+            it&rsquo;s genuine without needing an account.
           </p>
         </section>
 

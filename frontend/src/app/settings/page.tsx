@@ -266,7 +266,7 @@ function DataPrivacySection() {
       <div className="mt-4 flex items-center justify-between border-b border-ink-700 pb-4">
         <div>
           <p className="text-sm font-medium text-fg">Export my data</p>
-          <p className="text-xs text-fg-subtle">A JSON file with your profile, courses, quiz/exam history, certificates, points, and more.</p>
+          <p className="text-xs text-fg-subtle">A JSON file with your profile, contest and practice history, certificates, points, and more.</p>
         </div>
         <button onClick={exportData} disabled={exporting} className="btn-secondary shrink-0">
           {exporting ? "Preparing…" : "Download"}

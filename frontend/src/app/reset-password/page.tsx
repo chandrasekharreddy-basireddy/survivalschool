@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { PageLoader } from "@/components/PageLoader";
 
 export default function ResetPasswordPage() {
@@ -16,6 +17,7 @@ export default function ResetPasswordPage() {
 function ResetPasswordInner() {
   const params = useSearchParams();
   const router = useRouter();
+  const { logout } = useAuth();
   const token = params.get("token") || "";
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +31,16 @@ function ResetPasswordInner() {
         method: "POST", auth: false,
         body: JSON.stringify({ token, new_password: password }),
       });
+      // Resetting a password revokes every session server-side (see
+      // auth.py's reset_password). If this browser happens to hold a
+      // locally-cached session for the same account — plausible, since
+      // resetting your own password while still signed in elsewhere is a
+      // real flow — that cached session is now dead too. Without clearing
+      // it here, the login page's "already signed in" redirect bounces
+      // straight back into a protected page with a now-invalid token,
+      // surfacing a raw "Missing or malformed Authorization header" error
+      // instead of a clean sign-in screen.
+      await logout();
       setDone(true);
       setTimeout(() => router.push("/login"), 1500);
     } catch (err) {

@@ -137,11 +137,21 @@ async def _run_assistant_turn(db: AsyncSession, conversation_id: uuid.UUID, *, i
         image_data_url=image_data_url,
     )
 
+    if not response.content and image_data_url:
+        # Confirmed in production logs: the vision model (SARVAM_VISION_MODEL
+        # = gemma4) returns a hard 400 "This endpoint is currently in beta
+        # and not available" for this account — an account-tier limitation,
+        # not a transient failure, so "try again shortly" would be actively
+        # misleading (it will keep failing every time until Sarvam grants
+        # beta access). Tell the user what's actually true instead.
+        fallback = "Image analysis isn't available on this account right now — try describing the problem in text instead."
+    else:
+        fallback = "Sorry, I couldn't generate a response right now — please try again shortly."
+
     assistant_message = AIMessage(
         conversation_id=conversation_id,
         role="assistant",
-        content=response.content
-        or "Sorry, I couldn't generate a response right now — please try again shortly.",
+        content=response.content or fallback,
         provider=response.provider,
         tokens_used=response.tokens_used,
         latency_ms=response.latency_ms,

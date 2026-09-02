@@ -40,18 +40,40 @@ export function getAccessToken(): string | undefined {
   return getStoredTokens().access;
 }
 
+// The backend rotates refresh tokens (revokes the old one, issues a new
+// one) and treats reuse of an already-rotated token as token theft — it
+// revokes the ENTIRE session defensively (see auth.py's refresh_token
+// endpoint). Without de-duplication here, a page that fires several
+// parallel requests (common — e.g. loading battle/participants/round data
+// at once) would have every one of them independently call tryRefresh()
+// the moment the access token expires, all racing to redeem the SAME
+// refresh token. Only the first actually succeeds; the rest hit the
+// just-revoked token and trip the theft-detection path, logging out a
+// perfectly legitimate user. Sharing one in-flight promise means every
+// concurrent 401 awaits the same single refresh instead of each starting
+// its own.
+let refreshPromise: Promise<string | null> | null = null;
+
 async function tryRefresh(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
   const { refresh } = getStoredTokens();
   if (!refresh) return null;
-  const resp = await fetch(`${API_BASE}/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refresh_token: refresh }),
-  });
-  if (!resp.ok) return null;
-  const data = await resp.json();
-  storeTokens(data.access_token, data.refresh_token);
-  return data.access_token as string;
+  refreshPromise = (async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      storeTokens(data.access_token, data.refresh_token);
+      return data.access_token as string;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
 }
 
 /** Default per-request timeout. Uploads override this via options.timeoutMs

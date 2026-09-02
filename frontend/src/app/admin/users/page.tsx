@@ -36,6 +36,7 @@ export default function AdminUsersPage() {
   }, [user]);
 
   const toggleActive = async (target: UserOut) => {
+    if (target.is_active && !window.confirm(`Deactivate ${target.full_name}? They'll immediately lose access.`)) return;
     try {
       const updated = await apiFetch<UserOut>(`/admin/users/${target.id}/${target.is_active ? "deactivate" : "activate"}`, { method: "POST" });
       setUsers((prev) => prev && prev.map((u) => (u.id === target.id ? updated : u)));

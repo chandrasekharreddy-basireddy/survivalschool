@@ -134,7 +134,11 @@ export default function ContestDetailPage() {
       {result ? (
         <div className="card mt-6 text-center border-emerald-500/40">
           <p className="text-sm uppercase tracking-widest text-fg-subtle">Submitted</p>
-          <p className="mt-2 text-4xl font-bold text-fg">{result.score_percent}%</p>
+          {result.score_percent === null ? (
+            <p className="mt-2 text-sm text-fg-muted">Your attempt was auto-submitted due to integrity violations.</p>
+          ) : (
+            <p className="mt-2 text-4xl font-bold text-fg">{result.score_percent}%</p>
+          )}
           <p className="mt-2 text-sm text-fg-muted">Final placement is confirmed once the contest window closes — check the leaderboard below.</p>
         </div>
       ) : alreadyCompeted ? (

@@ -4,6 +4,8 @@ import uuid
 
 import structlog
 from fastapi import Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 logger = structlog.get_logger("survivalschool.errors")
@@ -69,6 +71,39 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
                 "message": exc.message,
                 "request_id": request_id,
                 "details": exc.details,
+            }
+        },
+    )
+
+
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """FastAPI/Pydantic's own request-parsing errors (a malformed body,
+    wrong field type, missing required field, a Query/Path pattern
+    mismatch) never went through AppError — they fell through to
+    Starlette's default handler, which returns {"detail": [...]}
+    instead of this app's {"error": {code, message, request_id, details}}
+    envelope. Every route already relies on that one consistent shape
+    (see app_error_handler above, and frontend/src/lib/api.ts's error
+    parsing, which reads err.error.message) — a bare {"detail": [...]}
+    body leaves err.message undefined there, so the UI falls back to
+    the generic HTTP status text ("Unprocessable Entity") instead of
+    telling the user which field was wrong."""
+    request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    errors = jsonable_encoder(exc.errors())
+    first = errors[0] if errors else None
+    if first:
+        loc = ".".join(str(p) for p in first["loc"] if p not in ("body", "query", "path"))
+        message = f"{loc}: {first['msg']}" if loc else first["msg"]
+    else:
+        message = "Validation failed."
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={
+            "error": {
+                "code": "validation_error",
+                "message": message,
+                "request_id": request_id,
+                "details": {"errors": errors},
             }
         },
     )

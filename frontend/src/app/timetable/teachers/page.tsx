@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
 import { PageLoader } from "@/components/PageLoader";
@@ -52,6 +52,10 @@ export default function TeacherTimetablePage() {
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [loadingEntries, setLoadingEntries] = useState(false);
   const [activeDay, setActiveDay] = useState<number | null>(null);
+  // Bumped on every teacher selection so a slower, earlier request (e.g.
+  // clicking teacher A then quickly teacher B) can't land after the faster,
+  // later one and overwrite the schedule that's actually being shown.
+  const entriesRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!user) return;
@@ -59,6 +63,7 @@ export default function TeacherTimetablePage() {
   }, [user]);
 
   useEffect(() => {
+    const requestId = ++entriesRequestIdRef.current;
     if (!selected) { setEntries(null); return; }
     setLoadingEntries(true);
     const today = todayStr();
@@ -67,12 +72,19 @@ export default function TeacherTimetablePage() {
     const dateTo = `${weekOut.getFullYear()}-${String(weekOut.getMonth() + 1).padStart(2, "0")}-${String(weekOut.getDate()).padStart(2, "0")}`;
     apiFetch<Entry[]>(`/timetable/campus?teacher=${encodeURIComponent(selected)}&date_from=${today}&date_to=${dateTo}`)
       .then((rows) => {
+        if (requestId !== entriesRequestIdRef.current) return;
         setEntries(rows);
         const days = [...new Set(rows.map((r) => weekdayOf(r.class_date)))];
         setActiveDay(days.length > 0 ? WEEKDAY_ORDER.find((d) => days.includes(d)) ?? days[0] : null);
       })
-      .catch(() => setEntries([]))
-      .finally(() => setLoadingEntries(false));
+      .catch(() => {
+        if (requestId !== entriesRequestIdRef.current) return;
+        setEntries([]);
+      })
+      .finally(() => {
+        if (requestId !== entriesRequestIdRef.current) return;
+        setLoadingEntries(false);
+      });
   }, [selected]);
 
   const filteredTeachers = useMemo(() => {

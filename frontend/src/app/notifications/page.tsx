@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch } from "@/lib/api";
@@ -20,12 +20,26 @@ interface NotificationOut {
 export default function NotificationsPage() {
   const { user, loading } = useAuth();
   const [items, setItems] = useState<NotificationOut[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
   const [filter, setFilter] = useState<"all" | "unread">("all");
+  // Bumped on every load() call so a response from a superseded request
+  // (e.g. rapidly toggling All -> Unread -> All) can recognize it's stale
+  // and skip applying itself, instead of a slower earlier response
+  // clobbering a faster later one's result.
+  const requestIdRef = useRef(0);
 
   const load = () => {
+    const requestId = ++requestIdRef.current;
     apiFetch<NotificationOut[]>(`/notifications?limit=50${filter === "unread" ? "&unread_only=true" : ""}`)
-      .then(setItems)
-      .catch(() => setItems([]));
+      .then((data) => {
+        if (requestId !== requestIdRef.current) return;
+        setItems(data);
+        setLoadError(false);
+      })
+      .catch(() => {
+        if (requestId !== requestIdRef.current) return;
+        setLoadError(true);
+      });
   };
 
   useEffect(() => {

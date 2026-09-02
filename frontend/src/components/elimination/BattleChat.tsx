@@ -41,8 +41,8 @@ export function BattleChat({ roomId }: { roomId: string }) {
     if (!token) return;
     const socket = new ChatSocket(roomId, token);
     socketRef.current = socket;
+    const unsubState = socket.onStateChange(setConnected);
     socket.connect();
-    setConnected(true);
 
     const unsubscribe = socket.on((evt: ChatEvent) => {
       if (evt.event === "chat.message" && evt.room_id === roomId) {
@@ -52,6 +52,7 @@ export function BattleChat({ roomId }: { roomId: string }) {
 
     return () => {
       unsubscribe();
+      unsubState();
       socket.close();
       setConnected(false);
     };

@@ -1,14 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { getPostLoginPath } from "@/lib/roles";
 import { PageLoader } from "@/components/PageLoader";
+
+/** Only ever follow an internal, single-slash path from ?next= — a bare
+ * "//evil.com" or "/\evil.com" is parsed by browsers as a protocol-relative
+ * URL to another host, so those (and anything not starting with exactly one
+ * "/") are rejected rather than handed to router.push/replace. */
+function safeNextPath(raw: string | null): string | null {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/\\")) return null;
+  return raw;
+}
 
 /** Split auth shell: a brand panel (desktop) beside the form card. Used by the
  *  sign-in and 2FA steps so both feel like one considered screen. */
@@ -43,7 +52,17 @@ function ShellFact({ k, v }: { k: string; v: string }) {
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="page-frame text-fg-muted"><PageLoader size="md" /></div>}>
+      <LoginPageInner />
+    </Suspense>
+  );
+}
+
+function LoginPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = safeNextPath(searchParams.get("next"));
   const { user, loading, login, verifyMfa } = useAuth();
   const toast = useToast();
   const [email, setEmail] = useState("");
@@ -55,10 +74,11 @@ export default function LoginPage() {
   const [mfaCode, setMfaCode] = useState("");
 
   // A visitor who is already signed in shouldn't see a login form — send them
-  // straight to their role's home instead of making them re-authenticate.
+  // straight to their role's home (or back to whatever ?next= page sent them
+  // here, e.g. an elimination-battle join link) instead of re-authenticating.
   useEffect(() => {
-    if (!loading && user) router.replace(getPostLoginPath(user));
-  }, [loading, user, router]);
+    if (!loading && user) router.replace(next ?? getPostLoginPath(user));
+  }, [loading, user, router, next]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,7 +89,7 @@ export default function LoginPage() {
       if (result.mfaRequired) {
         setMfaToken(result.mfaToken);
       } else {
-        router.push(getPostLoginPath(result.user));
+        router.push(next ?? getPostLoginPath(result.user));
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
@@ -85,7 +105,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       const me = await verifyMfa(mfaToken, mfaCode.trim());
-      router.push(getPostLoginPath(me));
+      router.push(next ?? getPostLoginPath(me));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Invalid code. Please try again.");
     } finally {

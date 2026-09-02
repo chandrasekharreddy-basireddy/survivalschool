@@ -26,6 +26,7 @@ export class ChatSocket {
   private roomId: string;
   private token: string;
   private listeners = new Set<Listener>();
+  private stateListeners = new Set<(connected: boolean) => void>();
   private closedByUser = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -49,8 +50,10 @@ export class ChatSocket {
     };
     this.ws.onopen = () => {
       this.attempt = 0;
+      this.stateListeners.forEach((fn) => fn(true));
     };
     this.ws.onclose = () => {
+      this.stateListeners.forEach((fn) => fn(false));
       if (this.closedByUser) return;
       const delay = Math.min(1000 * 2 ** this.attempt, 15000);
       this.attempt += 1;
@@ -61,6 +64,16 @@ export class ChatSocket {
   on(fn: Listener): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
+  }
+
+  /** Fires true on every real connect (including reconnects) and false on
+   * every drop — unlike a caller optimistically flipping "connected" the
+   * instant connect() is called, this reflects the socket's actual state,
+   * so a UI status label doesn't keep claiming "Live" through an outage
+   * while the backoff loop is silently retrying underneath it. */
+  onStateChange(fn: (connected: boolean) => void): () => void {
+    this.stateListeners.add(fn);
+    return () => this.stateListeners.delete(fn);
   }
 
   sendMessage(body: string) {

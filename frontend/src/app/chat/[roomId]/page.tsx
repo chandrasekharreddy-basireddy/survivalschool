@@ -54,8 +54,8 @@ export default function ChatRoomPage() {
     if (!token) return;
     const socket = new ChatSocket(params.roomId, token);
     socketRef.current = socket;
+    const unsubState = socket.onStateChange(setConnected);
     socket.connect();
-    setConnected(true);
 
     const unsubscribe = socket.on((evt: ChatEvent) => {
       if (evt.event === "chat.message") {
@@ -77,6 +77,7 @@ export default function ChatRoomPage() {
 
     return () => {
       unsubscribe();
+      unsubState();
       socket.close();
       setConnected(false);
     };

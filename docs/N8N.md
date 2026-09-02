@@ -23,24 +23,52 @@ A real, published workflow in the user's actual n8n Cloud instance:
 ## What it does
 
 Receives lifecycle events from the backend and builds notification content
-for each:
+for each.
 
-| Event type | Emitted from |
-|---|---|
-| `student.registered` | `api/v1/auth.py`, after successful registration |
-| `course.enrolled` | `api/v1/courses.py`, after self-enrollment |
-| `quiz.completed` | `api/v1/quizzes.py`, after a quiz attempt is submitted |
-| `exam.completed` | `api/v1/exams.py`, after an exam attempt is submitted |
-| `certificate.issued` | `api/v1/lessons.py`, when completing a lesson finishes the whole course |
-| `student.inactive` | `app/workers/worker.py`, a periodic background sweep |
+**Correction (post-pivot):** the table below previously listed
+`course.enrolled`, `quiz.completed`, `exam.completed`, and
+`certificate.issued` from `api/v1/courses.py` / `quizzes.py` / `exams.py` /
+`lessons.py` — none of those routers exist anymore (see the
+courses/LMS-removal migration; this platform pivoted to a contest/practice
+model). That table was stale, describing a pre-pivot version of this
+integration. Here is every event type the *current* codebase actually
+emits, found by grepping every `emit_event(...)` call site:
 
-The workflow's own description (visible via the n8n API) is explicit about
-its own limits: *"Email/Slack delivery nodes are not yet wired to real
-credentials"* — i.e. the workflow correctly receives, routes, and builds
-content for every event type, but does not currently send a real email or
-Slack message anywhere; that's the next integration step for whoever owns
-the n8n instance (wiring an actual SMTP/Slack credential into the existing
-delivery nodes), not a backend code change.
+| Event type | Emitted from | Purpose |
+|---|---|---|
+| `student.registered` | `api/v1/auth.py`, after successful registration | Welcome notification |
+| `instructor.application_approved` | `api/v1/admin.py`, after an admin approves an instructor application | Tell the applicant they're approved |
+| `campus_timetable.changed` | `app/services/campus_timetable_service.py::apply_campus_rows`, whenever a sync (manual upload or live-sync poll) produces a room change, time change, or cancellation | Change-detection alert — see note below |
+
+**`campus_timetable.changed` payload** is `{"source": "upload"|"live_sync",
+"change_count": int, "changes": [{"section", "course", "date", "old_room",
+"new_room", "old_time", "new_time", "was_cancelled"}, ...]}` (capped to the
+first 50 changes). Change detection itself — including de-duplication, via
+a content hash on each row so re-uploading identical data never re-fires —
+is real, tested backend logic, not a stub. What it does NOT include is
+which students are affected (no email addresses, no resolved recipient
+list) — an n8n workflow handling this event would need to resolve
+"students whose profile.section matches this change's section" itself
+(the backend has no callback endpoint for that today), or the payload
+would need to be enriched with resolved recipients before this is
+genuinely actionable as a real email trigger.
+
+**Whether the *live* n8n workflow currently routes and builds content for
+`instructor.application_approved` and `campus_timetable.changed`
+specifically has not been re-verified** since this correction — the
+original documentation pass (below) only confirmed the workflow was active
+and correct for the (now-stale) event list above. Re-run the verification
+steps in this file against the current event names before relying on it.
+
+The workflow's own description (visible via the n8n API, as of the
+original documentation pass) was explicit about its own limits: *"Email/Slack
+delivery nodes are not yet wired to real credentials"* — i.e. even for
+events it does recognize, the workflow receives, routes, and builds
+content, but does not send a real email or Slack message anywhere. Wiring
+an actual SMTP/Slack credential into the existing delivery nodes — and,
+for `campus_timetable.changed`, adding recipient-resolution — is n8n
+Cloud workflow configuration, owned by whoever holds that n8n account; it
+is not a backend code change and cannot be done from this repository.
 
 ## Backend integration point
 

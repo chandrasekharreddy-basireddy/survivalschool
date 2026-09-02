@@ -19,7 +19,7 @@ interface Preferences {
 }
 
 const LABELS: Record<keyof Preferences, string> = {
-  course_updates: "Course updates",
+  course_updates: "Timetable changes (room, time, cancellations)",
   assessment_updates: "Quiz & exam results",
   achievement_updates: "Badges & achievements",
   announcements: "Platform announcements",

@@ -284,3 +284,58 @@ async def test_ai_weekly_wins_leaderboard_counts_only_rank_one_by_username(clien
     # The runner-up placed #2 (a real top-3 certificate, since top_n_awarded
     # defaults to 3) but never ranked #1 anywhere, so "wins" must exclude them.
     assert not any(e["public_handle"] == "history_runnerup" for e in entries), entries
+
+
+async def test_submitting_a_partial_answer_set_does_not_inflate_the_score(client):
+    """Regression test for a real scoring-integrity bug: submit_contest_attempt
+    used to compute points_possible only from the questions present in
+    payload.answers, which has no completeness requirement. A student could
+    get a perfect score_percent by simply omitting every question they
+    weren't confident about from the submitted payload entirely, instead of
+    submitting a wrong/blank answer for it — the "possible points"
+    denominator shrank to match whatever they chose to answer. Answering
+    exactly one question correctly and omitting the rest must score well
+    below 100%, reflecting the full fixed question set the attempt was
+    actually assigned (question_order), not just what was submitted."""
+    import uuid as uuid_mod
+    from datetime import UTC, datetime, timedelta
+
+    from app.database import AsyncSessionLocal
+    from app.models.contest import Contest
+
+    await _force_ai_weekly_window_open(client)
+    _, student = await _make_student(client)
+
+    reg = await client.post("/contests/ai-weekly/register", json={
+        "subject_name": "Mathematics", "topic_name": "Linear Algebra and Matrix Operations",
+    }, headers=student)
+    assert reg.status_code == 201, reg.text
+    contest_id = reg.json()["contest_id"]
+
+    async with AsyncSessionLocal() as db:
+        contest = await db.get(Contest, uuid_mod.UUID(contest_id))
+        now = datetime.now(UTC)
+        contest.starts_at = now - timedelta(minutes=1)
+        contest.ends_at = now + timedelta(minutes=5)
+        await db.commit()
+
+    start = await client.post(f"/contests/{contest_id}/attempts", headers=student)
+    assert start.status_code == 201, start.text
+    qs = (await client.get(f"/contests/attempts/{start.json()['attempt_id']}/questions", headers=student)).json()
+    assert len(qs) > 1, "need more than one question for this test to prove anything"
+
+    # Answer only the FIRST question, correctly. Every other question is
+    # simply not present in the payload at all — not answered wrong, not
+    # left blank, just absent.
+    only_answer = [{"question_id": qs[0]["id"], "selected_option_ids": [qs[0]["options"][0]["id"]]}]
+    submitted = await client.post(
+        f"/contests/attempts/{start.json()['attempt_id']}/submit", json={"answers": only_answer}, headers=student,
+    )
+    assert submitted.status_code == 200, submitted.text
+    result = submitted.json()
+
+    # The exploit this regression-tests: with the bug, points_possible would
+    # equal only the first question's points (the one answered), producing
+    # a 100% score regardless of how many questions were actually skipped.
+    assert result["score_percent"] < 100, result
+    assert result["points_possible"] > result["points_earned"], result

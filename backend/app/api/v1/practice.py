@@ -208,28 +208,40 @@ async def submit_practice_session(
     if session.submitted_at is not None:
         return await _practice_result(db, session)
 
-    answer_qids = {ans.question_id for ans in payload.answers}
+    # Grade every question in the session's own fixed question_order (set
+    # once when the session was created, never client-controlled) — not
+    # just whatever question_ids happen to appear in payload.answers.
+    # PracticeSubmit.answers has no completeness requirement, so a payload
+    # that simply omits a question the student doesn't know used to make
+    # points_possible shrink to match only what they chose to answer,
+    # inflating score_percent (same bug fixed in contests.py's
+    # submit_contest_attempt — see that commit for the full explanation).
+    # A question missing from the payload is graded as unanswered (0 points).
+    all_question_ids = [uuid.UUID(q) for q in session.question_order]
     questions_by_id = {
         q.id: q for q in (await db.execute(
-            select(Question).where(Question.id.in_(answer_qids)).options(selectinload(Question.options))
+            select(Question).where(Question.id.in_(all_question_ids)).options(selectinload(Question.options))
         )).scalars().all()
-    } if answer_qids else {}
+    } if all_question_ids else {}
+    answers_by_qid = {ans.question_id: ans for ans in payload.answers}
 
     points_earned, points_possible = 0, 0
     answer_outs: list[PracticeAnswerResultOut] = []
-    for ans in payload.answers:
-        question = questions_by_id.get(ans.question_id)
+    for qid in all_question_ids:
+        question = questions_by_id.get(qid)
         if question is None:
             continue
-        selected_ids = [str(i) for i in ans.selected_option_ids]
-        is_correct, points = grade_answer(question, selected_ids, ans.text_answer)
+        ans = answers_by_qid.get(qid)
+        selected_ids = [str(i) for i in ans.selected_option_ids] if ans else []
+        text_answer = ans.text_answer if ans else None
+        is_correct, points = grade_answer(question, selected_ids, text_answer)
         points_earned += points
         points_possible += question.points
         db.add(PracticeAnswer(session_id=session.id, question_id=question.id, selected_option_ids=selected_ids,
-                               text_answer=ans.text_answer, is_correct=is_correct, points_awarded=points))
+                               text_answer=text_answer, is_correct=is_correct, points_awarded=points))
         answer_outs.append(PracticeAnswerResultOut(
             question_id=question.id, prompt=question.prompt, is_correct=is_correct,
-            selected_option_ids=ans.selected_option_ids,
+            selected_option_ids=[uuid.UUID(i) for i in selected_ids],
             correct_option_ids=[o.id for o in question.options if o.is_correct],
             explanation=question.explanation,
         ))

@@ -49,6 +49,7 @@ export default function InstructorApplicationsPage() {
   }, [user, filter]);
 
   const review = async (application: InstructorApplicationOut, action: "approve" | "reject") => {
+    if (action === "reject" && !window.confirm(`Reject ${application.applicant_name}'s instructor application?`)) return;
     setBusyId(application.id);
     try {
       await apiFetch(`/admin/instructor-applications/${application.id}/${action}`, {

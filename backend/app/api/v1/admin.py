@@ -64,7 +64,9 @@ async def admin_dashboard(user: User = Depends(require_permission("analytics.vie
     month_ago = now - timedelta(days=30)
 
     total_students = (await db.execute(select(func.count(User.id)).where(User.deleted_at.is_(None)))).scalar_one()
-    active_7d = (await db.execute(select(func.count(func.distinct(User.id))).where(User.last_login_at >= week_ago))).scalar_one()
+    active_7d = (await db.execute(
+        select(func.count(func.distinct(User.id))).where(User.last_login_at >= week_ago, User.deleted_at.is_(None))
+    )).scalar_one()
     certs = (await db.execute(select(func.count(ContestCertificate.id)))).scalar_one()
     contest_attempts = (await db.execute(select(func.count(ContestAttempt.id)).where(ContestAttempt.created_at >= month_ago))).scalar_one()
 

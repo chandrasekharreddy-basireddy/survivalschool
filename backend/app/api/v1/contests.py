@@ -384,26 +384,37 @@ async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, 
         return ContestResultOut.model_validate(attempt)
     now = datetime.now(UTC)
     late = now > attempt.server_deadline_at
-    # Batch-fetch the questions rather than querying per answer inside the loop:
-    # during a timed contest every submit lands in the same narrow window, so a
-    # per-question round-trip multiplies DB load exactly when it is highest.
-    answer_qids = {ans.question_id for ans in payload.answers}
+    # Grade every question in the attempt's own fixed question_order (set once
+    # at start_contest_attempt, never client-controlled) — not just whatever
+    # question_ids happen to appear in payload.answers. ContestSubmit.answers
+    # has no completeness requirement, so a payload that simply omits a
+    # question the student doesn't know used to make points_possible shrink
+    # to match only what they chose to answer, silently excluding the
+    # skipped question from the denominator entirely and inflating
+    # score_percent — the same bug this mirrors _force_finalize_contest_
+    # attempt's already-correct pattern to close. A question missing from
+    # the payload is graded as unanswered (0 points), exactly like one that
+    # times out.
+    all_question_ids = [uuid.UUID(q) for q in attempt.question_order]
     questions_by_id = {
         q.id: q for q in (await db.execute(
-            select(Question).where(Question.id.in_(answer_qids)).options(selectinload(Question.options))
+            select(Question).where(Question.id.in_(all_question_ids)).options(selectinload(Question.options))
         )).scalars().all()
-    } if answer_qids else {}
+    } if all_question_ids else {}
+    answers_by_qid = {ans.question_id: ans for ans in payload.answers}
 
     points_earned, points_possible = 0, 0
-    for ans in payload.answers:
-        question = questions_by_id.get(ans.question_id)
+    for qid in all_question_ids:
+        question = questions_by_id.get(qid)
         if question is None:
             continue
-        sel = [] if late else [str(i) for i in ans.selected_option_ids]
-        is_correct, points = grade_answer(question, sel, None if late else ans.text_answer)
+        ans = answers_by_qid.get(qid)
+        sel = [] if (late or ans is None) else [str(i) for i in ans.selected_option_ids]
+        text_answer = None if (late or ans is None) else ans.text_answer
+        is_correct, points = grade_answer(question, sel, text_answer)
         points_earned += points
         points_possible += question.points
-        db.add(ContestAnswer(attempt_id=attempt.id, question_id=question.id, selected_option_ids=sel, text_answer=ans.text_answer, is_correct=is_correct, points_awarded=points))
+        db.add(ContestAnswer(attempt_id=attempt.id, question_id=question.id, selected_option_ids=sel, text_answer=text_answer, is_correct=is_correct, points_awarded=points))
     score_percent, _ = summarize_attempt(points_earned, points_possible, 0)
     attempt.points_earned = points_earned
     attempt.points_possible = points_possible

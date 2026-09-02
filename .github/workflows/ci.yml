@@ -107,6 +107,12 @@ jobs:
       - name: Type check
         run: npm run typecheck
       - name: Dependency audit (report-only)
+        # Actually non-blocking, matching its name: npm audit exits non-zero
+        # whenever it finds a vulnerability at/above --audit-level, which
+        # would otherwise fail the whole job on transitive advisories (e.g.
+        # browserslist via @serwist/next) that this repo doesn't control and
+        # that a fix would need to come from upstream.
+        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
       - name: Build
         env:

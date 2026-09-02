@@ -7,6 +7,7 @@ import jwt as pyjwt
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -142,7 +143,18 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
     )
     user.roles.append(student_role)
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        # The pre-check above is a plain read-then-insert, not a lock — two
+        # near-simultaneous registrations for the same email (a double-
+        # clicked submit, a client retry) can both pass it before either
+        # commits. Without this, the second request's flush hit the DB's
+        # unique constraint on users.email as a raw, unhandled
+        # IntegrityError, surfacing to the user as a generic 500 instead of
+        # the same clean "already exists" response the common case gets.
+        await db.rollback()
+        raise ConflictError("An account with this email already exists.") from exc
 
     # Every account gets its unique @handle up front — it's how people find
     # each other for connections, elimination-battle invites/lobbies, etc.
@@ -220,7 +232,14 @@ async def apply_as_instructor(
         )
         user.roles.append(student_role)
         db.add(user)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError as exc:
+            # Same race as register() above — the pre-check isn't a lock.
+            await db.rollback()
+            raise ConflictError(
+                "An account with this email already exists. Sign in, then apply from your account."
+            ) from exc
         await create_profile_with_handle(db, user.id, payload.username)
 
         raw_token, token_hash, expires_at = new_email_verification_token()

@@ -319,6 +319,24 @@ async def test_submitting_a_partial_answer_set_does_not_inflate_the_score(client
         contest.ends_at = now + timedelta(minutes=5)
         await db.commit()
 
+    # Question generation runs as a fire-and-forget asyncio.create_task
+    # kicked off during registration (see get_or_create_ai_weekly_contest /
+    # _generate_ai_weekly_questions_in_background in ai_exam_service.py) — in
+    # production there's always a multi-day gap before starts_at, but here
+    # nothing paces the test against it, so poll until it lands instead of
+    # racing it (starting an attempt before question_ids is populated is
+    # correctly rejected with a 409 "still being prepared").
+    import asyncio
+
+    for _ in range(50):
+        async with AsyncSessionLocal() as db:
+            contest = await db.get(Contest, uuid_mod.UUID(contest_id))
+            if contest.question_ids:
+                break
+        await asyncio.sleep(0.2)
+    else:
+        raise AssertionError("AI weekly question generation did not complete in time")
+
     start = await client.post(f"/contests/{contest_id}/attempts", headers=student)
     assert start.status_code == 201, start.text
     qs = (await client.get(f"/contests/attempts/{start.json()['attempt_id']}/questions", headers=student)).json()

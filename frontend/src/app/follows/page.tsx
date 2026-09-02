@@ -21,6 +21,7 @@ interface PersonResult { user_id: string; full_name: string; public_handle: stri
 type Tab = "connections" | "requests" | "find";
 
 function Avatar({ name, url }: { name: string; url: string | null }) {
+  // eslint-disable-next-line @next/next/no-img-element -- user-uploaded avatar from arbitrary storage URL, not a static/known-dimension asset next/image needs
   if (url) return <img src={url} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />;
   return (
     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink-800 text-sm font-semibold text-fg-muted">

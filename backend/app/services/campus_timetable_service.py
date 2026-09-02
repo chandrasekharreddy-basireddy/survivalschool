@@ -52,11 +52,14 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db_utils import escape_like
 from app.core.exceptions import ValidationAppError
 from app.database import AsyncSessionLocal
 from app.models.campus_timetable import CampusTimetableEntry, CampusTimetableSource
+from app.models.user import Profile, User
 from app.services.ai_provider import AIProvider, get_ai_provider
 from app.services.n8n_service import emit_event
+from app.services.notification_service import create_notification
 from app.services.spreadsheet_import import (
     _parse_csv_raw,
     find_column,
@@ -663,7 +666,7 @@ async def apply_campus_rows(db: AsyncSession, rows: list[ParsedCampusRow], sourc
             result.created += 1
         elif existing_entry.row_hash != new_hash or existing_entry.is_cancelled:
             change = {
-                "section": row.section, "course": row.course_name, "date": row.class_date.isoformat(),
+                "school": row.school, "section": row.section, "course": row.course_name, "date": row.class_date.isoformat(),
                 "old_room": existing_entry.room, "new_room": row.room,
                 "old_time": f"{existing_entry.start_time}-{existing_entry.end_time}",
                 "new_time": f"{row.start_time}-{row.end_time}",
@@ -692,14 +695,49 @@ async def apply_campus_rows(db: AsyncSession, rows: list[ParsedCampusRow], sourc
             existing_entry.row_hash = _row_hash_for_cancel(existing_entry)
             result.cancelled += 1
             result.changes.append({
-                "section": existing_entry.section, "course": existing_entry.course_name,
+                "school": existing_entry.school, "section": existing_entry.section, "course": existing_entry.course_name,
                 "date": existing_entry.class_date.isoformat(), "cancelled": True,
             })
 
     if result.changes:
         await emit_event("campus_timetable.changed", {"source": source, "change_count": len(result.changes), "changes": result.changes[:50]})
+        await _notify_affected_students(db, result.changes)
 
     return result
+
+
+async def _notify_affected_students(db: AsyncSession, changes: list[dict]) -> None:
+    """In-app + email notification for every student whose profile.section
+    (and school, if set) matches a changed row — real, working delivery
+    through this app's own notification/email infrastructure, independent
+    of the n8n webhook above (see docs/N8N.md: that path's delivery nodes
+    aren't wired to real credentials yet, so it alone doesn't actually
+    reach anyone today). Never allowed to fail the sync that triggered it,
+    same contract as emit_event."""
+    try:
+        by_group: dict[tuple[str | None, str], list[dict]] = {}
+        for c in changes:
+            by_group.setdefault((c.get("school"), c["section"]), []).append(c)
+
+        for (school, section), group_changes in by_group.items():
+            stmt = select(Profile, User).join(User, User.id == Profile.user_id).where(
+                Profile.section.ilike(escape_like(section)), User.deleted_at.is_(None),
+            )
+            if school:
+                stmt = stmt.where(Profile.school.ilike(escape_like(school)))
+            rows = (await db.execute(stmt)).all()
+            for _profile, user in rows:
+                await create_notification(
+                    db, user=user, category="course",
+                    title=f"Your schedule changed ({len(group_changes)} class{'es' if len(group_changes) != 1 else ''})",
+                    body="Room, time, or cancellation updates to your section's timetable.",
+                    link_url="/timetable",
+                    metadata={"change_count": len(group_changes)},
+                    email_template="timetable_changed",
+                    email_context={"changes": group_changes[:20]},
+                )
+    except Exception:
+        logger.warning("timetable_change_notify_failed", exc_info=True)
 
 
 def _row_hash_for_cancel(entry: CampusTimetableEntry) -> str:

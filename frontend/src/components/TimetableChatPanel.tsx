@@ -14,12 +14,15 @@ interface ChatResponse {
   provider: string;
 }
 
-/** A small collapsible Q&A panel scoped strictly to the student's own
- * already-parsed schedule — the backend (POST /timetable/me/chat) hands the
- * AI only that real data and instructs it never to invent a class, time,
- * room, or teacher beyond it. Deliberately stateless on the client (no
- * conversation persistence): each question is answered fresh against the
- * live schedule, same as the rest of this page. */
+/** A small collapsible Q&A panel over the student's own already-parsed
+ * schedule plus a campus-wide busy-times summary (POST /timetable/me/chat)
+ * — enough for both personal questions ("what's my next class") and
+ * cross-entity ones ("when is Prof X free", "when are two sections both
+ * free"). The AI only ever sees real parsed data in its system prompt, with
+ * an explicit instruction never to invent a class, time, room, or teacher
+ * beyond it. Deliberately stateless on the client (no conversation
+ * persistence): each question is answered fresh against the live schedule,
+ * same as the rest of this page. */
 export function TimetableChatPanel() {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
@@ -62,8 +65,8 @@ export function TimetableChatPanel() {
       {open && (
         <div className="mt-3">
           <p className="text-xs text-fg-muted">
-            Answers come only from your own parsed timetable — not general knowledge. Try &quot;What&apos;s my next
-            class?&quot; or &quot;When is my Friday free?&quot;
+            Answers come only from real parsed timetable data — not general knowledge. Try &quot;What&apos;s my next
+            class?&quot;, &quot;When is Prof Sharma free?&quot;, or &quot;When are Section A and Section B both free?&quot;
           </p>
 
           {turns.length > 0 && (

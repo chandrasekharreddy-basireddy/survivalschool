@@ -6,6 +6,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { PageLoader } from "@/components/PageLoader";
 import { TimetableChatPanel } from "@/components/TimetableChatPanel";
+import { trackGaEvent } from "@/lib/ga";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -123,7 +124,11 @@ export default function TimetablePage() {
   const loadPersonal = () => apiFetch<PersonalEntry[]>("/timetable/me/personal").then(setPersonalEntries).catch(() => setPersonalEntries([]));
   const loadCampus = () => {
     apiFetch<CampusEntry[]>("/timetable/campus/me")
-      .then((rows) => { setCampusEntries(rows); setNeedsSection(false); })
+      .then((rows) => {
+        setCampusEntries(rows);
+        setNeedsSection(false);
+        trackGaEvent("timetable_refresh", { entry_count: rows.length });
+      })
       .catch((err) => {
         if (err instanceof ApiError && err.code === "validation_error") setNeedsSection(true);
         setCampusEntries([]);
@@ -162,8 +167,10 @@ export default function TimetablePage() {
       if (next.has(courseName)) {
         next.delete(courseName);
         setElectiveEntries((entriesPrev) => { const { [courseName]: _drop, ...rest } = entriesPrev; return rest; });
+        trackGaEvent("elective_toggle", { course_name: courseName, checked: false });
       } else {
         next.add(courseName);
+        trackGaEvent("elective_toggle", { course_name: courseName, checked: true });
         // Auto-pick the section if the elective only has one — nothing to
         // choose, so don't make the student click an extra dropdown.
         const elective = electives?.find((e) => e.course_name === courseName);
@@ -222,6 +229,7 @@ export default function TimetablePage() {
       await apiFetch("/users/me/profile", { method: "PATCH", body: JSON.stringify({ school: picked.school, section: picked.section }) });
       setProfile({ school: picked.school, section: picked.section });
       toast.show("Section saved.", "success");
+      trackGaEvent("section_change", { school: picked.school ?? undefined, section: picked.section });
       loadCampus();
     } catch (err) {
       toast.show(err instanceof ApiError ? err.message : "Couldn't save your section.", "error");

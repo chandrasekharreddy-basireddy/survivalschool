@@ -422,13 +422,65 @@ class TimetableChatResponse(BaseModel):
 # prompt with months of recurring grid-format occurrences.
 _CHAT_SCHEDULE_WINDOW_DAYS = 21
 
+# Caps how many campus-wide rows get folded into the prompt alongside the
+# student's own schedule (see _campus_wide_busy_text below) — a genuinely
+# large institution's full 21-day campus feed could otherwise blow up the
+# request. Most cross-entity questions ("when is Prof X free", "when are
+# two sections both free") only need day/time granularity, so this is a
+# generous cap in practice, not a real limitation.
+_CAMPUS_WIDE_ROW_CAP = 3000
+
 _TIMETABLE_CHAT_SYSTEM_PROMPT = (
     "You are a timetable assistant for a university student. Answer the student's question using ONLY the "
-    "schedule data provided below ({source_label}) — never invent or guess a class, time, room, or teacher "
-    "that isn't listed there. If the question can't be answered from this data (e.g. it asks about a class, "
-    "date, or detail not present), say plainly that you don't have that information instead of making "
-    "something up. Be concise.\n\nSchedule:\n{schedule_text}"
+    "schedule data provided below — never invent or guess a class, time, room, or teacher that isn't listed "
+    "there. If the question can't be answered from this data (e.g. it asks about a class, date, or detail not "
+    "present, or a teacher/section that never appears below), say plainly that you don't have that information "
+    "instead of making something up. Be concise.\n\n"
+    "=== {source_label} ===\n{schedule_text}\n\n"
+    "=== Everyone else's busy times, for questions about a specific teacher's availability or comparing free "
+    "time across sections (day and time range only — ask about the student's own schedule above for room/course "
+    "detail) ===\n{campus_wide_text}"
 )
+
+
+async def _campus_wide_busy_text(db: AsyncSession, today: date, window_end: date) -> str:
+    """A compact, campus-wide busy-times listing — every teacher and every
+    (school, section)'s occupied day/time slots in the window, without the
+    student's-own-schedule level of detail (course name, room). This is
+    what lets the assistant answer "when is Prof X free" or "when are
+    SCDS 3 and SOAI 2 both free" — questions about someone OTHER than the
+    asking student — without dumping the full campus timetable verbatim."""
+    rows = (await db.execute(
+        select(
+            CampusTimetableEntry.teacher_name, CampusTimetableEntry.school, CampusTimetableEntry.section,
+            CampusTimetableEntry.class_date, CampusTimetableEntry.start_time, CampusTimetableEntry.end_time,
+        )
+        .where(
+            CampusTimetableEntry.is_cancelled.is_(False),
+            CampusTimetableEntry.class_date >= today, CampusTimetableEntry.class_date <= window_end,
+        )
+        .order_by(CampusTimetableEntry.class_date, CampusTimetableEntry.start_time)
+        .limit(_CAMPUS_WIDE_ROW_CAP)
+    )).all()
+    if not rows:
+        return "(no campus-wide timetable data available)"
+
+    by_teacher: dict[str, list[str]] = {}
+    by_section: dict[str, list[str]] = {}
+    for teacher_name, school, section, class_date, start_time, end_time in rows:
+        slot = f"{class_date.isoformat()} ({class_date.strftime('%A')}) {start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')}"
+        if teacher_name:
+            by_teacher.setdefault(teacher_name, []).append(slot)
+        section_key = f"{school + ' ' if school else ''}Section {section}"
+        by_section.setdefault(section_key, []).append(slot)
+
+    lines = ["Teachers:"]
+    for teacher_name, slots in sorted(by_teacher.items()):
+        lines.append(f"- {teacher_name}: busy {'; '.join(slots)}")
+    lines.append("\nSections:")
+    for section_key, slots in sorted(by_section.items()):
+        lines.append(f"- {section_key}: busy {'; '.join(slots)}")
+    return "\n".join(lines)
 
 
 @personal_router.post("/chat", response_model=TimetableChatResponse)
@@ -437,12 +489,14 @@ async def timetable_chat(
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Answers freeform questions about the student's own live schedule,
-    scoped strictly to their actual parsed timetable data — their personal
-    upload if they have one (same precedence the /timetable page itself
-    uses), otherwise their section's campus feed. The AI only ever sees
-    that real data in its system prompt, with an explicit instruction never
-    to invent anything beyond it."""
+    """Answers freeform questions about the student's own live schedule
+    (their personal upload if they have one, same precedence the
+    /timetable page itself uses, otherwise their section's campus feed),
+    plus cross-entity questions like "when is Prof X free" or "when are
+    two sections both free" via a compact campus-wide busy-times summary
+    (see _campus_wide_busy_text). The AI only ever sees real parsed data
+    in its system prompt, with an explicit instruction never to invent
+    anything beyond it."""
     await enforce_rate_limit(f"timetable-chat:{user.id}", limit=20, window_seconds=3600)
 
     question = payload.question.strip()
@@ -495,11 +549,14 @@ async def timetable_chat(
         f"room {e.room or 'TBD'}{f', {e.teacher_name}' if e.teacher_name else ''}"
         for e in entries
     )
+    campus_wide_text = await _campus_wide_busy_text(db, today, window_end)
 
     provider = get_ai_provider()
     response = await provider.chat(
         [{"role": "user", "content": question}],
-        system_prompt=_TIMETABLE_CHAT_SYSTEM_PROMPT.format(source_label=source_label, schedule_text=schedule_text),
+        system_prompt=_TIMETABLE_CHAT_SYSTEM_PROMPT.format(
+            source_label=source_label, schedule_text=schedule_text, campus_wide_text=campus_wide_text,
+        ),
     )
     if response.error or not response.content:
         raise ServiceUnavailableError("The timetable assistant is unavailable right now. Please try again.")

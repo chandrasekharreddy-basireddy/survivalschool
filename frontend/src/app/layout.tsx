@@ -27,6 +27,7 @@ import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
 import { NavBar } from "@/components/NavBar";
 import { Footer } from "@/components/Footer";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
+import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
@@ -79,6 +80,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ToastProvider>
               <NavBar />
               <AnalyticsTracker />
+              <GoogleAnalytics />
               <ServiceWorkerRegister />
               <main className="safe-area-x">{children}</main>
               <Footer />

@@ -32,8 +32,17 @@ class Settings(BaseSettings):
     # --- Database ---
     DATABASE_URL: str = "postgresql+asyncpg://survivalschool:survivalschool@localhost:5432/survivalschool"
     DATABASE_URL_SYNC: str = "postgresql+psycopg2://survivalschool:survivalschool@localhost:5432/survivalschool"
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    # Every worker process gets its own independent pool of up to
+    # (DB_POOL_SIZE + DB_MAX_OVERFLOW) connections. The old defaults
+    # (10 + 20 = 30 per worker) let a 2-worker deploy try to open up to 60
+    # connections against Supabase's session-mode pooler, which caps at 15
+    # total — load testing reproduced exactly that: concurrent traffic hit
+    # EMAXCONNSESSION and every request past the cap 500'd. 5 + 2 = 7 per
+    # worker keeps a 2-worker deploy at 14 total, under the cap with a
+    # connection of headroom for migrations/health checks. Raise this only
+    # alongside a matching increase to the pooler's own connection limit.
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 2
 
     # --- Redis ---
     REDIS_URL: str = "redis://localhost:6379/0"

@@ -22,6 +22,7 @@ from app.models.user import InstructorApplication, Role, User
 from app.redis_client import check_redis_health
 from app.schemas.auth import InstructorApplicationOut, InstructorApplicationReview, UserOut
 from app.services.audit_service import record_audit_event
+from app.services.cache_service import cache_get_json, cache_set_json
 from app.services.n8n_service import emit_event
 from app.services.powerbi_service import sync_daily_engagement
 
@@ -112,8 +113,21 @@ async def audit_logs(
     ) for r in rows]
 
 
+_SYSTEM_HEALTH_CACHE_TTL = 3
+
+
 @router.get("/system-health", response_model=SystemHealthOut)
 async def system_health(user: User = Depends(require_permission("system.manage"))):
+    # Each call does a real DB round trip plus a real Redis PING — fine for
+    # one admin loading the dashboard, but several admins hitting it around
+    # the same moment (e.g. everyone checking in at the start of an exam
+    # window) turns into that many concurrent live health probes. A few
+    # seconds of staleness is a non-issue for a status dashboard, so cache
+    # the result briefly instead of re-probing on every request.
+    cached = await cache_get_json("admin:system-health")
+    if cached is not None:
+        return SystemHealthOut(**cached)
+
     db_start = time.perf_counter()
     db_ok = await check_db_health()
     db_latency_ms = round((time.perf_counter() - db_start) * 1000, 2) if db_ok else None
@@ -122,13 +136,15 @@ async def system_health(user: User = Depends(require_permission("system.manage")
     redis_ok = await check_redis_health()
     redis_latency_ms = round((time.perf_counter() - redis_start) * 1000, 2) if redis_ok else None
 
-    return SystemHealthOut(
+    result = SystemHealthOut(
         database=db_ok, database_latency_ms=db_latency_ms,
         redis=redis_ok, redis_latency_ms=redis_latency_ms,
         status="ok" if (db_ok and redis_ok) else "degraded",
         app_version=settings.SERVICE_VERSION, environment=settings.APP_ENV,
         uptime_seconds=round(time.time() - PROCESS_STARTED_AT, 1),
     )
+    await cache_set_json("admin:system-health", result.model_dump(mode="json"), _SYSTEM_HEALTH_CACHE_TTL)
+    return result
 
 
 @router.get("/users", response_model=list[UserOut])

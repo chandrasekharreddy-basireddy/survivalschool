@@ -25,6 +25,7 @@ _PREFERENCE_FIELD_BY_CATEGORY = {
     "achievement": "achievement_updates",
     "announcement": "announcements",
     "ai": "ai_notifications",
+    "social": "social_notifications",
 }
 
 

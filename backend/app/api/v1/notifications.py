@@ -41,6 +41,7 @@ class PreferencesUpdate(BaseModel):
     course_updates: bool | None = None
     assessment_updates: bool | None = None
     achievement_updates: bool | None = None
+    social_notifications: bool | None = None
     announcements: bool | None = None
     ai_notifications: bool | None = None
     email_enabled: bool | None = None
@@ -51,6 +52,7 @@ class PreferencesOut(BaseModel):
     course_updates: bool
     assessment_updates: bool
     achievement_updates: bool
+    social_notifications: bool
     announcements: bool
     ai_notifications: bool
     email_enabled: bool

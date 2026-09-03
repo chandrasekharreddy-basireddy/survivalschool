@@ -284,7 +284,8 @@ async def apply_as_instructor(
 
 
 @router.post("/verify-email", response_model=MessageResponse)
-async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
+async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await enforce_rate_limit(f"verify-email-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP, window_seconds=3600)
     token_hash = hash_token(payload.token)
     result = await db.execute(select(EmailVerification).where(EmailVerification.token_hash == token_hash))
     record = result.scalar_one_or_none()
@@ -315,6 +316,7 @@ async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(g
 @router.post("/resend-verification", response_model=MessageResponse)
 async def resend_verification(payload: ResendVerificationRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"resend-verify:{payload.email.lower()}", limit=settings.RATE_LIMIT_RESEND_VERIFY_PER_HOUR, window_seconds=3600)
+    await enforce_rate_limit(f"resend-verify-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_RESEND_VERIFY_PER_HOUR_PER_IP, window_seconds=3600)
 
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = result.scalar_one_or_none()
@@ -381,7 +383,19 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
         raise generic_error
 
     if not user.is_active or user.deleted_at is not None:
-        raise AuthenticationError("Account is disabled.", code="account_disabled")
+        # Deliberately the SAME generic error as a wrong password, not a
+        # distinct "Account is disabled." — that would hand an attacker a
+        # password-correctness oracle for accounts that can't even log in
+        # (confirm a breached/guessed credential is right without ever
+        # needing it to work). A legitimately disabled user not getting an
+        # explanatory error here is the accepted tradeoff; they're expected
+        # to be told out-of-band (support, the admin who disabled them) —
+        # same reasoning login already applies to account-existence via
+        # the identical wrong-password/no-such-user error above.
+        await record_audit_event(db, actor_id=user.id, action="user.login_blocked_disabled", resource_type="user",
+                                  resource_id=str(user.id), result="failure", ip_address=get_client_ip(request))
+        await db.commit()
+        raise generic_error
 
     user.failed_login_attempts = 0
     user.locked_until = None
@@ -505,6 +519,7 @@ async def confirm_2fa(payload: TwoFactorConfirmIn, user: User = Depends(get_curr
     flip totp_enabled on and hand back one-time backup codes — shown to the
     user exactly once here, never recoverable afterward (only their SHA-256
     hashes are stored)."""
+    await enforce_rate_limit(f"2fa-verify:{user.id}", limit=settings.RATE_LIMIT_2FA_VERIFY_PER_5MIN, window_seconds=300)
     if not user.totp_secret:
         raise ValidationAppError("Start setup first via POST /auth/2fa/setup.")
     if user.totp_enabled:
@@ -525,6 +540,7 @@ async def disable_2fa(payload: TwoFactorDisableIn, user: User = Depends(get_curr
     """Requires re-entering the account password (not just an active
     session) — disabling 2FA is a security-downgrading action, same bar as
     changing a password elsewhere in this app."""
+    await enforce_rate_limit(f"2fa-verify:{user.id}", limit=settings.RATE_LIMIT_2FA_VERIFY_PER_5MIN, window_seconds=300)
     if not verify_password(payload.password, user.password_hash):
         raise AuthenticationError("Incorrect password.")
     user.totp_secret = None
@@ -705,6 +721,7 @@ async def revoke_my_session(
 @router.post("/forgot-password", response_model=MessageResponse)
 async def forgot_password(payload: ForgotPasswordRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"forgot-pw:{payload.email.lower()}", limit=settings.RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR, window_seconds=3600)
+    await enforce_rate_limit(f"forgot-pw-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR_PER_IP, window_seconds=3600)
     generic = MessageResponse(message="If that account exists, a password reset email has been sent.")
 
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
@@ -731,7 +748,8 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request, back
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def reset_password(payload: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await enforce_rate_limit(f"reset-pw-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP, window_seconds=3600)
     token_hash = hash_token(payload.token)
     result = await db.execute(select(PasswordReset).where(PasswordReset.token_hash == token_hash))
     record = result.scalar_one_or_none()

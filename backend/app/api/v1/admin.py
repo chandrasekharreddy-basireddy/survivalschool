@@ -11,6 +11,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.v1.users import search_users
 from app.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.core.runtime import PROCESS_STARTED_AT
@@ -155,15 +156,9 @@ async def admin_list_users(
     user: User = Depends(require_permission("users.read")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Same query as GET /users — kept here too under /admin because that's
-    where the admin frontend (and the production audit) expects it."""
-    stmt = select(User).options(selectinload(User.roles)).where(User.deleted_at.is_(None))
-    if q:
-        stmt = stmt.where(User.email.ilike(f"%{q}%") | User.full_name.ilike(f"%{q}%"))
-    result = await db.execute(stmt.order_by(User.created_at.desc()).limit(limit).offset(offset))
-    users = result.scalars().all()
-    return [UserOut(id=u.id, email=u.email, full_name=u.full_name, is_email_verified=u.is_email_verified,
-                     is_active=u.is_active, roles=[r.name for r in u.roles]) for u in users]
+    """Same query as GET /users (see search_users) — kept here too under
+    /admin because that's where the admin frontend expects it."""
+    return await search_users(db, q, limit, offset)
 
 
 @router.post("/users/{user_id}/deactivate", response_model=UserOut)

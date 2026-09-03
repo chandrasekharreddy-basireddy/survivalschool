@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +19,18 @@ from app.models.base import Timestamped, UUIDPk
 
 class Question(Base, UUIDPk, Timestamped):
     __tablename__ = "questions"
+    __table_args__ = (
+        # Every status-like column elsewhere in this codebase (EliminationBattle.status,
+        # ContestAttempt.status, ...) has one of these; this one didn't, so a
+        # typo'd/unrecognized question_type was silently accepted, skipped
+        # create_question's option-count validation entirely, and would
+        # always grade is_correct=False via scoring_service.grade_answer's
+        # else branch — a dead, unscorable question with no error anywhere.
+        CheckConstraint(
+            "question_type IN ('single', 'multiple', 'true_false', 'short_answer')",
+            name="question_type_valid",
+        ),
+    )
     subject_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("subjects.id", ondelete="SET NULL"), index=True)
     topic_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("topics.id", ondelete="SET NULL"), index=True)
     prompt: Mapped[str] = mapped_column(Text, nullable=False)

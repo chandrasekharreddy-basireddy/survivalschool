@@ -90,6 +90,32 @@ class Settings(BaseSettings):
     RATE_LIMIT_RESEND_VERIFY_PER_HOUR: int = 3
     RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR: int = 3
     RATE_LIMIT_EXAM_START_PER_HOUR: int = 10
+    # Guards the two places an authenticated caller re-proves a credential
+    # they might not actually hold (2FA setup confirmation, 2FA disable's
+    # password re-check) — a hijacked session shouldn't be able to brute-force
+    # either with no throttle just because it skips the login flow entirely.
+    RATE_LIMIT_2FA_VERIFY_PER_5MIN: int = 10
+    # Per-email limits on these two alone don't stop one attacker from
+    # emailing an unlimited number of DIFFERENT victims (email-bombing) —
+    # login/register already pair their per-email limit with a per-IP one,
+    # these two didn't. Set higher than the per-email limits since a shared
+    # IP (campus NAT, office network) can legitimately produce several
+    # distinct requests.
+    RATE_LIMIT_RESEND_VERIFY_PER_HOUR_PER_IP: int = 10
+    RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR_PER_IP: int = 10
+    # verify-email/reset-password take an unguessable 48-byte token rather
+    # than an email — brute-forcing one outright isn't practical regardless
+    # of throttling, so this is defense-in-depth (bound the request volume
+    # one IP can throw at either), not the primary defense. Kept generous.
+    RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP: int = 30
+    RATE_LIMIT_AI_WEEKLY_REGISTER_PER_HOUR: int = 5
+    # Guards against repeatedly cancelling and re-sending a follow request to
+    # the same target to flood them with notifications — every other
+    # notification-triggering write path in this codebase is already
+    # rate-limited, this one wasn't. Per-requester (not per-target-pair), so
+    # it also bounds how many distinct people one account can spam.
+    RATE_LIMIT_FOLLOW_REQUEST_PER_HOUR: int = 30
+    RATE_LIMIT_PEOPLE_SEARCH_PER_MINUTE: int = 30
 
     # --- Certificates ---
     # Days a certificate remains valid after issuance; None (default) means

@@ -25,9 +25,11 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -116,7 +118,16 @@ class EliminationRound(Base, UUIDPk, Timestamped):
     received it over the websocket. Nothing about this row is derived from
     a client request."""
     __tablename__ = "elimination_rounds"
-    __table_args__ = (UniqueConstraint("battle_id", "round_number", name="uq_elimination_round_battle_number"),)
+    __table_args__ = (
+        UniqueConstraint("battle_id", "round_number", name="uq_elimination_round_battle_number"),
+        # The expiry sweep (elimination_service._sweep_once) runs this exact
+        # WHERE clause every SWEEP_INTERVAL_SECONDS (2s), unconditionally,
+        # for the process's lifetime. A partial index — only unresolved rows
+        # are ever matched, and once resolved a row never becomes unresolved
+        # again — keeps that scan cheap regardless of how many total rounds
+        # have accumulated across every battle ever played.
+        Index("ix_elimination_rounds_sweep", "deadline_at", postgresql_where=text("resolved_at IS NULL")),
+    )
 
     battle_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("elimination_battles.id", ondelete="CASCADE"), nullable=False, index=True)
     round_number: Mapped[int] = mapped_column(Integer, nullable=False)

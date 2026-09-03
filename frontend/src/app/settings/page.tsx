@@ -12,6 +12,7 @@ interface Preferences {
   course_updates: boolean;
   assessment_updates: boolean;
   achievement_updates: boolean;
+  social_notifications: boolean;
   announcements: boolean;
   ai_notifications: boolean;
   email_enabled: boolean;
@@ -22,6 +23,7 @@ const LABELS: Record<keyof Preferences, string> = {
   course_updates: "Timetable changes (room, time, cancellations)",
   assessment_updates: "Quiz & exam results",
   achievement_updates: "Badges & achievements",
+  social_notifications: "Follow requests & connections",
   announcements: "Platform announcements",
   ai_notifications: "AI tutor notifications",
   email_enabled: "Email notifications (in addition to in-app)",

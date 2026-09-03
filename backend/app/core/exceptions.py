@@ -8,6 +8,11 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+try:
+    from asyncpg.exceptions import PostgresError
+except ImportError:  # pragma: no cover - asyncpg is always installed outside tests using a different driver
+    PostgresError = ()  # type: ignore[assignment]
+
 logger = structlog.get_logger("survivalschool.errors")
 
 
@@ -132,6 +137,27 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         sentry_sdk.capture_exception(exc)
     except ImportError:
         pass
+
+    # A raw PostgresError surfacing here (rather than an AppError a route
+    # raised on purpose) means the database/connection pooler itself
+    # rejected the connection — e.g. Supabase's session-mode pooler capping
+    # out at its configured client limit under concurrent load. That's a
+    # transient capacity condition, not a bug in this app: tell the client
+    # to retry (503) instead of the generic "something is broken here" 500,
+    # which is both more honest and lets a well-behaved client back off and
+    # succeed on its own rather than surfacing a dead end.
+    if isinstance(exc, PostgresError):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": {
+                    "code": "database_unavailable",
+                    "message": "The database is temporarily busy. Please try again in a moment.",
+                    "request_id": request_id,
+                    "details": {},
+                }
+            },
+        )
 
     # Deliberately no str(exc) in the response — internal details never leak to clients.
     return JSONResponse(

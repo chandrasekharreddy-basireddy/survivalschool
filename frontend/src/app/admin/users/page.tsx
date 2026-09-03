@@ -16,7 +16,13 @@ interface UserOut {
   roles: string[];
 }
 
-const ASSIGNABLE_ROLES = ["STUDENT", "INSTRUCTOR", "MODERATOR", "SUPPORT", "ADMIN"];
+const BASE_ROLES = ["STUDENT", "INSTRUCTOR", "MODERATOR", "SUPPORT"];
+// ADMIN and SUPER_ADMIN are only ever offered to a viewer who already holds
+// SUPER_ADMIN — the backend enforces the same rule (assign_role/remove_role's
+// "V-01" hierarchy check), but showing them to a plain admin anyway would
+// mean every attempt just 403s, a confusing dead-end control rather than a
+// real option.
+const ELEVATED_ROLES = ["ADMIN", "SUPER_ADMIN"];
 
 export default function AdminUsersPage() {
   const { user, loading } = useAuth();
@@ -56,6 +62,21 @@ export default function AdminUsersPage() {
     }
   };
 
+  const removeRole = async (target: UserOut, role: string) => {
+    if (target.id === user?.id && role === "SUPER_ADMIN") {
+      toast.show("You can't remove your own Super Admin role — have another super admin do it.", "error");
+      return;
+    }
+    if (!window.confirm(`Remove the ${role} role from ${target.full_name}?`)) return;
+    try {
+      const updated = await apiFetch<UserOut>(`/users/${target.id}/roles/${role}`, { method: "DELETE" });
+      setUsers((prev) => prev && prev.map((u) => (u.id === target.id ? updated : u)));
+      toast.show(`${role} role removed.`, "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't remove that role.", "error");
+    }
+  };
+
   if (loading) return <div className="mx-auto max-w-5xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
   if (!user || !user.roles.some((r) => ["ADMIN", "SUPER_ADMIN"].includes(r))) {
     return (
@@ -66,11 +87,17 @@ export default function AdminUsersPage() {
     );
   }
 
+  const isSuperAdmin = user.roles.includes("SUPER_ADMIN");
+  const assignableRoles = isSuperAdmin ? [...BASE_ROLES, ...ELEVATED_ROLES] : BASE_ROLES;
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-fg">User management</h1>
-        <Link href="/admin/audit-logs" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">Audit logs &rarr;</Link>
+        <div className="flex gap-4 text-sm">
+          {isSuperAdmin && <Link href="/admin/super" className="text-brand-600 dark:text-brand-400 hover:underline">Super Admin &rarr;</Link>}
+          <Link href="/admin/audit-logs" className="text-brand-600 dark:text-brand-400 hover:underline">Audit logs &rarr;</Link>
+        </div>
       </div>
 
       <div className="mt-4 flex gap-3">
@@ -96,9 +123,27 @@ export default function AdminUsersPage() {
                 <td className="px-4 py-3 text-fg-muted">{u.email}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
-                    {u.roles.map((r) => (
-                      <span key={r} className="rounded bg-ink-800 px-1.5 py-0.5 text-[11px] text-fg-muted">{r}</span>
-                    ))}
+                    {u.roles.map((r) => {
+                      // Removing an elevated role needs the same SUPER_ADMIN
+                      // gate as assigning one — otherwise a plain admin sees
+                      // a working-looking "x" on someone's ADMIN badge that
+                      // just 403s.
+                      const canRemove = ELEVATED_ROLES.includes(r) ? isSuperAdmin : true;
+                      return (
+                        <span key={r} className="flex items-center gap-1 rounded bg-ink-800 px-1.5 py-0.5 text-[11px] text-fg-muted">
+                          {r}
+                          {canRemove && (
+                            <button
+                              onClick={() => removeRole(u, r)}
+                              aria-label={`Remove ${r} from ${u.full_name}`}
+                              className="text-fg-subtle hover:text-red-400"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
                 </td>
                 <td className="px-4 py-3">
@@ -112,7 +157,7 @@ export default function AdminUsersPage() {
                       onChange={(e) => { if (e.target.value) { assignRole(u, e.target.value); e.target.value = ""; } }}
                     >
                       <option value="" disabled>+ role</option>
-                      {ASSIGNABLE_ROLES.filter((r) => !u.roles.includes(r)).map((r) => (
+                      {assignableRoles.filter((r) => !u.roles.includes(r)).map((r) => (
                         <option key={r} value={r}>{r}</option>
                       ))}
                     </select>

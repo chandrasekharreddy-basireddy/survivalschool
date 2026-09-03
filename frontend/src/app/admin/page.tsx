@@ -59,6 +59,9 @@ export default function AdminDashboardPage() {
           <Link href="/instructor" className="text-brand-600 dark:text-brand-400 hover:underline">Question bank</Link>
           <Link href="/admin/audit-logs" className="text-brand-600 dark:text-brand-400 hover:underline">Audit logs</Link>
           <Link href="/admin/certificates" className="text-brand-600 dark:text-brand-400 hover:underline">Certificates</Link>
+          {user.roles.includes("SUPER_ADMIN") && (
+            <Link href="/admin/super" className="text-amber-600 dark:text-amber-400 hover:underline">Super Admin</Link>
+          )}
         </div>
       </div>
 

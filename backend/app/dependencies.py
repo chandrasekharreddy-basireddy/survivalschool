@@ -55,7 +55,14 @@ async def get_current_user(
         raise AuthenticationError("Account is not active.")
 
     request.state.user_id = user.id
+    request.state.session_id = session_row.id
     return user
+
+
+async def get_current_session_id(request: Request, user: User = Depends(get_current_user)) -> uuid.UUID:
+    """The session row backing the bearer token used for this request — set
+    by get_current_user, whose Depends() above guarantees it already ran."""
+    return request.state.session_id
 
 
 async def get_current_verified_user(user: User = Depends(get_current_user)) -> User:

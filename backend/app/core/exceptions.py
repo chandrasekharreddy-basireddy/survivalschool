@@ -112,6 +112,16 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
         message = f"{loc}: {first['msg']}" if loc else first["msg"]
     else:
         message = "Validation failed."
+    # Pydantic's .errors() includes the raw submitted value under "input" for
+    # every failed field — for a password-policy failure (RegisterRequest,
+    # ResetPasswordRequest) that's the user's plaintext password, echoed back
+    # into the HTTP response body and anything that logs it (proxies, error
+    # trackers, browser devtools). The field location + message already tell
+    # the client what's wrong; the client never needs its own submitted value
+    # reflected back, so strip "input" from every error rather than trying to
+    # enumerate which field names are sensitive.
+    for error in errors:
+        error.pop("input", None)
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={

@@ -116,7 +116,8 @@ export default function SettingsPage() {
 
       <div className="card mt-6 border-red-500/20">
         <h2 className="font-semibold text-fg">Security</h2>
-        <p className="mt-2 text-sm text-fg-muted">Sign out of every device and session, including this one.</p>
+        <SessionsSection />
+        <p className="mt-6 text-sm text-fg-muted">Sign out of every device and session, including this one.</p>
         <button onClick={logoutAllSessions} className="btn-secondary mt-4">Sign out everywhere</button>
       </div>
 
@@ -201,6 +202,85 @@ function UsernameSection() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface SessionInfo {
+  id: string;
+  device_label: string | null;
+  ip_address: string | null;
+  created_at: string;
+  last_seen_at: string;
+  is_current: boolean;
+}
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+function SessionsSection() {
+  const toast = useToast();
+  const [sessions, setSessions] = useState<SessionInfo[] | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  const load = () => {
+    apiFetch<SessionInfo[]>("/auth/sessions").then(setSessions).catch(() => setSessions([]));
+  };
+
+  useEffect(load, []);
+
+  const revoke = async (session: SessionInfo) => {
+    if (!window.confirm(`Sign out "${session.device_label ?? "this device"}"? It'll need to log in again.`)) return;
+    setRevokingId(session.id);
+    try {
+      await apiFetch(`/auth/sessions/${session.id}`, { method: "DELETE" });
+      setSessions((prev) => prev && prev.filter((s) => s.id !== session.id));
+      toast.show("Device signed out.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't sign out that device.", "error");
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  return (
+    <div>
+      <h3 className="text-sm font-medium text-fg">Your devices</h3>
+      <p className="mt-1 text-xs text-fg-subtle">Everywhere you&apos;re currently signed in. Don&apos;t recognize one? Sign it out.</p>
+      <div className="mt-3 space-y-2">
+        {sessions === null && <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
+        {sessions !== null && sessions.length === 0 && <p className="text-sm text-fg-subtle">No active sessions found.</p>}
+        {sessions?.map((s) => (
+          <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-700 px-3 py-2 text-sm">
+            <div className="min-w-0">
+              <p className="truncate text-fg">
+                {s.device_label ?? "Unknown device"}
+                {s.is_current && <span className="ml-2 rounded-full border border-emerald-500/40 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">This device</span>}
+              </p>
+              <p className="truncate text-xs text-fg-subtle">
+                {s.ip_address ?? "Unknown IP"} · active {relativeTime(s.last_seen_at)}
+              </p>
+            </div>
+            {!s.is_current && (
+              <button
+                onClick={() => revoke(s)}
+                disabled={revokingId === s.id}
+                className="btn-secondary shrink-0 !py-1 !text-xs disabled:opacity-60"
+              >
+                {revokingId === s.id ? "Signing out…" : "Sign out"}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

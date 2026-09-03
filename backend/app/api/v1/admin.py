@@ -237,9 +237,20 @@ async def maintenance_reset_accounts(
     x_maintenance_secret: str | None = Header(default=None),
 ):
     """Destructive, explicitly-gated maintenance escape hatch: deletes every
-    user account (and everything that references one via a real foreign
-    key — sessions, tokens, enrollments, submissions, etc.) via the same
-    TRUNCATE ... CASCADE as scripts/reset_all_accounts.py.
+    user account and everything that owns a hard reference to one (sessions,
+    tokens, enrollments, submissions, etc. — every FK declared CASCADE),
+    while leaving shared platform content intact where its FK is declared
+    SET NULL (a contest's created_by, a chat room's created_by, a file's
+    owner_id, ...) exactly as those models were designed to behave on a
+    single user's deletion.
+
+    Uses a plain DELETE, not TRUNCATE ... CASCADE — Postgres's TRUNCATE
+    CASCADE does not respect each dependent table's own ON DELETE action at
+    all; it unconditionally empties every table with any FK back to the
+    truncated one, SET NULL included. That silently turned "reset accounts"
+    into "also wipe every contest, chat room, and uploaded file on the
+    platform," which nothing about this endpoint's own name or its own
+    audience (school-wide account reset) implies.
 
     Deliberately NOT behind require_permission()/a user JWT — the whole
     point is to be usable even when there are zero working accounts left,
@@ -258,12 +269,20 @@ async def maintenance_reset_accounts(
     if not x_maintenance_secret or not hmac.compare_digest(x_maintenance_secret, settings.MAINTENANCE_SECRET):
         raise NotFoundError("Not found.")
 
-    await db.execute(text("TRUNCATE TABLE users RESTART IDENTITY CASCADE"))
+    result = await db.execute(text("DELETE FROM users"))
+    # No actor_id — this bypasses normal auth entirely (see docstring), so
+    # there is no user to attribute the action to. Still worth a row: the
+    # request itself (and that the secret check passed) is the fact worth
+    # recording, distinct from every other audit entry which has an actor.
+    await record_audit_event(
+        db, actor_id=None, action="maintenance.reset_accounts", resource_type="user", resource_id="*",
+        metadata={"deleted_count": result.rowcount},
+    )
     await db.commit()
 
     return MaintenanceResetOut(
         status="ok",
-        detail="All user accounts (and everything referencing them) were deleted. Roles/permissions/badges were left intact.",
+        detail=f"Deleted {result.rowcount} user account(s) and everything owned by them. Shared content (contests, chat rooms, files, etc.) had its creator/owner reference cleared but was not deleted. Roles/permissions/badges were left intact.",
     )
 
 

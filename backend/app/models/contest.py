@@ -44,6 +44,16 @@ class Contest(Base, UUIDPk, Timestamped):
     __table_args__ = (
         UniqueConstraint("occurrence_key", name="uq_contest_occurrence_key"),
         Index("ix_contests_status_ends_at", "status", "ends_at"),
+        # ContestAttempt.status (below) already has a CheckConstraint;
+        # Contest's own status/contest_type didn't, despite the rest of this
+        # codebase branching on specific string literals for both ("open",
+        # "closed", "ai_weekly", ...) — a bad write (typo, programmer error)
+        # would silently write a value nothing downstream recognizes.
+        CheckConstraint("status IN ('scheduled', 'open', 'closed')", name="contest_status_valid"),
+        CheckConstraint(
+            "contest_type IN ('ai_weekly', 'weekly_morning', 'weekly_evening', 'monthly', 'custom')",
+            name="contest_type_valid",
+        ),
     )
 
     title: Mapped[str] = mapped_column(String(200), nullable=False)

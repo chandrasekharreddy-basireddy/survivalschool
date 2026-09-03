@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailableError
 from app.database import get_db
 from app.dependencies import get_client_ip, get_current_verified_user, require_permission
@@ -46,6 +47,7 @@ from app.services.contest_certificate_service import (
     verification_url,
 )
 from app.services.contest_service import finalize_contest
+from app.services.rate_limit_service import enforce_rate_limit
 from app.services.scoring_service import grade_answer, summarize_attempt
 
 # Bounds flagged_events growth — a spammy or buggy client calling the
@@ -58,6 +60,7 @@ _CONTESTS_LIST_TTL = 15
 _LEADERBOARD_TTL = 5
 
 router = APIRouter(prefix="/contests", tags=["contests"])
+settings = get_settings()
 
 
 def _contest_out(contest: Contest) -> ContestOut:
@@ -209,11 +212,19 @@ async def contest_leaderboard(contest_id: uuid.UUID, db: AsyncSession = Depends(
 
 
 @router.post("/ai-weekly/register", response_model=AIWeeklyRegisterOut, status_code=201)
-async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     """Step 1 of the AI Weekly Exam: register for a subject+topic during the
     Thursday-only registration window. Does not start the timed exam —
     that happens separately via POST /contests/{contest_id}/attempts once
-    the exam's scheduled slot opens (see ai_exam_service.py)."""
+    the exam's scheduled slot opens (see ai_exam_service.py).
+
+    Rate-limited per-user AND per-IP: for any never-before-seen topic slug
+    this triggers a real AI eligibility call plus, in the background, a full
+    real-exam question-generation run (~10 batched AI calls) — with no
+    throttle, looping this with slightly varied topic_name strings was an
+    unbounded AI-cost/DoS vector."""
+    await enforce_rate_limit(f"ai-weekly-register:{user.id}", limit=settings.RATE_LIMIT_AI_WEEKLY_REGISTER_PER_HOUR, window_seconds=3600)
+    await enforce_rate_limit(f"ai-weekly-register-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_AI_WEEKLY_REGISTER_PER_HOUR, window_seconds=3600)
     attempt = await register_for_ai_weekly_exam(db, user, payload.subject_name, payload.topic_name)
     contest = await db.get(Contest, attempt.contest_id)
     await bump_cache_version("contests_list")

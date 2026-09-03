@@ -21,6 +21,7 @@ from app.core.exceptions import (
 from app.database import get_db
 from app.dependencies import (
     get_client_ip,
+    get_current_session_id,
     get_current_user,
     get_current_user_optional,
     get_current_verified_user,
@@ -45,6 +46,7 @@ from app.schemas.auth import (
     RegisterRequest,
     ResendVerificationRequest,
     ResetPasswordRequest,
+    SessionOut,
     TokenResponse,
     TwoFactorConfirmIn,
     TwoFactorConfirmOut,
@@ -282,7 +284,8 @@ async def apply_as_instructor(
 
 
 @router.post("/verify-email", response_model=MessageResponse)
-async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
+async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await enforce_rate_limit(f"verify-email-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP, window_seconds=3600)
     token_hash = hash_token(payload.token)
     result = await db.execute(select(EmailVerification).where(EmailVerification.token_hash == token_hash))
     record = result.scalar_one_or_none()
@@ -313,6 +316,7 @@ async def verify_email(payload: VerifyEmailRequest, db: AsyncSession = Depends(g
 @router.post("/resend-verification", response_model=MessageResponse)
 async def resend_verification(payload: ResendVerificationRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"resend-verify:{payload.email.lower()}", limit=settings.RATE_LIMIT_RESEND_VERIFY_PER_HOUR, window_seconds=3600)
+    await enforce_rate_limit(f"resend-verify-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_RESEND_VERIFY_PER_HOUR_PER_IP, window_seconds=3600)
 
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = result.scalar_one_or_none()
@@ -379,7 +383,19 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
         raise generic_error
 
     if not user.is_active or user.deleted_at is not None:
-        raise AuthenticationError("Account is disabled.", code="account_disabled")
+        # Deliberately the SAME generic error as a wrong password, not a
+        # distinct "Account is disabled." — that would hand an attacker a
+        # password-correctness oracle for accounts that can't even log in
+        # (confirm a breached/guessed credential is right without ever
+        # needing it to work). A legitimately disabled user not getting an
+        # explanatory error here is the accepted tradeoff; they're expected
+        # to be told out-of-band (support, the admin who disabled them) —
+        # same reasoning login already applies to account-existence via
+        # the identical wrong-password/no-such-user error above.
+        await record_audit_event(db, actor_id=user.id, action="user.login_blocked_disabled", resource_type="user",
+                                  resource_id=str(user.id), result="failure", ip_address=get_client_ip(request))
+        await db.commit()
+        raise generic_error
 
     user.failed_login_attempts = 0
     user.locked_until = None
@@ -503,6 +519,7 @@ async def confirm_2fa(payload: TwoFactorConfirmIn, user: User = Depends(get_curr
     flip totp_enabled on and hand back one-time backup codes — shown to the
     user exactly once here, never recoverable afterward (only their SHA-256
     hashes are stored)."""
+    await enforce_rate_limit(f"2fa-verify:{user.id}", limit=settings.RATE_LIMIT_2FA_VERIFY_PER_5MIN, window_seconds=300)
     if not user.totp_secret:
         raise ValidationAppError("Start setup first via POST /auth/2fa/setup.")
     if user.totp_enabled:
@@ -523,6 +540,7 @@ async def disable_2fa(payload: TwoFactorDisableIn, user: User = Depends(get_curr
     """Requires re-entering the account password (not just an active
     session) — disabling 2FA is a security-downgrading action, same bar as
     changing a password elsewhere in this app."""
+    await enforce_rate_limit(f"2fa-verify:{user.id}", limit=settings.RATE_LIMIT_2FA_VERIFY_PER_5MIN, window_seconds=300)
     if not verify_password(payload.password, user.password_hash):
         raise AuthenticationError("Incorrect password.")
     user.totp_secret = None
@@ -604,9 +622,106 @@ async def logout_all(user: User = Depends(get_current_user), db: AsyncSession = 
     return MessageResponse(message=f"Signed out of {len(sessions)} session(s).")
 
 
+def _friendly_device_label(user_agent: str | None) -> str | None:
+    """A short, human-readable "Browser on OS" label from a raw User-Agent
+    string, without pulling in a full UA-parsing dependency for what's
+    ultimately just a display hint — never used for any security decision."""
+    if not user_agent:
+        return None
+    ua = user_agent
+    if "iPhone" in ua or "iPad" in ua:
+        os_name = "iOS"
+    elif "Android" in ua:
+        os_name = "Android"
+    elif "Mac OS X" in ua:
+        os_name = "macOS"
+    elif "Windows" in ua:
+        os_name = "Windows"
+    elif "Linux" in ua:
+        os_name = "Linux"
+    else:
+        os_name = None
+
+    if "Edg/" in ua:
+        browser = "Edge"
+    elif "OPR/" in ua or "Opera" in ua:
+        browser = "Opera"
+    elif "Firefox/" in ua:
+        browser = "Firefox"
+    elif "CriOS" in ua or "Chrome/" in ua:
+        browser = "Chrome"
+    elif "Safari/" in ua:
+        browser = "Safari"
+    else:
+        browser = None
+
+    if browser and os_name:
+        return f"{browser} on {os_name}"
+    return browser or os_name
+
+
+@router.get("/sessions", response_model=list[SessionOut])
+async def list_my_sessions(
+    user: User = Depends(get_current_user),
+    current_session_id: uuid.UUID = Depends(get_current_session_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """Every device/browser currently signed in to this account — the
+    self-service view of what /auth/logout-all nukes indiscriminately, so a
+    user can spot and revoke just the one they don't recognize."""
+    sessions = (await db.execute(
+        select(SessionModel)
+        .where(SessionModel.user_id == user.id, SessionModel.revoked_at.is_(None))
+        .order_by(SessionModel.last_seen_at.desc())
+    )).scalars().all()
+    return [
+        SessionOut(
+            id=s.id,
+            device_label=s.device_label or _friendly_device_label(s.user_agent),
+            ip_address=s.ip_address,
+            created_at=s.created_at,
+            last_seen_at=s.last_seen_at,
+            is_current=s.id == current_session_id,
+        )
+        for s in sessions
+    ]
+
+
+@router.delete("/sessions/{session_id}", response_model=MessageResponse)
+async def revoke_my_session(
+    session_id: uuid.UUID,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sign out one specific device — the targeted counterpart to
+    /auth/logout-all. Scoped to the caller's own sessions only: the path
+    parameter is a bare id with no ownership check built in by FastAPI, so
+    the WHERE clause below is what actually stops one user from revoking
+    another's session by guessing/enumerating ids."""
+    session_row = (await db.execute(
+        select(SessionModel).where(SessionModel.id == session_id, SessionModel.user_id == user.id)
+    )).scalar_one_or_none()
+    if session_row is None:
+        raise NotFoundError("Session not found.")
+    if session_row.revoked_at is None:
+        now = datetime.now(UTC)
+        session_row.revoked_at = now
+        for t in (await db.execute(
+            select(RefreshToken).where(RefreshToken.session_id == session_id, RefreshToken.revoked_at.is_(None))
+        )).scalars().all():
+            t.revoked_at = now
+        await record_audit_event(
+            db, actor_id=user.id, action="user.session_revoked", resource_type="session",
+            resource_id=str(session_id),
+        )
+        await db.commit()
+    return MessageResponse(message="Session signed out.")
+
+
 @router.post("/forgot-password", response_model=MessageResponse)
 async def forgot_password(payload: ForgotPasswordRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"forgot-pw:{payload.email.lower()}", limit=settings.RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR, window_seconds=3600)
+    await enforce_rate_limit(f"forgot-pw-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR_PER_IP, window_seconds=3600)
     generic = MessageResponse(message="If that account exists, a password reset email has been sent.")
 
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
@@ -633,7 +748,8 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request, back
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def reset_password(payload: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    await enforce_rate_limit(f"reset-pw-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP, window_seconds=3600)
     token_hash = hash_token(payload.token)
     result = await db.execute(select(PasswordReset).where(PasswordReset.token_hash == token_hash))
     record = result.scalar_one_or_none()
@@ -650,10 +766,25 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
         raise NotFoundError("Account not found.")
 
     user.password_hash = hash_password(payload.new_password)
-    record.used_at = datetime.now(UTC)
+    now = datetime.now(UTC)
+    record.used_at = now
+
+    # Invalidate every OTHER outstanding, unused reset token for this account
+    # too — not just the one just redeemed. Without this, an older reset
+    # email (forwarded, intercepted, or just requested twice) stays valid
+    # after the account owner already changed their password, letting
+    # whoever holds that link reset it again later with no warning to the
+    # real owner.
+    for other in (await db.execute(
+        select(PasswordReset).where(
+            PasswordReset.user_id == user.id,
+            PasswordReset.id != record.id,
+            PasswordReset.used_at.is_(None),
+        )
+    )).scalars().all():
+        other.used_at = now
 
     # Defense in depth: a password reset revokes every existing session/refresh token.
-    now = datetime.now(UTC)
     for s in (await db.execute(select(SessionModel).where(SessionModel.user_id == user.id, SessionModel.revoked_at.is_(None)))).scalars().all():
         s.revoked_at = now
     for t in (await db.execute(select(RefreshToken).where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)))).scalars().all():

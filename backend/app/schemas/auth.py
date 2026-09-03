@@ -123,6 +123,15 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class SessionOut(BaseModel):
+    id: uuid.UUID
+    device_label: str | None
+    ip_address: str | None
+    created_at: datetime
+    last_seen_at: datetime
+    is_current: bool
+
+
 class InstructorApplicationCreate(BaseModel):
     # All optional here because an already-authenticated caller doesn't need
     # to supply them again — the endpoint fills email/full_name/password from

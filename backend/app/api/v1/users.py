@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.db_utils import escape_like
 from app.core.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -20,6 +21,7 @@ from app.dependencies import get_current_user, require_permission
 from app.models.user import Profile, Role, User
 from app.schemas.auth import MessageResponse, UserOut
 from app.security.passwords import verify_password
+from app.services.audit_service import record_audit_event
 from app.services.gdpr_service import delete_account, export_user_data
 from app.services.profile_service import fallback_handle, set_profile_handle
 
@@ -153,6 +155,26 @@ async def update_my_profile(
     return profile
 
 
+async def search_users(db: AsyncSession, q: str | None, limit: int, offset: int) -> list[UserOut]:
+    """Shared by GET /users and GET /admin/users — same query, same
+    "users.read" permission, same response shape, reachable at two paths
+    (the admin frontend expects the /admin one). Was two independent
+    copies of this query that had already drifted (one escaped LIKE
+    metacharacters in `q` via escape_like, the other didn't) — a single
+    implementation means that can't happen again."""
+    stmt = select(User).options(selectinload(User.roles)).where(User.deleted_at.is_(None))
+    if q:
+        pattern = f"%{escape_like(q)}%"
+        stmt = stmt.where(User.email.ilike(pattern) | User.full_name.ilike(pattern))
+    result = await db.execute(stmt.order_by(User.created_at.desc()).limit(limit).offset(offset))
+    users = result.scalars().all()
+    return [
+        UserOut(id=u.id, email=u.email, full_name=u.full_name, is_email_verified=u.is_email_verified,
+                is_active=u.is_active, roles=[r.name for r in u.roles])
+        for u in users
+    ]
+
+
 @router.get("", response_model=list[UserOut])
 async def list_users(
     q: str | None = Query(None),
@@ -161,16 +183,7 @@ async def list_users(
     admin: User = Depends(require_permission("users.read")),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(User).options(selectinload(User.roles)).where(User.deleted_at.is_(None))
-    if q:
-        stmt = stmt.where(User.email.ilike(f"%{q}%") | User.full_name.ilike(f"%{q}%"))
-    result = await db.execute(stmt.order_by(User.created_at.desc()).limit(limit).offset(offset))
-    users = result.scalars().all()
-    return [
-        UserOut(id=u.id, email=u.email, full_name=u.full_name, is_email_verified=u.is_email_verified,
-                is_active=u.is_active, roles=[r.name for r in u.roles])
-        for u in users
-    ]
+    return await search_users(db, q, limit, offset)
 
 
 @router.get("/{user_id}", response_model=UserOut)
@@ -263,6 +276,12 @@ async def delete_my_account(
     to make this call stops working immediately afterwards."""
     if not verify_password(payload.password, user.password_hash):
         raise AuthenticationError("Password is incorrect.")
+    # Recorded before the delete, not after: AuditLog.actor_id is a bare
+    # UUID column with no FK back to users specifically so an entry like
+    # this one survives the account it's about — this is exactly the kind
+    # of sensitive action (permanent, user-initiated data erasure) the
+    # audit trail exists to have a record of, and it previously had none.
+    await record_audit_event(db, actor_id=user.id, action="user.account_deleted", resource_type="user", resource_id=str(user.id))
     await delete_account(db, user)
     await db.commit()
     return MessageResponse(message="Your account and all associated data have been permanently deleted.")
@@ -274,5 +293,11 @@ async def export_me(
     db: AsyncSession = Depends(get_db),
 ):
     data = await export_user_data(db, user)
+    # A full personal-data export is itself a sensitive action worth a
+    # record — e.g. if the account is later compromised, "was a data
+    # export ever taken" is a real question an admin/the user might need
+    # answered, and nothing was recording it before this.
+    await record_audit_event(db, actor_id=user.id, action="user.data_exported", resource_type="user", resource_id=str(user.id))
+    await db.commit()
     return Response(content=json.dumps(data, default=str, indent=2), media_type="application/json",
                     headers={"Content-Disposition": f"attachment; filename=user-data-{user.id}.json"})

@@ -7,11 +7,22 @@ from fastapi import Request, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 
 try:
     from asyncpg.exceptions import PostgresError
 except ImportError:  # pragma: no cover - asyncpg is always installed outside tests using a different driver
     PostgresError = ()  # type: ignore[assignment]
+
+# Both signal "no DB connection available right now" — PostgresError when the
+# database/pooler itself rejects the connection (e.g. Supabase's pooler at
+# its client cap), SATimeoutError when SQLAlchemy's own local pool queue
+# (pool_size + max_overflow) fills up first and a checkout waits out
+# pool_timeout without ever reaching the database at all. Load testing hit
+# both: the first before DB_POOL_SIZE/DB_MAX_OVERFLOW were sized to the
+# pooler's cap, the second under load heavy enough to fill even the
+# corrected, smaller local pool.
+_DB_UNAVAILABLE_ERRORS = (PostgresError, SATimeoutError)
 
 logger = structlog.get_logger("survivalschool.errors")
 
@@ -101,6 +112,16 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
         message = f"{loc}: {first['msg']}" if loc else first["msg"]
     else:
         message = "Validation failed."
+    # Pydantic's .errors() includes the raw submitted value under "input" for
+    # every failed field — for a password-policy failure (RegisterRequest,
+    # ResetPasswordRequest) that's the user's plaintext password, echoed back
+    # into the HTTP response body and anything that logs it (proxies, error
+    # trackers, browser devtools). The field location + message already tell
+    # the client what's wrong; the client never needs its own submitted value
+    # reflected back, so strip "input" from every error rather than trying to
+    # enumerate which field names are sensitive.
+    for error in errors:
+        error.pop("input", None)
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content={
@@ -138,15 +159,17 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     except ImportError:
         pass
 
-    # A raw PostgresError surfacing here (rather than an AppError a route
-    # raised on purpose) means the database/connection pooler itself
-    # rejected the connection — e.g. Supabase's session-mode pooler capping
-    # out at its configured client limit under concurrent load. That's a
-    # transient capacity condition, not a bug in this app: tell the client
-    # to retry (503) instead of the generic "something is broken here" 500,
-    # which is both more honest and lets a well-behaved client back off and
-    # succeed on its own rather than surfacing a dead end.
-    if isinstance(exc, PostgresError):
+    # A raw PostgresError or SQLAlchemy pool TimeoutError surfacing here
+    # (rather than an AppError a route raised on purpose) means no database
+    # connection was available — either the pooler itself rejected the
+    # connection (e.g. Supabase's session-mode pooler at its client cap) or
+    # SQLAlchemy's own local pool queue filled up first and a checkout timed
+    # out before ever reaching the database. Both are transient capacity
+    # conditions, not a bug in this app: tell the client to retry (503)
+    # instead of the generic "something is broken here" 500, which is both
+    # more honest and lets a well-behaved client back off and succeed on its
+    # own rather than surfacing a dead end.
+    if isinstance(exc, _DB_UNAVAILABLE_ERRORS):
         return JSONResponse(
             status_code=503,
             content={

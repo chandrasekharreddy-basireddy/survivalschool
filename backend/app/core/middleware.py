@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import uuid
 
@@ -57,13 +58,26 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+_SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     """Attaches a request_id to every request/response and logs structured
     access lines. Request IDs propagate into error envelopes and audit logs
     (spec sections 28, 30)."""
 
     async def dispatch(self, request: Request, call_next):
-        request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+        # A client-supplied X-Request-Id is convenient for correlating a
+        # request across a caller's own logs and ours, but it's untrusted
+        # input flowing straight into log fields and getting echoed back
+        # into a response header — an oversized value, embedded control
+        # characters (a naive echo of CR/LF here would be a header-injection
+        # vector, same class of bug as an unsanitized filename in a
+        # Content-Disposition header) or non-ASCII noise could forge/corrupt
+        # log lines or downstream headers. Only accept it if it already
+        # looks like a real id; otherwise mint our own.
+        client_request_id = request.headers.get("x-request-id")
+        request_id = client_request_id if client_request_id and _SAFE_REQUEST_ID.match(client_request_id) else str(uuid.uuid4())
         request.state.request_id = request_id
         start = time.perf_counter()
         response = await call_next(request)

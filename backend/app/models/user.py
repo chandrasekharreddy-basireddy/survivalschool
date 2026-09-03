@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -205,6 +206,40 @@ class Session(Base, UUIDPk, Timestamped):
     ip_address: Mapped[str | None] = mapped_column(String(64))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WebAuthnCredential(Base, UUIDPk, Timestamped):
+    """A registered passkey (WebAuthn public-key credential) — an additional
+    sign-in factor a logged-in user opts into from Settings, not a
+    replacement for the password itself. See POST /auth/passkeys/* in
+    auth.py for the registration/authentication ceremonies."""
+
+    __tablename__ = "webauthn_credentials"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The credential handle the browser hands back on every use, stored as
+    # base64url text (the same encoding the WebAuthn JSON serialization
+    # convention uses for the `id` field) rather than raw bytes, so it can
+    # be compared directly against what navigator.credentials.get() returns
+    # without a decode step.
+    credential_id: Mapped[str] = mapped_column(String(1024), unique=True, nullable=False, index=True)
+    # The authenticator's COSE public key, stored exactly as returned by
+    # verify_registration_response — used to verify every later assertion's
+    # signature. Never exposed to the client (see PasskeyOut in schemas/auth.py).
+    public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # Clone-detection counter (WebAuthn spec section 6.1.1). Many platform
+    # authenticators (Touch ID, Windows Hello) never increment this and
+    # always report 0 -- the sign_count check in passkey_login_verify only
+    # treats a non-increasing count as cloning once the stored value is
+    # actually nonzero, so those authenticators aren't permanently locked
+    # out after their first use.
+    sign_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    device_label: Mapped[str | None] = mapped_column(String(255))
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship()
 
 
 class InstructorApplication(Base, UUIDPk, Timestamped):

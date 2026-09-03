@@ -9,6 +9,7 @@ import { PageLoader } from "@/components/PageLoader";
 
 interface Subject { id: string; name: string; slug: string }
 interface Topic { id: string; name: string; slug: string }
+interface MyQuestionStats { questions_created: number }
 
 const QUESTION_TYPES = [
   { value: "single", label: "Single answer" },
@@ -25,6 +26,12 @@ export default function InstructorPage() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [subjectId, setSubjectId] = useState("");
   const [topicId, setTopicId] = useState("");
+  const [stats, setStats] = useState<MyQuestionStats | null>(null);
+
+  useEffect(() => {
+    if (!user) return;
+    apiFetch<MyQuestionStats>("/questions/me/stats").then(setStats).catch(() => setStats(null));
+  }, [user]);
 
   const [newSubjectName, setNewSubjectName] = useState("");
   const [newTopicName, setNewTopicName] = useState("");
@@ -109,6 +116,7 @@ export default function InstructorPage() {
       });
       setPrompt("");
       setOptions([{ text: "", is_correct: true }, { text: "", is_correct: false }]);
+      setStats((prev) => (prev ? { questions_created: prev.questions_created + 1 } : prev));
       toast.show("Question added to the bank.", "success");
     } catch (err) {
       toast.show(err instanceof ApiError ? err.message : "Couldn't save that question.", "error");
@@ -136,7 +144,10 @@ export default function InstructorPage() {
         { method: "POST", body: form, timeoutMs: 60000 }
       );
       setImportResult(result);
-      if (commit && result?.committed) toast.show(`Imported ${result.inserted_count} questions.`, "success");
+      if (commit && result?.committed) {
+        setStats((prev) => (prev ? { questions_created: prev.questions_created + result.inserted_count } : prev));
+        toast.show(`Imported ${result.inserted_count} questions.`, "success");
+      }
     } catch (err) {
       toast.show(err instanceof ApiError ? err.message : "Import failed.", "error");
     } finally {
@@ -153,6 +164,17 @@ export default function InstructorPage() {
         Add real, human-authored questions to the shared bank — every AI Weekly Exam, Elimination Battle, and practice
         session draws from this pool alongside AI-generated ones.
       </p>
+
+      <div className="card mt-6 flex items-center justify-between !p-4">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-fg-subtle">Your contribution</p>
+          <p className="mt-1 text-3xl font-bold text-fg">{stats === null ? "—" : stats.questions_created}</p>
+        </div>
+        <p className="max-w-xs text-right text-xs text-fg-subtle">
+          questions you&apos;ve added to the shared bank, alone or via bulk import — the whole platform draws from this
+          same pool, not just your own students.
+        </p>
+      </div>
 
       {isAdmin && (
         <div className="card mt-6">

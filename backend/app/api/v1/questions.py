@@ -8,12 +8,15 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ValidationAppError
 from app.database import get_db
 from app.dependencies import require_permission
 from app.models.assessment import Question, QuestionOption
+from app.models.system import AuditLog
 from app.models.user import User
 from app.schemas.assessment import QuestionCreate, QuestionOut
 from app.schemas.question_import import ImportPreviewOut, ImportRowOut
@@ -21,6 +24,32 @@ from app.services.audit_service import record_audit_event
 from app.services.question_import_service import commit_rows, parse_csv, parse_xlsx
 
 router = APIRouter(prefix="/questions", tags=["question-bank"])
+
+
+class MyQuestionStatsOut(BaseModel):
+    questions_created: int
+
+
+@router.get("/me/stats", response_model=MyQuestionStatsOut)
+async def my_question_stats(
+    user: User = Depends(require_permission("quiz.create", "exam.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """A lecturer's own contribution count to the shared question bank —
+    there's no per-instructor ownership on Question itself (the bank is
+    genuinely shared, not course-scoped, see this module's docstring), so
+    this is derived from the audit trail instead: one question.create event
+    per single question, plus the inserted_count on each question.
+    bulk_import event (bulk rows are logged as one event per batch, not one
+    per row — see bulk_import_questions above)."""
+    single_count = (await db.execute(
+        select(AuditLog).where(AuditLog.actor_id == user.id, AuditLog.action == "question.create", AuditLog.result == "success")
+    )).scalars().all()
+    bulk_events = (await db.execute(
+        select(AuditLog).where(AuditLog.actor_id == user.id, AuditLog.action == "question.bulk_import", AuditLog.result == "success")
+    )).scalars().all()
+    bulk_count = sum((e.metadata_json or {}).get("inserted_count", 0) for e in bulk_events)
+    return MyQuestionStatsOut(questions_created=len(single_count) + bulk_count)
 
 
 @router.post("", response_model=QuestionOut, status_code=201)

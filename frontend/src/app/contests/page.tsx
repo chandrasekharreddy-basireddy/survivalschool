@@ -28,14 +28,37 @@ const STATUS_STYLE: Record<string, string> = {
   closed: "border-ink-700 text-fg-subtle",
 };
 
+const PAGE_SIZE = 50;
+
 export default function ContestsPage() {
   const [upcoming, setUpcoming] = useState<Contest[] | null>(null);
   const [all, setAll] = useState<Contest[] | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcoming).catch(() => setUpcoming([]));
-    apiFetch<Contest[]>("/contests", { auth: false }).then(setAll).catch(() => setAll([]));
+    apiFetch<Contest[]>(`/contests?limit=${PAGE_SIZE}&offset=0`, { auth: false })
+      .then((page) => {
+        setAll(page);
+        setHasMore(page.length === PAGE_SIZE);
+      })
+      .catch(() => setAll([]));
   }, []);
+
+  const loadMore = async () => {
+    if (!all || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = await apiFetch<Contest[]>(`/contests?limit=${PAGE_SIZE}&offset=${all.length}`, { auth: false });
+      setAll((prev) => [...(prev ?? []), ...page]);
+      setHasMore(page.length === PAGE_SIZE);
+    } catch {
+      // leave the "load more" control in place so the user can retry
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const next = upcoming?.[0];
 
@@ -80,6 +103,16 @@ export default function ContestsPage() {
             </span>
           </Link>
         ))}
+        {hasMore && (
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="btn-secondary w-full disabled:opacity-60"
+          >
+            {loadingMore ? "Loading…" : "Load more"}
+          </button>
+        )}
       </div>
     </div>
   );

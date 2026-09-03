@@ -26,6 +26,17 @@ from app.services import storage_service
 router = APIRouter(prefix="/files", tags=["files"])
 settings = get_settings()
 
+_CONTROL_CHARS = {chr(c) for c in range(0x00, 0x20)} | {chr(0x7F)}
+
+
+def _safe_disposition_filename(name: str) -> str:
+    """Sanitize a stored filename before it lands in a Content-Disposition
+    header. Starlette's own quoting only guards non-ASCII names — an ASCII
+    name containing '"' or CR/LF passes straight through into the header,
+    letting a crafted upload filename inject extra header fields."""
+    cleaned = "".join(ch for ch in name if ch not in _CONTROL_CHARS).replace("\\", "\\\\").replace('"', '\\"')
+    return cleaned or "file"
+
 # CI tests intentionally exercise the upload/download API with short-lived
 # temporary directories. Keep a tiny in-memory copy only in test mode so a
 # test that cleans its temp directory before the download assertion still
@@ -147,19 +158,19 @@ async def download_file(file_id: uuid.UUID, user: User | None = Depends(get_curr
         return Response(
             content=content,
             media_type=record.mime_type,
-            headers={"Content-Disposition": f'inline; filename="{record.original_filename}"'},
+            headers={"Content-Disposition": f'inline; filename="{_safe_disposition_filename(record.original_filename)}"'},
         )
     if record.storage_backend == "local":
         path = os.path.join(settings.STORAGE_LOCAL_PATH, record.storage_key)
         if os.path.isfile(path):
-            return FileResponse(path, media_type=record.mime_type, filename=record.original_filename)
+            return FileResponse(path, media_type=record.mime_type, filename=_safe_disposition_filename(record.original_filename))
         if settings.APP_ENV == "test":
             content = _TEST_LOCAL_CONTENT.get(record.storage_key)
             if content is not None:
                 return Response(
                     content=content,
                     media_type=record.mime_type,
-                    headers={"Content-Disposition": f'inline; filename="{record.original_filename}"'},
+                    headers={"Content-Disposition": f'inline; filename="{_safe_disposition_filename(record.original_filename)}"'},
                 )
         raise NotFoundError("File not found.")
     raise ServiceUnavailableError("File storage backend is not available in this deployment.")

@@ -9,6 +9,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { getPostLoginPath } from "@/lib/roles";
 import { PageLoader } from "@/components/PageLoader";
+import { isPasskeySupported, loginWithPasskey } from "@/lib/webauthn";
 
 /** Only ever follow an internal, single-slash path from ?next= — a bare
  * "//evil.com" or "/\evil.com" is parsed by browsers as a protocol-relative
@@ -63,7 +64,7 @@ function LoginPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = safeNextPath(searchParams.get("next"));
-  const { user, loading, login, verifyMfa } = useAuth();
+  const { user, loading, login, verifyMfa, completePasskeyLogin } = useAuth();
   const toast = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -72,6 +73,14 @@ function LoginPageInner() {
   const [resending, setResending] = useState(false);
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
+  // Checked only after mount (isPasskeySupported reads window.PublicKeyCredential)
+  // so the server-rendered markup never has to guess a browser capability.
+  const [passkeySupported, setPasskeySupported] = useState(false);
+  const [passkeySubmitting, setPasskeySubmitting] = useState(false);
+
+  useEffect(() => {
+    setPasskeySupported(isPasskeySupported());
+  }, []);
 
   // A visitor who is already signed in shouldn't see a login form — send them
   // straight to their role's home (or back to whatever ?next= page sent them
@@ -110,6 +119,27 @@ function LoginPageInner() {
       setError(err instanceof ApiError ? err.message : "Invalid code. Please try again.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const onPasskeyLogin = async () => {
+    if (!email.trim()) {
+      setError("Enter your email above, then choose “Sign in with a passkey.”");
+      return;
+    }
+    setError(null);
+    setPasskeySubmitting(true);
+    try {
+      const tokens = await loginWithPasskey(email.trim().toLowerCase());
+      const me = await completePasskeyLogin(tokens.access_token, tokens.refresh_token);
+      router.push(next ?? getPostLoginPath(me));
+    } catch (err) {
+      // A cancelled/dismissed native prompt throws a DOMException, not an
+      // ApiError -- fall back to its message (or a generic one) rather than
+      // showing nothing.
+      setError(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Passkey sign-in failed. Please try again.");
+    } finally {
+      setPasskeySubmitting(false);
     }
   };
 
@@ -208,6 +238,24 @@ function LoginPageInner() {
             {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
+
+        {passkeySupported && (
+          <>
+            <div className="mt-5 flex items-center gap-3 text-xs font-medium uppercase tracking-wide text-fg-subtle">
+              <span className="h-px flex-1 bg-ink-700" />
+              or
+              <span className="h-px flex-1 bg-ink-700" />
+            </div>
+            <button
+              type="button"
+              onClick={onPasskeyLogin}
+              disabled={passkeySubmitting}
+              className="btn-secondary mt-5 w-full"
+            >
+              {passkeySubmitting ? "Waiting for your passkey…" : "Sign in with a passkey"}
+            </button>
+          </>
+        )}
 
         <p className="mt-6 text-center text-sm text-fg-muted">
           New here? <Link href="/register" className="font-medium text-brand-600 underline dark:text-brand-400">Create an account</Link>

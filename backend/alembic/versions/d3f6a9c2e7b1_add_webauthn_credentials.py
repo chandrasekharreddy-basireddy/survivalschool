@@ -5,7 +5,7 @@ in later (POST /auth/passkeys/login/*). See app/models/user.py's
 WebAuthnCredential for field-by-field rationale.
 
 Revision ID: d3f6a9c2e7b1
-Revises: c4e8a2f6b9d3
+Revises: c5e030e83014
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "d3f6a9c2e7b1"
-down_revision: str | None = "c4e8a2f6b9d3"
+down_revision: str | None = "c5e030e83014"
 branch_labels: str | None = None
 depends_on: str | None = None
 

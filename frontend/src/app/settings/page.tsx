@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { getPushSupport, isSubscribedToPush, sendTestPush, subscribeToPush, unsubscribeFromPush } from "@/lib/push";
+import { isPasskeySupported, registerPasskey, type PasskeyOut } from "@/lib/webauthn";
 import { PageLoader } from "@/components/PageLoader";
 
 interface Preferences {
@@ -113,6 +114,8 @@ export default function SettingsPage() {
       <PushNotificationsSection />
 
       <TwoFactorSection />
+
+      <PasskeysSection />
 
       <div className="card mt-6 border-red-500/20">
         <h2 className="font-semibold text-fg">Security</h2>
@@ -516,6 +519,127 @@ function TwoFactorSection() {
         <button onClick={startSetup} disabled={busy} className="btn-primary mt-4">
           {busy ? "Starting…" : "Set up two-factor authentication"}
         </button>
+      )}
+    </div>
+  );
+}
+
+/** A rough guess at a human-friendly name for the current device/browser, used
+ * to pre-fill a new passkey's device_label. Purely cosmetic -- there's no way
+ * to ask the authenticator itself for a name, so this is the same kind of
+ * best-effort label a browser's own "manage passkeys" UI shows. */
+function guessDeviceLabel(): string {
+  if (typeof navigator === "undefined") return "This device";
+  const ua = navigator.userAgent;
+  const os = /iPhone|iPad/.test(ua) ? "iPhone/iPad" : /Mac/.test(ua) ? "Mac" : /Android/.test(ua) ? "Android" : /Windows/.test(ua) ? "Windows PC" : /Linux/.test(ua) ? "Linux" : "This device";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "";
+  return browser ? `${os} · ${browser}` : os;
+}
+
+function PasskeysSection() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [supported, setSupported] = useState(false);
+  const [passkeys, setPasskeys] = useState<PasskeyOut[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      setPasskeys(await apiFetch<PasskeyOut[]>("/auth/passkeys"));
+    } catch {
+      setPasskeys([]);
+    }
+  };
+
+  useEffect(() => {
+    setSupported(isPasskeySupported());
+    load();
+  }, []);
+
+  const addPasskey = async () => {
+    setAdding(true);
+    try {
+      await registerPasskey(guessDeviceLabel());
+      await load();
+      toast.show("Passkey added.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Couldn't add a passkey.", "error");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const removePasskey = async (id: string) => {
+    setRemovingId(id);
+    try {
+      await apiFetch(`/auth/passkeys/${id}`, { method: "DELETE" });
+      setPasskeys((prev) => prev?.filter((p) => p.id !== id) ?? prev);
+      setConfirmRemoveId(null);
+      toast.show("Passkey removed.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't remove that passkey.", "error");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  if (!user) return null;
+
+  return (
+    <div className="card mt-6">
+      <h2 className="font-semibold text-fg">Passkeys</h2>
+      <p className="mt-2 text-sm text-fg-muted">
+        Sign in without a password, using your device&apos;s fingerprint, face, or screen lock instead.
+      </p>
+
+      {!supported ? (
+        <p className="mt-3 text-sm text-fg-subtle">Not supported in this browser.</p>
+      ) : passkeys === null ? (
+        <p className="mt-3 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
+      ) : (
+        <>
+          {passkeys.length === 0 ? (
+            <p className="mt-3 text-sm text-fg-subtle">No passkeys added yet.</p>
+          ) : (
+            <ul className="mt-4 space-y-2">
+              {passkeys.map((pk) => (
+                <li key={pk.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-700 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-fg">{pk.device_label || "Unnamed passkey"}</p>
+                    <p className="text-xs text-fg-subtle">
+                      Added {new Date(pk.created_at).toLocaleDateString()}
+                      {pk.last_used_at ? ` · Last used ${new Date(pk.last_used_at).toLocaleDateString()}` : " · Never used"}
+                    </p>
+                  </div>
+                  {confirmRemoveId === pk.id ? (
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        onClick={() => removePasskey(pk.id)}
+                        disabled={removingId === pk.id}
+                        className="btn-secondary !py-1.5 text-sm text-red-700 dark:text-red-400"
+                      >
+                        {removingId === pk.id ? "Removing…" : "Confirm"}
+                      </button>
+                      <button onClick={() => setConfirmRemoveId(null)} className="btn-secondary !py-1.5 text-sm">Cancel</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRemoveId(pk.id)}
+                      className="btn-secondary shrink-0 !py-1.5 text-sm text-red-700 dark:text-red-400"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <button onClick={addPasskey} disabled={adding} className="btn-primary mt-4">
+            {adding ? "Waiting for your device…" : "Add a passkey"}
+          </button>
+        </>
       )}
     </div>
   );

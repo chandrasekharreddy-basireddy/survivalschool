@@ -40,12 +40,13 @@ from sqlalchemy.orm import selectinload
 from app.models.assessment import Question
 from app.models.contest import Contest, ContestAnswer, ContestAttempt, ContestCertificate
 from app.models.user import User
+from app.security.exam_answer_crypto import get_saved_answer
 from app.services.audit_service import record_audit_event
 from app.services.cache_service import bump_cache_version, cache_delete
 from app.services.contest_certificate_service import certificate_expiry
 from app.services.gamification_service import award_points
 from app.services.notification_service import create_notification
-from app.services.scoring_service import summarize_attempt
+from app.services.scoring_service import grade_answer, summarize_attempt
 
 logger = structlog.get_logger("survivalschool.contests")
 
@@ -184,7 +185,13 @@ async def _finalize_abandoned_attempt(db: AsyncSession, attempt: ContestAttempt)
             question = questions_by_id.get(qid)
             if question is None:
                 continue
-            db.add(ContestAnswer(attempt_id=attempt.id, question_id=qid, selected_option_ids=[], is_correct=False, points_awarded=0))
+            # Grade against whatever was autosaved, if anything, rather than
+            # blank -- see app.security.exam_answer_crypto.get_saved_answer.
+            saved = get_saved_answer(attempt.autosave_ciphertext, qid)
+            sel, text_answer = saved if saved is not None else ([], None)
+            is_correct, points = grade_answer(question, sel, text_answer)
+            points_earned += points
+            db.add(ContestAnswer(attempt_id=attempt.id, question_id=qid, selected_option_ids=sel, text_answer=text_answer, is_correct=is_correct, points_awarded=points))
     all_qids = [uuid.UUID(q) for q in attempt.question_order]
     all_questions = (await db.execute(select(Question).where(Question.id.in_(all_qids)))).scalars().all()
     points_possible = sum(q.points for q in all_questions)
@@ -197,6 +204,7 @@ async def _finalize_abandoned_attempt(db: AsyncSession, attempt: ContestAttempt)
     attempt.status = "submitted"
     attempt.submitted_at = now
     attempt.time_taken_seconds = int((now - attempt.started_at).total_seconds())
+    attempt.autosave_ciphertext = None
     await record_audit_event(
         db, actor_id=None, action="contest.auto_submitted_deadline", resource_type="contest_attempt",
         resource_id=str(attempt.id), metadata={"score_percent": score_percent, "answered_count": len(answered_qids)},

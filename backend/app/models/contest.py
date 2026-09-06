@@ -122,6 +122,11 @@ class ContestAttempt(Base, UUIDPk, Timestamped):
     flagged_events: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     allowed_ip: Mapped[str | None] = mapped_column(String(64))
     violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Encrypted (Fernet, see app.security.exam_answer_crypto) periodic
+    # autosave of in-progress answers -- ciphertext at rest so a student's
+    # answers on a still-open exam aren't readable by anyone with DB access
+    # before the exam closes. Cleared once the attempt is submitted/finalized.
+    autosave_ciphertext: Mapped[str | None] = mapped_column(Text)
 
 
 class ContestAnswer(Base, UUIDPk, Timestamped):

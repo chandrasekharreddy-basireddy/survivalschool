@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
@@ -40,6 +40,7 @@ export default function ContestDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [cameraDenied, setCameraDenied] = useState(false);
   const [cameraDeniedReported, setCameraDeniedReported] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
 
   const loadLeaderboard = useCallback(() => {
     apiFetch<LeaderboardEntry[]>(`/contests/${params.id}/leaderboard`, { auth: false }).then(setLeaderboard).catch(() => {});
@@ -60,6 +61,22 @@ export default function ContestDetailPage() {
       setDeadline(start.server_deadline_at);
       const qs = await apiFetch<QuestionPublic[]>(`/contests/attempts/${start.attempt_id}/questions`);
       setQuestions(qs);
+      if (start.resumed) {
+        // Restore whatever was autosaved before the page was left/crashed —
+        // otherwise resuming an in-progress attempt silently threw away
+        // every answer already given, even without an actual crash.
+        try {
+          const saved = await apiFetch<{ answers: { question_id: string; selected_option_ids: string[] }[] }>(
+            `/contests/attempts/${start.attempt_id}/autosave`
+          );
+          if (saved.answers.length > 0) {
+            setAnswers(Object.fromEntries(saved.answers.map((a) => [a.question_id, a.selected_option_ids])));
+            toast.show("Restored your previous answers.", "success");
+          }
+        } catch {
+          // Non-fatal — worst case the student re-answers from scratch.
+        }
+      }
       if (contest?.fullscreen_required && document.documentElement.requestFullscreen) {
         // Best-effort — some browsers/contexts refuse this without a more
         // direct user gesture, but the "join" click itself usually counts.
@@ -103,6 +120,30 @@ export default function ContestDetailPage() {
       return { ...prev, [question.id]: next };
     });
   };
+
+  // Debounced autosave: answers previously lived only in this component's
+  // state until "Submit final answers" was clicked, so a crash, a closed
+  // tab, or the browser just dying mid-exam lost everything. Answers are
+  // encrypted at rest server-side (see backend's exam_answer_crypto) —
+  // fine-grained per-keystroke autosave isn't a bigger privacy exposure
+  // than the final submit already is.
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!attemptId || !questions || result) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      setSaveStatus("saving");
+      apiFetch(`/contests/attempts/${attemptId}/autosave`, {
+        method: "PUT",
+        body: JSON.stringify({ answers: questions.map((q) => ({ question_id: q.id, selected_option_ids: answers[q.id] || [] })) }),
+      })
+        .then(() => setSaveStatus("saved"))
+        .catch(() => setSaveStatus("idle"));
+    }, 1500);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [answers, attemptId, questions, result]);
 
   const submit = async () => {
     if (!attemptId || !questions || submitting) return;
@@ -171,7 +212,12 @@ export default function ContestDetailPage() {
         >
         <div className="mt-6 space-y-6">
           {deadline && <AttemptTimer deadline={deadline} onExpire={submit} />}
-          {deadline && <p className="text-xs text-fg-subtle">Deadline: {formatDateTime(deadline)}</p>}
+          <div className="flex items-center justify-between">
+            {deadline && <p className="text-xs text-fg-subtle">Deadline: {formatDateTime(deadline)}</p>}
+            {saveStatus !== "idle" && (
+              <p className="text-xs text-fg-subtle">{saveStatus === "saving" ? "Saving…" : "Answers saved ✓"}</p>
+            )}
+          </div>
           {contest.integrity_monitoring_enabled && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
               This exam is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste is logged and can auto-submit your attempt immediately, with no credit for anything left unanswered.

@@ -61,6 +61,14 @@ class ContestSubmit(BaseModel):
     answers: list[AnswerSubmit]
 
 
+class ContestAutosaveIn(BaseModel):
+    answers: list[AnswerSubmit]
+
+
+class ContestAutosaveOut(BaseModel):
+    answers: list[AnswerSubmit]
+
+
 class ContestResultOut(BaseModel):
     id: uuid.UUID
     contest_id: uuid.UUID

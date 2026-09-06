@@ -16,13 +16,20 @@ from app.dependencies import get_client_ip, get_current_verified_user, require_p
 from app.models.assessment import Question
 from app.models.contest import Contest, ContestAnswer, ContestAttempt, ContestCertificate
 from app.models.user import Profile, User
-from app.schemas.assessment import FlaggedAttemptOut, IntegrityEventIn, QuestionPublicOut
+from app.schemas.assessment import (
+    AnswerSubmit,
+    FlaggedAttemptOut,
+    IntegrityEventIn,
+    QuestionPublicOut,
+)
 from app.schemas.contest import (
     AIWeeklyRegisterIn,
     AIWeeklyRegisterOut,
     AIWeeklyWinsLeaderboardEntryOut,
     CertificateSigningKeyOut,
     ContestAttemptStartOut,
+    ContestAutosaveIn,
+    ContestAutosaveOut,
     ContestCertificateOut,
     ContestCertificatePublicOut,
     ContestCertificateRevokeOut,
@@ -33,6 +40,7 @@ from app.schemas.contest import (
     LeaderboardEntryOut,
 )
 from app.security.certificate_signing import SIGNING_ALGORITHM, public_key_base64
+from app.security.exam_answer_crypto import decrypt_answers, encrypt_answers, get_saved_answer
 from app.services.ai_exam_service import register_for_ai_weekly_exam
 from app.services.audit_service import record_audit_event
 from app.services.cache_service import (
@@ -321,7 +329,14 @@ async def _force_finalize_contest_attempt(db: AsyncSession, attempt: ContestAtte
             if question is None:
                 continue
             points_possible += question.points
-            db.add(ContestAnswer(attempt_id=attempt.id, question_id=qid, selected_option_ids=[], is_correct=False, points_awarded=0))
+            # A question the student autosaved an answer for but never
+            # clicked "final submit" on shouldn't be graded as blank just
+            # because a violation forced the attempt closed early.
+            saved = get_saved_answer(attempt.autosave_ciphertext, qid)
+            sel, text_answer = saved if saved is not None else ([], None)
+            is_correct, points = grade_answer(question, sel, text_answer)
+            points_earned += points
+            db.add(ContestAnswer(attempt_id=attempt.id, question_id=qid, selected_option_ids=sel, text_answer=text_answer, is_correct=is_correct, points_awarded=points))
     # Add back the points_possible already contributed by answered questions.
     answered_qids_list = list(answered_qids)
     if answered_qids_list:
@@ -335,6 +350,7 @@ async def _force_finalize_contest_attempt(db: AsyncSession, attempt: ContestAtte
     attempt.status = "submitted"
     attempt.submitted_at = now
     attempt.time_taken_seconds = int((now - attempt.started_at).total_seconds())
+    attempt.autosave_ciphertext = None
     attempt.flagged_events = attempt.flagged_events + [{"type": "auto_submit_integrity_limit", "at": now.isoformat()}]
     await record_audit_event(db, actor_id=user.id, action="contest.auto_submitted_integrity", resource_type="contest_attempt", resource_id=str(attempt.id), metadata={"violation_count": attempt.violation_count, "score_percent": score_percent})
     await cache_delete(_leaderboard_cache_key(attempt.contest_id))
@@ -390,6 +406,38 @@ async def get_contest_attempt_questions(attempt_id: uuid.UUID, user: User = Depe
     return [QuestionPublicOut.model_validate(questions[q]) for q in question_ids if q in questions]
 
 
+@router.put("/attempts/{attempt_id}/autosave")
+async def autosave_contest_attempt(attempt_id: uuid.UUID, payload: ContestAutosaveIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    attempt = await db.get(ContestAttempt, attempt_id)
+    if attempt is None or attempt.student_id != user.id:
+        raise NotFoundError("Attempt not found.")
+    if attempt.status != "in_progress":
+        raise ConflictError("This attempt is no longer in progress.")
+    # Encrypted at rest -- see app.security.exam_answer_crypto for why an
+    # in-progress exam's answers shouldn't be plaintext-readable from the
+    # database before the exam closes.
+    attempt.autosave_ciphertext = encrypt_answers({
+        str(a.question_id): {"selected_option_ids": [str(o) for o in a.selected_option_ids], "text_answer": a.text_answer}
+        for a in payload.answers
+    })
+    await db.commit()
+    return {"saved": True}
+
+
+@router.get("/attempts/{attempt_id}/autosave", response_model=ContestAutosaveOut)
+async def get_contest_attempt_autosave(attempt_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    attempt = await db.get(ContestAttempt, attempt_id)
+    if attempt is None or attempt.student_id != user.id:
+        raise NotFoundError("Attempt not found.")
+    if not attempt.autosave_ciphertext:
+        return ContestAutosaveOut(answers=[])
+    saved = decrypt_answers(attempt.autosave_ciphertext)
+    return ContestAutosaveOut(answers=[
+        AnswerSubmit(question_id=uuid.UUID(qid), selected_option_ids=[uuid.UUID(o) for o in a["selected_option_ids"]], text_answer=a.get("text_answer"))
+        for qid, a in saved.items()
+    ])
+
+
 @router.post("/attempts/{attempt_id}/submit", response_model=ContestResultOut)
 async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     attempt = await db.get(ContestAttempt, attempt_id, with_for_update=True)
@@ -437,6 +485,7 @@ async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, 
     attempt.status = "submitted"
     attempt.submitted_at = now
     attempt.time_taken_seconds = int((now - attempt.started_at).total_seconds())
+    attempt.autosave_ciphertext = None
     await record_audit_event(db, actor_id=user.id, action="contest.attempt_submitted", resource_type="contest_attempt", resource_id=str(attempt.id))
     await db.commit()
     await db.refresh(attempt)

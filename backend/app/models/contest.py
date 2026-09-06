@@ -76,6 +76,11 @@ class Contest(Base, UUIDPk, Timestamped):
     fullscreen_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     integrity_monitoring_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     max_integrity_violations: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    # Client-side webcam face-presence checks (no_face_detected /
+    # multiple_faces_detected events) -- see FaceProctor.tsx. Frames never
+    # leave the browser, only the resulting violation type does, so this is
+    # opt-in per contest rather than folded into integrity_monitoring_enabled.
+    face_proctoring_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class ContestAttempt(Base, UUIDPk, Timestamped):

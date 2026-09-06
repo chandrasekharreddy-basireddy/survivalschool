@@ -22,6 +22,7 @@ class ContestOut(BaseModel):
     question_count: int = 0
     fullscreen_required: bool = False
     integrity_monitoring_enabled: bool = False
+    face_proctoring_required: bool = False
     model_config = {"from_attributes": True}
 
 

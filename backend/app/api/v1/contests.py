@@ -73,6 +73,7 @@ def _contest_out(contest: Contest) -> ContestOut:
         duration_seconds=contest.duration_seconds, top_n_awarded=contest.top_n_awarded, status=contest.status,
         question_count=len(contest.question_ids),
         fullscreen_required=contest.fullscreen_required, integrity_monitoring_enabled=contest.integrity_monitoring_enabled,
+        face_proctoring_required=contest.face_proctoring_required,
     )
 
 

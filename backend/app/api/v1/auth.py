@@ -122,6 +122,20 @@ async def _load_user_with_roles(db: AsyncSession, user_id: uuid.UUID) -> User | 
     return result.scalar_one_or_none()
 
 
+async def _is_known_device(db: AsyncSession, user_id: uuid.UUID, request: Request) -> bool:
+    """Has this user ever signed in with this exact User-Agent before? Used
+    to gate the login-alert email to genuinely NEW devices instead of firing
+    on every single login -- must be called before _issue_tokens() creates
+    this login's own session row, or it would always match itself."""
+    user_agent = request.headers.get("user-agent")
+    if not user_agent:
+        return False
+    existing = (await db.execute(
+        select(SessionModel.id).where(SessionModel.user_id == user_id, SessionModel.user_agent == user_agent).limit(1)
+    )).scalar_one_or_none()
+    return existing is not None
+
+
 async def _issue_tokens(db: AsyncSession, user: User, request: Request, device_label: str | None) -> TokenResponse:
     session_row = SessionModel(
         user_id=user.id,
@@ -439,6 +453,7 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
         await db.commit()
         return MFAChallengeOut(mfa_token=mfa_token)
 
+    is_new_device = not await _is_known_device(db, user.id, request)
     tokens = await _issue_tokens(db, user, request, payload.device_label)
     await record_audit_event(db, actor_id=user.id, action="user.login", resource_type="user",
                               resource_id=str(user.id), ip_address=get_client_ip(request))
@@ -448,16 +463,19 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
     # The login already succeeded and committed above. The security-alert
     # notification is a best-effort side effect: if it (or its own commit)
     # fails, log it and still return valid tokens rather than turning a
-    # successful sign-in into a 500 the user can do nothing about.
-    try:
-        await notify_security_event(
-            db, user, "login_alert", "New sign-in to your account",
-            device_label=payload.device_label, ip_address=get_client_ip(request),
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.warning("login_alert_notify_failed", user_id=str(user.id))
+    # successful sign-in into a 500 the user can do nothing about. Only sent
+    # for a device (User-Agent) this account hasn't signed in from before --
+    # otherwise every routine login would trigger it.
+    if is_new_device:
+        try:
+            await notify_security_event(
+                db, user, "login_alert", "New sign-in to your account",
+                device_label=payload.device_label, ip_address=get_client_ip(request),
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning("login_alert_notify_failed", user_id=str(user.id))
     return tokens
 
 
@@ -506,22 +524,24 @@ async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, db: 
         await db.commit()
         raise AuthenticationError("Invalid authentication code.", code="invalid_2fa_code")
 
+    is_new_device = not await _is_known_device(db, user.id, request)
     tokens = await _issue_tokens(db, user, request, None)
     await record_audit_event(db, actor_id=user.id, action="user.login", resource_type="user",
                               resource_id=str(user.id), ip_address=get_client_ip(request))
     await track_event(db, event_type="login", user_id=user.id, source="web")
     await db.commit()
 
-    # Best-effort post-login alert — see the note on the password login path.
-    try:
-        await notify_security_event(
-            db, user, "login_alert", "New sign-in to your account",
-            device_label=None, ip_address=get_client_ip(request),
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.warning("login_alert_notify_failed", user_id=str(user.id))
+    # Best-effort post-login alert, new devices only — see the note on the password login path.
+    if is_new_device:
+        try:
+            await notify_security_event(
+                db, user, "login_alert", "New sign-in to your account",
+                device_label=None, ip_address=get_client_ip(request),
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning("login_alert_notify_failed", user_id=str(user.id))
     return tokens
 
 
@@ -1070,6 +1090,7 @@ async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, 
     credential.last_used_at = datetime.now(UTC)
     user.last_login_at = datetime.now(UTC)
 
+    is_new_device = not await _is_known_device(db, user.id, request)
     tokens = await _issue_tokens(db, user, request, payload.device_label)
     await record_audit_event(
         db, actor_id=user.id, action="user.login_passkey", resource_type="user",
@@ -1078,15 +1099,16 @@ async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, 
     await track_event(db, event_type="login", user_id=user.id, source="web")
     await db.commit()
 
-    # Best-effort post-login alert -- see the matching note on the password
-    # login path above.
-    try:
-        await notify_security_event(
-            db, user, "login_alert", "New sign-in to your account",
-            device_label=payload.device_label, ip_address=get_client_ip(request),
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.warning("login_alert_notify_failed", user_id=str(user.id))
+    # Best-effort post-login alert, new devices only -- see the matching
+    # note on the password login path above.
+    if is_new_device:
+        try:
+            await notify_security_event(
+                db, user, "login_alert", "New sign-in to your account",
+                device_label=payload.device_label, ip_address=get_client_ip(request),
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning("login_alert_notify_failed", user_id=str(user.id))
     return tokens

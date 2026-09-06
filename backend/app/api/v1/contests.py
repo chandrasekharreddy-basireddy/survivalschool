@@ -21,6 +21,7 @@ from app.schemas.contest import (
     AIWeeklyRegisterIn,
     AIWeeklyRegisterOut,
     AIWeeklyWinsLeaderboardEntryOut,
+    CertificateSigningKeyOut,
     ContestAttemptStartOut,
     ContestCertificateOut,
     ContestCertificatePublicOut,
@@ -31,6 +32,7 @@ from app.schemas.contest import (
     ContestSubmit,
     LeaderboardEntryOut,
 )
+from app.security.certificate_signing import SIGNING_ALGORITHM, public_key_base64
 from app.services.ai_exam_service import register_for_ai_weekly_exam
 from app.services.audit_service import record_audit_event
 from app.services.cache_service import (
@@ -42,6 +44,7 @@ from app.services.cache_service import (
     cache_set_versioned,
 )
 from app.services.contest_certificate_service import (
+    certificate_signature,
     generate_pdf_bytes,
     generate_qr_png_bytes,
     verification_url,
@@ -458,12 +461,29 @@ async def verify_contest_certificate(certificate_number: str, db: AsyncSession =
     else:
         reason = None
     student = await db.get(User, cert.student_id)
+    payload, signature = certificate_signature(cert)
     return ContestCertificatePublicOut(
         valid=reason is None, certificate_number=cert.certificate_number, contest_id=cert.contest_id,
         contest_title=cert.contest_title, rank=cert.rank, score_percent=cert.score_percent,
         issued_at=cert.issued_at, expires_at=cert.expires_at, revoked=cert.revoked_at is not None,
         verify_url=verification_url(cert.certificate_number), student_full_name=student.full_name if student else None,
-        invalid_reason=reason,
+        invalid_reason=reason, signature=signature, signed_payload=payload,
+    )
+
+
+@router.get("/certificates/public-key", response_model=CertificateSigningKeyOut)
+async def contest_certificate_public_key():
+    """The public half of the key certificates are signed with, so a third
+    party can verify one's authenticity independently of our API/database.
+    Static and unauthenticated -- safe to cache indefinitely on the client."""
+    return CertificateSigningKeyOut(
+        algorithm=SIGNING_ALGORITHM, public_key_base64=public_key_base64(),
+        how_to_verify=(
+            "Rebuild the signed payload as "
+            "'SSCERT-v1|{certificate_number}|{student_id}|{contest_id}|{contest_title}|{rank}|{score_percent}|{issued_at_iso}' "
+            "(empty string for contest_id if the source contest was deleted), then verify `signature` "
+            "(base64) against it using this Ed25519 public key (base64, raw 32-byte form)."
+        ),
     )
 
 
@@ -483,7 +503,10 @@ async def contest_certificate_pdf(certificate_number: str, db: AsyncSession = De
     student = await db.get(User, cert.student_id)
     try:
         pdf_bytes = generate_pdf_bytes(cert, student)
-    except ImportError as exc:
+    except (ImportError, OSError) as exc:
+        # weasyprint raises OSError (not ImportError) when it imports fine
+        # but its native GTK/Pango/GObject libraries aren't installed on the
+        # host -- the common case on a bare Windows dev machine.
         raise ServiceUnavailableError("PDF generation is temporarily unavailable on this server.") from exc
     return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{cert.certificate_number}.pdf"'})
 

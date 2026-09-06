@@ -18,6 +18,8 @@ interface CertificateDetail {
   issued_at?: string;
   expires_at?: string;
   invalid_reason?: string;
+  signature?: string;
+  signed_payload?: string;
 }
 
 export default function CertificateViewPage() {
@@ -119,6 +121,34 @@ export default function CertificateViewPage() {
       </div>
 
       <p className="mt-4 text-center text-xs text-fg-subtle print:hidden">Anyone can independently verify this certificate at <Link href="/certificates/verify" className="text-brand-600 underline dark:text-brand-400">/certificates/verify</Link>.</p>
+
+      {cert.signature && (
+        <details className="mx-auto mt-4 max-w-3xl rounded-md border border-fg-subtle/20 bg-bg-subtle p-4 text-xs print:hidden">
+          <summary className="cursor-pointer font-semibold text-fg">Cryptographic proof (for employers &amp; verifiers)</summary>
+          <p className="mt-2 text-fg-muted">
+            This certificate is signed with our Ed25519 key, so its facts can be verified independently — without trusting our
+            server or database. Fetch our <a href={`${API_BASE}/contests/certificates/public-key`} target="_blank" rel="noreferrer" className="text-brand-600 underline dark:text-brand-400">public key</a> and
+            check the signature below against it.
+          </p>
+          <div className="mt-3 space-y-2">
+            <div>
+              <p className="font-semibold text-fg-subtle">Signed payload</p>
+              <p className="break-all rounded bg-bg px-2 py-1 font-mono text-[11px] text-fg">{cert.signed_payload}</p>
+            </div>
+            <div>
+              <p className="font-semibold text-fg-subtle">Signature (base64)</p>
+              <p className="break-all rounded bg-bg px-2 py-1 font-mono text-[11px] text-fg">{cert.signature}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigator.clipboard?.writeText(JSON.stringify({ payload: cert.signed_payload, signature: cert.signature, algorithm: "Ed25519" }))}
+            className="btn-secondary mt-3"
+          >
+            Copy proof as JSON
+          </button>
+        </details>
+      )}
       <style jsx global>{`@media print { nav { display:none !important; } body { background:white !important; } .print-hide { display:none !important; } }`}</style>
     </div>
   );

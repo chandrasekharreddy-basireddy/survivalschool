@@ -4,9 +4,10 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.db_utils import escape_like
 from app.core.exceptions import ConflictError, NotFoundError, ValidationAppError
 from app.database import get_db
@@ -20,9 +21,11 @@ from app.schemas.social_graph import (
     FollowRequestOut,
     PersonSearchResultOut,
 )
+from app.services.rate_limit_service import enforce_rate_limit
 from app.services.social_graph_service import has_accepted_connection
 
 router = APIRouter(prefix="/follows", tags=["follows"])
+settings = get_settings()
 
 
 async def _handle_for(db: AsyncSession, user_id: uuid.UUID) -> str | None:
@@ -31,15 +34,43 @@ async def _handle_for(db: AsyncSession, user_id: uuid.UUID) -> str | None:
 
 
 async def _to_out(db: AsyncSession, req: FollowRequest) -> FollowRequestOut:
-    requester = await db.get(User, req.requester_id)
-    target = await db.get(User, req.target_id)
-    return FollowRequestOut(
-        id=req.id, requester_id=req.requester_id, requester_name=requester.full_name if requester else "Unknown",
-        requester_handle=await _handle_for(db, req.requester_id),
-        target_id=req.target_id, target_name=target.full_name if target else "Unknown",
-        target_handle=await _handle_for(db, req.target_id),
-        status=req.status, created_at=req.created_at, responded_at=req.responded_at,
-    )
+    return (await _to_out_many(db, [req]))[0]
+
+
+async def _to_out_many(db: AsyncSession, reqs: list[FollowRequest]) -> list[FollowRequestOut]:
+    """Same shape as _to_out, batched — _to_out itself does 4 queries per
+    row (2x db.get(User) + 2x _handle_for's Profile lookup), which is fine
+    for the single-row accept/decline responses but was also being used to
+    build list_incoming_requests/list_outgoing_requests one row at a time,
+    an N+1 for what should be 2 queries total regardless of list length."""
+    if not reqs:
+        return []
+    user_ids = {r.requester_id for r in reqs} | {r.target_id for r in reqs}
+    users = {
+        u.id: u for u in (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
+    }
+    profiles = {
+        p.user_id: p for p in (await db.execute(select(Profile).where(Profile.user_id.in_(user_ids)))).scalars().all()
+    }
+
+    def _name(uid: uuid.UUID) -> str:
+        u = users.get(uid)
+        return u.full_name if u else "Unknown"
+
+    def _handle(uid: uuid.UUID) -> str | None:
+        p = profiles.get(uid)
+        return p.public_handle if p else None
+
+    return [
+        FollowRequestOut(
+            id=r.id, requester_id=r.requester_id, requester_name=_name(r.requester_id),
+            requester_handle=_handle(r.requester_id),
+            target_id=r.target_id, target_name=_name(r.target_id),
+            target_handle=_handle(r.target_id),
+            status=r.status, created_at=r.created_at, responded_at=r.responded_at,
+        )
+        for r in reqs
+    ]
 
 
 async def _notify_follow_request(target_id: uuid.UUID, requester_name: str) -> None:
@@ -79,6 +110,7 @@ async def send_follow_request(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await enforce_rate_limit(f"follow-request:{user.id}", limit=settings.RATE_LIMIT_FOLLOW_REQUEST_PER_HOUR, window_seconds=3600)
     if payload.target_id == user.id:
         raise ValidationAppError("You can't follow yourself.")
     target = await db.get(User, payload.target_id)
@@ -92,6 +124,15 @@ async def send_follow_request(
     # chat.py already relies on for the same question.
     if await has_accepted_connection(db, user.id, payload.target_id):
         raise ConflictError("You're already connected with this person.")
+
+    # Same class of check-then-insert race chat.py::start_direct_message
+    # already guards against on (requester_id, target_id)'s real unique
+    # constraint (uq_follow_request_pair) — without a lock, two rapid
+    # duplicate submits (double-click, retry-on-timeout) can both pass the
+    # "no existing row" check below before either commits, and the second
+    # insert then hits the constraint as a raw, unhandled IntegrityError
+    # instead of the clean ConflictError a couple of lines down.
+    await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"follow_request:{user.id}:{payload.target_id}"})
 
     existing = (await db.execute(
         select(FollowRequest).where(FollowRequest.requester_id == user.id, FollowRequest.target_id == payload.target_id)
@@ -121,7 +162,7 @@ async def list_incoming_requests(user: User = Depends(get_current_user), db: Asy
         select(FollowRequest).where(FollowRequest.target_id == user.id, FollowRequest.status == "pending")
         .order_by(FollowRequest.created_at.desc())
     )).scalars().all()
-    return [await _to_out(db, r) for r in rows]
+    return await _to_out_many(db, rows)
 
 
 @router.get("/requests/outgoing", response_model=list[FollowRequestOut])
@@ -130,7 +171,7 @@ async def list_outgoing_requests(user: User = Depends(get_current_user), db: Asy
         select(FollowRequest).where(FollowRequest.requester_id == user.id, FollowRequest.status == "pending")
         .order_by(FollowRequest.created_at.desc())
     )).scalars().all()
-    return [await _to_out(db, r) for r in rows]
+    return await _to_out_many(db, rows)
 
 
 @router.post("/requests/{request_id}/accept", response_model=FollowRequestOut)
@@ -250,6 +291,7 @@ async def search_people(
     email tool for anyone who signs up. Matches on the unique @handle as
     well as full name, since the handle is how people are meant to find
     each other precisely (full names collide; handles never do)."""
+    await enforce_rate_limit(f"people-search:{user.id}", limit=settings.RATE_LIMIT_PEOPLE_SEARCH_PER_MINUTE, window_seconds=60)
     like = f"%{escape_like(q)}%"
     candidates = (await db.execute(
         select(User)

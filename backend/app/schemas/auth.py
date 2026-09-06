@@ -123,6 +123,15 @@ class MessageResponse(BaseModel):
     message: str
 
 
+class SessionOut(BaseModel):
+    id: uuid.UUID
+    device_label: str | None
+    ip_address: str | None
+    created_at: datetime
+    last_seen_at: datetime
+    is_current: bool
+
+
 class InstructorApplicationCreate(BaseModel):
     # All optional here because an already-authenticated caller doesn't need
     # to supply them again — the endpoint fills email/full_name/password from
@@ -164,3 +173,34 @@ class InstructorApplicationOut(BaseModel):
 
 class InstructorApplicationReview(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
+
+
+class PasskeyRegisterVerifyIn(BaseModel):
+    # The raw JSON navigator.credentials.create() returned, passed straight
+    # through to webauthn.verify_registration_response — it accepts a plain
+    # dict directly (see registration/verify_registration_response.py in the
+    # webauthn package), so no server-side parsing of the attestation is
+    # needed here.
+    credential: dict
+    device_label: str | None = Field(default=None, max_length=255)
+
+
+class PasskeyOut(BaseModel):
+    id: uuid.UUID
+    device_label: str | None
+    created_at: datetime
+    last_used_at: datetime | None
+    # Deliberately no credential_id/public_key here -- those are internal
+    # verification material, never returned to the client.
+
+    model_config = {"from_attributes": True}
+
+
+class PasskeyLoginOptionsIn(BaseModel):
+    email: EmailStr
+
+
+class PasskeyLoginVerifyIn(BaseModel):
+    email: EmailStr
+    credential: dict
+    device_label: str | None = None

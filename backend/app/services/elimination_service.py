@@ -163,7 +163,6 @@ async def _wait_for_questions(db: AsyncSession, topic_id: uuid.UUID) -> bool:
         if asyncio.get_event_loop().time() >= deadline:
             return False
         await asyncio.sleep(_QUESTION_GENERATION_POLL_INTERVAL_SECONDS)
-        await asyncio.sleep(_QUESTION_GENERATION_POLL_INTERVAL_SECONDS)
 
 
 async def create_battle(
@@ -696,7 +695,20 @@ async def resolve_round(db: AsyncSession, battle_id: uuid.UUID, round_id: uuid.U
         return
 
     await db.commit()
-    await release_round(db, battle)
+    next_round = await release_round(db, battle)
+    if next_round is None:
+        # Mirrors _activate_battle's handling of the identical "no question
+        # left in the topic's pool" case — that one was handled, this one
+        # (running out mid-battle rather than at battle-start) wasn't, and
+        # with only ELIMINATION_SINGLE_COUNT + ELIMINATION_MULTIPLE_COUNT
+        # questions available per battle it's reachable any time a battle
+        # runs long enough (mostly-correct answers) without narrowing to one
+        # survivor first. Without this, the battle just sits in "active"
+        # forever: no further round ever comes, and nothing tells the
+        # remaining participants why.
+        battle.status = "cancelled"
+        await db.commit()
+        await ws_manager.broadcast(await _battle_channel(battle_id), {"event": "battle.cancelled", "battle_id": str(battle_id)})
 
 
 async def _sweep_once() -> None:

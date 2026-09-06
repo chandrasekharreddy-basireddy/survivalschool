@@ -60,7 +60,7 @@ class AnswerSubmit(BaseModel):
 
 
 class IntegrityEventIn(BaseModel):
-    event_type: str = Field(pattern=r"^(tab_blur|fullscreen_exit|copy|paste|right_click)$")
+    event_type: str = Field(pattern=r"^(tab_blur|fullscreen_exit|copy|paste|right_click|no_face_detected|multiple_faces_detected)$")
 
 
 class FlaggedAttemptOut(BaseModel):

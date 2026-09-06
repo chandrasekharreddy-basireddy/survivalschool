@@ -141,6 +141,15 @@ async def list_messages(room_id: uuid.UUID, before: datetime | None = Query(None
 @router.post("/rooms/{room_id}/messages/{message_id}/read", status_code=204)
 async def mark_message_read(room_id: uuid.UUID, message_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     await _assert_member(db, room_id, user.id)
+    # IDOR guard: message_id and room_id are two independent path params
+    # with nothing tying them together above — without this, a member of
+    # ANY room could mark a message from a room they're not even in as
+    # read. moderate_message just below already does this same check;
+    # this endpoint didn't. See websockets/chat.py's chat.read handler for
+    # the matching fix on the WebSocket path.
+    message = await db.get(ChatMessage, message_id)
+    if message is None or message.room_id != room_id:
+        raise NotFoundError("Message not found.")
     existing = (await db.execute(
         select(MessageRead).where(MessageRead.message_id == message_id, MessageRead.user_id == user.id)
     )).scalar_one_or_none()

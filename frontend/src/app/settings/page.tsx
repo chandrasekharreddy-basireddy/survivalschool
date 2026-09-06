@@ -6,12 +6,14 @@ import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { getPushSupport, isSubscribedToPush, sendTestPush, subscribeToPush, unsubscribeFromPush } from "@/lib/push";
+import { isPasskeySupported, registerPasskey, type PasskeyOut } from "@/lib/webauthn";
 import { PageLoader } from "@/components/PageLoader";
 
 interface Preferences {
   course_updates: boolean;
   assessment_updates: boolean;
   achievement_updates: boolean;
+  social_notifications: boolean;
   announcements: boolean;
   ai_notifications: boolean;
   email_enabled: boolean;
@@ -22,6 +24,7 @@ const LABELS: Record<keyof Preferences, string> = {
   course_updates: "Timetable changes (room, time, cancellations)",
   assessment_updates: "Quiz & exam results",
   achievement_updates: "Badges & achievements",
+  social_notifications: "Follow requests & connections",
   announcements: "Platform announcements",
   ai_notifications: "AI tutor notifications",
   email_enabled: "Email notifications (in addition to in-app)",
@@ -114,9 +117,12 @@ export default function SettingsPage() {
 
       <TwoFactorSection />
 
+      <PasskeysSection />
+
       <div className="card mt-6 border-red-500/20">
         <h2 className="font-semibold text-fg">Security</h2>
-        <p className="mt-2 text-sm text-fg-muted">Sign out of every device and session, including this one.</p>
+        <SessionsSection />
+        <p className="mt-6 text-sm text-fg-muted">Sign out of every device and session, including this one.</p>
         <button onClick={logoutAllSessions} className="btn-secondary mt-4">Sign out everywhere</button>
       </div>
 
@@ -201,6 +207,85 @@ function UsernameSection() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface SessionInfo {
+  id: string;
+  device_label: string | null;
+  ip_address: string | null;
+  created_at: string;
+  last_seen_at: string;
+  is_current: boolean;
+}
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.round(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+function SessionsSection() {
+  const toast = useToast();
+  const [sessions, setSessions] = useState<SessionInfo[] | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+
+  const load = () => {
+    apiFetch<SessionInfo[]>("/auth/sessions").then(setSessions).catch(() => setSessions([]));
+  };
+
+  useEffect(load, []);
+
+  const revoke = async (session: SessionInfo) => {
+    if (!window.confirm(`Sign out "${session.device_label ?? "this device"}"? It'll need to log in again.`)) return;
+    setRevokingId(session.id);
+    try {
+      await apiFetch(`/auth/sessions/${session.id}`, { method: "DELETE" });
+      setSessions((prev) => prev && prev.filter((s) => s.id !== session.id));
+      toast.show("Device signed out.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't sign out that device.", "error");
+    } finally {
+      setRevokingId(null);
+    }
+  };
+
+  return (
+    <div>
+      <h3 className="text-sm font-medium text-fg">Your devices</h3>
+      <p className="mt-1 text-xs text-fg-subtle">Everywhere you&apos;re currently signed in. Don&apos;t recognize one? Sign it out.</p>
+      <div className="mt-3 space-y-2">
+        {sessions === null && <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
+        {sessions !== null && sessions.length === 0 && <p className="text-sm text-fg-subtle">No active sessions found.</p>}
+        {sessions?.map((s) => (
+          <div key={s.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-700 px-3 py-2 text-sm">
+            <div className="min-w-0">
+              <p className="truncate text-fg">
+                {s.device_label ?? "Unknown device"}
+                {s.is_current && <span className="ml-2 rounded-full border border-emerald-500/40 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">This device</span>}
+              </p>
+              <p className="truncate text-xs text-fg-subtle">
+                {s.ip_address ?? "Unknown IP"} · active {relativeTime(s.last_seen_at)}
+              </p>
+            </div>
+            {!s.is_current && (
+              <button
+                onClick={() => revoke(s)}
+                disabled={revokingId === s.id}
+                className="btn-secondary shrink-0 !py-1 !text-xs disabled:opacity-60"
+              >
+                {revokingId === s.id ? "Signing out…" : "Sign out"}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -516,6 +601,127 @@ function TwoFactorSection() {
         <button onClick={startSetup} disabled={busy} className="btn-primary mt-4">
           {busy ? "Starting…" : "Set up two-factor authentication"}
         </button>
+      )}
+    </div>
+  );
+}
+
+/** A rough guess at a human-friendly name for the current device/browser, used
+ * to pre-fill a new passkey's device_label. Purely cosmetic -- there's no way
+ * to ask the authenticator itself for a name, so this is the same kind of
+ * best-effort label a browser's own "manage passkeys" UI shows. */
+function guessDeviceLabel(): string {
+  if (typeof navigator === "undefined") return "This device";
+  const ua = navigator.userAgent;
+  const os = /iPhone|iPad/.test(ua) ? "iPhone/iPad" : /Mac/.test(ua) ? "Mac" : /Android/.test(ua) ? "Android" : /Windows/.test(ua) ? "Windows PC" : /Linux/.test(ua) ? "Linux" : "This device";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Firefox\//.test(ua) ? "Firefox" : /Safari\//.test(ua) ? "Safari" : "";
+  return browser ? `${os} · ${browser}` : os;
+}
+
+function PasskeysSection() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [supported, setSupported] = useState(false);
+  const [passkeys, setPasskeys] = useState<PasskeyOut[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      setPasskeys(await apiFetch<PasskeyOut[]>("/auth/passkeys"));
+    } catch {
+      setPasskeys([]);
+    }
+  };
+
+  useEffect(() => {
+    setSupported(isPasskeySupported());
+    load();
+  }, []);
+
+  const addPasskey = async () => {
+    setAdding(true);
+    try {
+      await registerPasskey(guessDeviceLabel());
+      await load();
+      toast.show("Passkey added.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Couldn't add a passkey.", "error");
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const removePasskey = async (id: string) => {
+    setRemovingId(id);
+    try {
+      await apiFetch(`/auth/passkeys/${id}`, { method: "DELETE" });
+      setPasskeys((prev) => prev?.filter((p) => p.id !== id) ?? prev);
+      setConfirmRemoveId(null);
+      toast.show("Passkey removed.", "success");
+    } catch (err) {
+      toast.show(err instanceof ApiError ? err.message : "Couldn't remove that passkey.", "error");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  if (!user) return null;
+
+  return (
+    <div className="card mt-6">
+      <h2 className="font-semibold text-fg">Passkeys</h2>
+      <p className="mt-2 text-sm text-fg-muted">
+        Sign in without a password, using your device&apos;s fingerprint, face, or screen lock instead.
+      </p>
+
+      {!supported ? (
+        <p className="mt-3 text-sm text-fg-subtle">Not supported in this browser.</p>
+      ) : passkeys === null ? (
+        <p className="mt-3 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
+      ) : (
+        <>
+          {passkeys.length === 0 ? (
+            <p className="mt-3 text-sm text-fg-subtle">No passkeys added yet.</p>
+          ) : (
+            <ul className="mt-4 space-y-2">
+              {passkeys.map((pk) => (
+                <li key={pk.id} className="flex items-center justify-between gap-3 rounded-lg border border-ink-700 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-fg">{pk.device_label || "Unnamed passkey"}</p>
+                    <p className="text-xs text-fg-subtle">
+                      Added {new Date(pk.created_at).toLocaleDateString()}
+                      {pk.last_used_at ? ` · Last used ${new Date(pk.last_used_at).toLocaleDateString()}` : " · Never used"}
+                    </p>
+                  </div>
+                  {confirmRemoveId === pk.id ? (
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        onClick={() => removePasskey(pk.id)}
+                        disabled={removingId === pk.id}
+                        className="btn-secondary !py-1.5 text-sm text-red-700 dark:text-red-400"
+                      >
+                        {removingId === pk.id ? "Removing…" : "Confirm"}
+                      </button>
+                      <button onClick={() => setConfirmRemoveId(null)} className="btn-secondary !py-1.5 text-sm">Cancel</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRemoveId(pk.id)}
+                      className="btn-secondary shrink-0 !py-1.5 text-sm text-red-700 dark:text-red-400"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <button onClick={addPasskey} disabled={adding} className="btn-primary mt-4">
+            {adding ? "Waiting for your device…" : "Add a passkey"}
+          </button>
+        </>
       )}
     </div>
   );

@@ -8,13 +8,15 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { ContestCountdown } from "@/components/ContestCountdown";
+import { AttemptTimer } from "@/components/exams/AttemptTimer";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
+import { FaceProctor } from "@/components/exams/FaceProctor";
 import { PageLoader } from "@/components/PageLoader";
 
 interface Contest {
   id: string; title: string; description: string; starts_at: string; ends_at: string;
   duration_seconds: number; top_n_awarded: number; status: string; question_count: number;
-  fullscreen_required?: boolean; integrity_monitoring_enabled?: boolean;
+  fullscreen_required?: boolean; integrity_monitoring_enabled?: boolean; face_proctoring_required?: boolean;
 }
 interface OptionPublic { id: string; text: string; order_index: number }
 interface QuestionPublic { id: string; prompt: string; question_type: string; points: number; options: OptionPublic[] }
@@ -36,6 +38,8 @@ export default function ContestDetailPage() {
   const [alreadyCompeted, setAlreadyCompeted] = useState(false);
   const [joining, setJoining] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cameraDenied, setCameraDenied] = useState(false);
+  const [cameraDeniedReported, setCameraDeniedReported] = useState(false);
 
   const loadLeaderboard = useCallback(() => {
     apiFetch<LeaderboardEntry[]>(`/contests/${params.id}/leaderboard`, { auth: false }).then(setLeaderboard).catch(() => {});
@@ -73,7 +77,7 @@ export default function ContestDetailPage() {
   };
 
   const reportIntegrityEvent = useCallback(
-    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click") => {
+    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click" | "no_face_detected" | "multiple_faces_detected") => {
       if (!attemptId) return;
       apiFetch<{ logged: boolean; violation_count: number; auto_submitted: boolean }>(
         `/contests/attempts/${attemptId}/events`, { method: "PUT", body: JSON.stringify({ event_type: eventType }) }
@@ -101,7 +105,7 @@ export default function ContestDetailPage() {
   };
 
   const submit = async () => {
-    if (!attemptId || !questions) return;
+    if (!attemptId || !questions || submitting) return;
     setSubmitting(true);
     try {
       const res = await apiFetch<ContestResult>(`/contests/attempts/${attemptId}/submit`, {
@@ -166,12 +170,36 @@ export default function ContestDetailPage() {
           onIntegrityEvent={reportIntegrityEvent}
         >
         <div className="mt-6 space-y-6">
-          {deadline && <p className="text-xs text-fg-subtle">Your deadline: {formatDateTime(deadline)}</p>}
+          {deadline && <AttemptTimer deadline={deadline} onExpire={submit} />}
+          {deadline && <p className="text-xs text-fg-subtle">Deadline: {formatDateTime(deadline)}</p>}
           {contest.integrity_monitoring_enabled && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
               This exam is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste is logged and can auto-submit your attempt immediately, with no credit for anything left unanswered.
             </p>
           )}
+          {contest.face_proctoring_required && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              This exam requires face proctoring — your camera checks that you&apos;re present throughout. Video is processed entirely on your device
+              and is never uploaded or recorded; only whether a face was visible is sent to us.
+            </p>
+          )}
+          {cameraDenied && (
+            <p className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+              Camera access is required for this exam. Please allow camera permission and reload the page to continue.
+            </p>
+          )}
+          <FaceProctor
+            enabled={!!contest.face_proctoring_required}
+            onProctorEvent={reportIntegrityEvent}
+            onCameraReady={() => setCameraDenied(false)}
+            onCameraDenied={() => {
+              setCameraDenied(true);
+              if (!cameraDeniedReported) {
+                setCameraDeniedReported(true);
+                reportIntegrityEvent("no_face_detected");
+              }
+            }}
+          />
           {questions.map((q, idx) => (
             <div key={q.id} className="card">
               <p className="font-medium text-fg">{idx + 1}. {q.prompt}</p>

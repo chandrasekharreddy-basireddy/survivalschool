@@ -20,6 +20,7 @@ interface AuthContextValue {
   loading: boolean;
   login: (email: string, password: string) => Promise<LoginResult>;
   verifyMfa: (mfaToken: string, code: string) => Promise<CurrentUser>;
+  completePasskeyLogin: (accessToken: string, refreshToken: string) => Promise<CurrentUser>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -91,6 +92,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return me;
   };
 
+  /** Finishes a passkey sign-in: the WebAuthn ceremony itself (options ->
+   * navigator.credentials.get() -> verify) happens in lib/webauthn.ts and
+   * login/page.tsx, which hand the resulting token pair here to be stored
+   * and turned into a CurrentUser exactly like verifyMfa does above. */
+  const completePasskeyLogin = async (accessToken: string, refreshToken: string): Promise<CurrentUser> => {
+    storeTokens(accessToken, refreshToken);
+    const me = await apiFetch<CurrentUser>("/auth/me");
+    setUser(me);
+    return me;
+  };
+
   const logout = async () => {
     const refresh = window.localStorage.getItem("ss_refresh_token");
     // Tear the push subscription down before we drop the tokens: otherwise the
@@ -112,7 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, verifyMfa, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, verifyMfa, completePasskeyLogin, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
 from app.core.exceptions import ConflictError, NotFoundError, ServiceUnavailableError
 from app.database import get_db
 from app.dependencies import get_client_ip, get_current_verified_user, require_permission
@@ -20,6 +21,7 @@ from app.schemas.contest import (
     AIWeeklyRegisterIn,
     AIWeeklyRegisterOut,
     AIWeeklyWinsLeaderboardEntryOut,
+    CertificateSigningKeyOut,
     ContestAttemptStartOut,
     ContestCertificateOut,
     ContestCertificatePublicOut,
@@ -30,6 +32,7 @@ from app.schemas.contest import (
     ContestSubmit,
     LeaderboardEntryOut,
 )
+from app.security.certificate_signing import SIGNING_ALGORITHM, public_key_base64
 from app.services.ai_exam_service import register_for_ai_weekly_exam
 from app.services.audit_service import record_audit_event
 from app.services.cache_service import (
@@ -41,11 +44,13 @@ from app.services.cache_service import (
     cache_set_versioned,
 )
 from app.services.contest_certificate_service import (
+    certificate_signature,
     generate_pdf_bytes,
     generate_qr_png_bytes,
     verification_url,
 )
 from app.services.contest_service import finalize_contest
+from app.services.rate_limit_service import enforce_rate_limit
 from app.services.scoring_service import grade_answer, summarize_attempt
 
 # Bounds flagged_events growth — a spammy or buggy client calling the
@@ -58,6 +63,7 @@ _CONTESTS_LIST_TTL = 15
 _LEADERBOARD_TTL = 5
 
 router = APIRouter(prefix="/contests", tags=["contests"])
+settings = get_settings()
 
 
 def _contest_out(contest: Contest) -> ContestOut:
@@ -67,6 +73,7 @@ def _contest_out(contest: Contest) -> ContestOut:
         duration_seconds=contest.duration_seconds, top_n_awarded=contest.top_n_awarded, status=contest.status,
         question_count=len(contest.question_ids),
         fullscreen_required=contest.fullscreen_required, integrity_monitoring_enabled=contest.integrity_monitoring_enabled,
+        face_proctoring_required=contest.face_proctoring_required,
     )
 
 
@@ -209,11 +216,19 @@ async def contest_leaderboard(contest_id: uuid.UUID, db: AsyncSession = Depends(
 
 
 @router.post("/ai-weekly/register", response_model=AIWeeklyRegisterOut, status_code=201)
-async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     """Step 1 of the AI Weekly Exam: register for a subject+topic during the
     Thursday-only registration window. Does not start the timed exam —
     that happens separately via POST /contests/{contest_id}/attempts once
-    the exam's scheduled slot opens (see ai_exam_service.py)."""
+    the exam's scheduled slot opens (see ai_exam_service.py).
+
+    Rate-limited per-user AND per-IP: for any never-before-seen topic slug
+    this triggers a real AI eligibility call plus, in the background, a full
+    real-exam question-generation run (~10 batched AI calls) — with no
+    throttle, looping this with slightly varied topic_name strings was an
+    unbounded AI-cost/DoS vector."""
+    await enforce_rate_limit(f"ai-weekly-register:{user.id}", limit=settings.RATE_LIMIT_AI_WEEKLY_REGISTER_PER_HOUR, window_seconds=3600)
+    await enforce_rate_limit(f"ai-weekly-register-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_AI_WEEKLY_REGISTER_PER_HOUR, window_seconds=3600)
     attempt = await register_for_ai_weekly_exam(db, user, payload.subject_name, payload.topic_name)
     contest = await db.get(Contest, attempt.contest_id)
     await bump_cache_version("contests_list")
@@ -447,12 +462,29 @@ async def verify_contest_certificate(certificate_number: str, db: AsyncSession =
     else:
         reason = None
     student = await db.get(User, cert.student_id)
+    payload, signature = certificate_signature(cert)
     return ContestCertificatePublicOut(
         valid=reason is None, certificate_number=cert.certificate_number, contest_id=cert.contest_id,
         contest_title=cert.contest_title, rank=cert.rank, score_percent=cert.score_percent,
         issued_at=cert.issued_at, expires_at=cert.expires_at, revoked=cert.revoked_at is not None,
         verify_url=verification_url(cert.certificate_number), student_full_name=student.full_name if student else None,
-        invalid_reason=reason,
+        invalid_reason=reason, signature=signature, signed_payload=payload,
+    )
+
+
+@router.get("/certificates/public-key", response_model=CertificateSigningKeyOut)
+async def contest_certificate_public_key():
+    """The public half of the key certificates are signed with, so a third
+    party can verify one's authenticity independently of our API/database.
+    Static and unauthenticated -- safe to cache indefinitely on the client."""
+    return CertificateSigningKeyOut(
+        algorithm=SIGNING_ALGORITHM, public_key_base64=public_key_base64(),
+        how_to_verify=(
+            "Rebuild the signed payload as "
+            "'SSCERT-v1|{certificate_number}|{student_id}|{contest_id}|{contest_title}|{rank}|{score_percent}|{issued_at_iso}' "
+            "(empty string for contest_id if the source contest was deleted), then verify `signature` "
+            "(base64) against it using this Ed25519 public key (base64, raw 32-byte form)."
+        ),
     )
 
 
@@ -472,7 +504,10 @@ async def contest_certificate_pdf(certificate_number: str, db: AsyncSession = De
     student = await db.get(User, cert.student_id)
     try:
         pdf_bytes = generate_pdf_bytes(cert, student)
-    except ImportError as exc:
+    except (ImportError, OSError) as exc:
+        # weasyprint raises OSError (not ImportError) when it imports fine
+        # but its native GTK/Pango/GObject libraries aren't installed on the
+        # host -- the common case on a bare Windows dev machine.
         raise ServiceUnavailableError("PDF generation is temporarily unavailable on this server.") from exc
     return Response(content=pdf_bytes, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{cert.certificate_number}.pdf"'})
 

@@ -10,12 +10,25 @@ import qrcode
 from app.config import get_settings
 from app.models.contest import ContestCertificate
 from app.models.user import User
+from app.security.certificate_signing import sign, signing_payload
 
 settings = get_settings()
 
 
 def verification_url(certificate_number: str) -> str:
     return f"{settings.FRONTEND_URL}/contests/certificates/verify/{certificate_number}"
+
+
+def certificate_signature(cert: ContestCertificate) -> tuple[str, str]:
+    """Returns (signed_payload, signature_base64) -- recomputed on every call
+    from the certificate's own stored fields, never persisted (see
+    app.security.certificate_signing for why)."""
+    payload = signing_payload(
+        certificate_number=cert.certificate_number, student_id=str(cert.student_id),
+        contest_id=str(cert.contest_id) if cert.contest_id else None, contest_title=cert.contest_title,
+        rank=cert.rank, score_percent=cert.score_percent, issued_at=cert.issued_at.isoformat(),
+    )
+    return payload, sign(payload)
 
 
 def generate_qr_png_bytes(certificate_number: str) -> bytes:
@@ -34,6 +47,7 @@ def certificate_expiry() -> datetime | None:
 def _render_html(cert: ContestCertificate, student: User) -> str:
     qr_b64 = base64.b64encode(generate_qr_png_bytes(cert.certificate_number)).decode("ascii")
     valid_until = cert.expires_at.date().isoformat() if cert.expires_at else "Lifetime"
+    _, signature = certificate_signature(cert)
     return f"""<!doctype html>
 <html><head><meta charset='utf-8'><style>
 @page {{ size:A4 landscape; margin:0; }}
@@ -59,7 +73,7 @@ h1 {{ font-size:40px; margin:10px 0 0; color:#fff; }}
 <div class='student'>{html.escape(student.full_name if student else '')}</div>
 <div class='award'>Placed #{cert.rank} in the contest</div>
 <div class='stats'><div class='stat'>Score <strong>{cert.score_percent}%</strong></div><div class='stat'>Certificate <strong>{html.escape(cert.certificate_number)}</strong></div></div>
-<div class='footer'><div class='meta'>Issued {cert.issued_at.date().isoformat()}<br/>Valid until {valid_until}<br/>Verification: {html.escape(verification_url(cert.certificate_number))}</div><div class='seal'>SS<br/>VERIFIED</div><img class='qr' src='data:image/png;base64,{qr_b64}' /></div>
+<div class='footer'><div class='meta'>Issued {cert.issued_at.date().isoformat()}<br/>Valid until {valid_until}<br/>Verification: {html.escape(verification_url(cert.certificate_number))}<br/>Ed25519 signature: {html.escape(signature[:32])}&hellip;</div><div class='seal'>SS<br/>VERIFIED</div><img class='qr' src='data:image/png;base64,{qr_b64}' /></div>
 </div></body></html>"""
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,13 @@ class ChatRoom(Base, UUIDPk, Timestamped):
 
 class ChatMember(Base, UUIDPk, Timestamped):
     __tablename__ = "chat_members"
+    __table_args__ = (
+        # Every membership check (_assert_member, the WS connect check, the
+        # chat.message/chat.read handlers) queries exactly this pair — the
+        # separate single-column indexes on room_id/user_id below can't serve
+        # a (room_id, user_id) lookup as directly as one composite index.
+        Index("ix_chat_members_room_user", "room_id", "user_id"),
+    )
 
     room_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_rooms.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -57,6 +64,12 @@ class MessageRead(Base, UUIDPk, Timestamped):
 
 class Notification(Base, UUIDPk, Timestamped):
     __tablename__ = "notifications"
+    __table_args__ = (
+        # list_notifications filters user_id + read_at and orders by
+        # created_at — this composite serves the common "my recent
+        # notifications" query directly instead of index-then-sort.
+        Index("ix_notifications_user_created", "user_id", "created_at"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     category: Mapped[str] = mapped_column(String(30), nullable=False)  # course|assessment|achievement|announcement|ai|security
@@ -74,6 +87,12 @@ class NotificationPreference(Base, UUIDPk, Timestamped):
     course_updates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     assessment_updates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     achievement_updates: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Follow-request notifications (category="social") had no preference
+    # field at all — every one was unconditionally delivered with no way to
+    # opt out, and (see follows.py::send_follow_request) no rate limit
+    # either, so repeatedly cancelling and re-sending a request was an
+    # unthrottled, undismissable notification-spam vector against one victim.
+    social_notifications: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     announcements: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     ai_notifications: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     email_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

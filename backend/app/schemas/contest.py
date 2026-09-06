@@ -22,6 +22,7 @@ class ContestOut(BaseModel):
     question_count: int = 0
     fullscreen_required: bool = False
     integrity_monitoring_enabled: bool = False
+    face_proctoring_required: bool = False
     model_config = {"from_attributes": True}
 
 
@@ -105,8 +106,20 @@ class ContestCertificatePublicOut(ContestCertificateOut):
     valid: bool
     student_full_name: str | None = None
     invalid_reason: str | None = None
+    # Cryptographic proof: lets a third party (an employer, another
+    # platform) confirm this certificate's facts against our published
+    # public key without trusting our API or database. None only when the
+    # certificate itself was never found (nothing to sign).
+    signature: str | None = None
+    signed_payload: str | None = None
 
 
 class ContestCertificateRevokeOut(BaseModel):
     certificate_number: str
     revoked_at: datetime
+
+
+class CertificateSigningKeyOut(BaseModel):
+    algorithm: str
+    public_key_base64: str
+    how_to_verify: str

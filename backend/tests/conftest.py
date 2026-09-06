@@ -22,6 +22,11 @@ os.environ.setdefault("RATE_LIMIT_REGISTER_PER_HOUR", "1000")
 os.environ.setdefault("RATE_LIMIT_LOGIN_PER_5MIN", "1000")
 os.environ.setdefault("RATE_LIMIT_RESEND_VERIFY_PER_HOUR", "1000")
 os.environ.setdefault("RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR", "1000")
+os.environ.setdefault("RATE_LIMIT_2FA_VERIFY_PER_5MIN", "1000")
+os.environ.setdefault("RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP", "1000")
+os.environ.setdefault("RATE_LIMIT_AI_WEEKLY_REGISTER_PER_HOUR", "1000")
+os.environ.setdefault("RATE_LIMIT_FOLLOW_REQUEST_PER_HOUR", "1000")
+os.environ.setdefault("RATE_LIMIT_PEOPLE_SEARCH_PER_MINUTE", "1000")
 
 import app.models  # noqa: E402, F401
 import app.services.email_service as email_service  # noqa: E402

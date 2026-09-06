@@ -406,7 +406,15 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
         raise generic_error
 
     if not user.is_active or user.deleted_at is not None:
-        raise AuthenticationError("Account is disabled.", code="account_disabled")
+        # Deliberately the SAME generic error as a wrong password, not a
+        # distinct "Account is disabled." -- that would hand an attacker a
+        # password-correctness oracle for accounts that can't even log in
+        # (confirm a breached/guessed credential is right without ever
+        # needing it to work). Still audit-logged internally.
+        await record_audit_event(db, actor_id=user.id, action="user.login_blocked_disabled", resource_type="user",
+                                  resource_id=str(user.id), result="failure", ip_address=get_client_ip(request))
+        await db.commit()
+        raise generic_error
 
     user.failed_login_attempts = 0
     user.locked_until = None
@@ -923,7 +931,17 @@ async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, 
         raise generic_error from exc
 
     if not user.is_active or user.deleted_at is not None:
-        raise AuthenticationError("Account is disabled.", code="account_disabled")
+        # Same generic error as any other verification failure, not a
+        # distinct "Account is disabled." -- mirrors the fix already applied
+        # to the password login() path above (see its comment): a disabled
+        # account confirming a passkey assertion is genuine is still an
+        # oracle an attacker with access to that credential shouldn't get.
+        await record_audit_event(
+            db, actor_id=user.id, action="user.login_blocked_disabled", resource_type="user",
+            resource_id=str(user.id), result="failure", ip_address=get_client_ip(request),
+        )
+        await db.commit()
+        raise generic_error
 
     credential.sign_count = verification.new_sign_count
     credential.last_used_at = datetime.now(UTC)

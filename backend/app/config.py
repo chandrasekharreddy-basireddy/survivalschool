@@ -222,6 +222,16 @@ class Settings(BaseSettings):
     SENTRY_DSN: str | None = None
     SENTRY_TRACES_SAMPLE_RATE: float = 0.0
 
+    # --- WebAuthn / Passkeys ---
+    # Dev defaults match the frontend's own local dev origin. A passkey is
+    # permanently scoped by the browser to the RP ID/origin pair it was
+    # registered against (the core of WebAuthn's phishing-resistance) -- these
+    # MUST be set to the real production domain/origin before passkeys work
+    # there, or every registration/assertion fails origin verification.
+    WEBAUTHN_RP_ID: str = "localhost"
+    WEBAUTHN_RP_NAME: str = "Survival School"
+    WEBAUTHN_ORIGIN: str = "http://localhost:3000"
+
     # --- Web Push (VAPID, RFC 8292) ---
     # Self-generated keypair — no Firebase/APNs/OneSignal account needed.
     # Generate a real pair per deployment with

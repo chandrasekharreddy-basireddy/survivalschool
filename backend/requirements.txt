@@ -25,7 +25,7 @@ pyotp==2.10.0
 sentry-sdk[fastapi]==2.68.1
 pywebpush==2.4.0
 py-vapid==1.9.4
-webauthn==2.8.0
+webauthn==3.0.0
 python-dotenv==1.2.3
 gunicorn==26.2.0
 starlette==1.6.0

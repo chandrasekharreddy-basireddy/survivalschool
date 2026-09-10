@@ -99,7 +99,10 @@ class ClassroomExamOut(BaseModel):
 
 class ClassroomExamAttemptStartOut(BaseModel):
     attempt_id: uuid.UUID
-    server_deadline_at: datetime
+    status: str  # "waiting" (joining closes later, exam hasn't started) | "in_progress"
+    exam_starts_at: datetime  # when joining closes and the exam begins for everyone
+    server_deadline_at: datetime  # exam_starts_at + duration -- fixed the moment you join
+    seconds_until_start: int
     remaining_seconds: int
 
 

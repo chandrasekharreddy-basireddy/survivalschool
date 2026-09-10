@@ -252,7 +252,7 @@ async def publish_exam(
     if exam.status not in ("draft", "scheduled"):
         raise ConflictError("Exam is already published or closed.")
     if not exam.starts_at or not exam.ends_at:
-        raise ConflictError("Set start and end times before publishing.")
+        raise ConflictError("Set when joining opens and closes before publishing.")
     if not exam.question_ids:
         raise ConflictError("Add at least one question before publishing.")
     now = datetime.now(UTC)
@@ -421,6 +421,27 @@ async def list_exams(
     return [_exam_out(e) for e in exams]
 
 
+def _attempt_start_out(attempt: ClassroomExamAttempt, exam: ClassroomExam, now: datetime) -> ClassroomExamAttemptStartOut:
+    """Every field here is a pure function of (exam, attempt, now) -- exam_starts_at
+    and server_deadline_at are fixed the instant a student joins (both derived from
+    exam.ends_at, the same instant for every student), so re-calling this for an
+    existing attempt on page refresh always reports the same schedule. `status` is
+    reported as whichever of waiting/in_progress is actually true for `now`, rather
+    than trusting the DB row's status column, which only flips from waiting to
+    in_progress lazily (the first time the student's client asks for questions)."""
+    if attempt.status in ("submitted", "terminated"):
+        effective_status = attempt.status
+    else:
+        effective_status = "in_progress" if now >= exam.ends_at else "waiting"
+    seconds_until_start = max(0, int((exam.ends_at - now).total_seconds()))
+    remaining = max(0, int((attempt.server_deadline_at - now).total_seconds())) if effective_status == "in_progress" else 0
+    return ClassroomExamAttemptStartOut(
+        attempt_id=attempt.id, status=effective_status, exam_starts_at=exam.ends_at,
+        server_deadline_at=attempt.server_deadline_at,
+        seconds_until_start=seconds_until_start, remaining_seconds=remaining,
+    )
+
+
 @router.post("/{classroom_id}/exams/{exam_id}/attempts", status_code=201)
 async def start_attempt(
     classroom_id: uuid.UUID,
@@ -428,6 +449,13 @@ async def start_attempt(
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ) -> ClassroomExamAttemptStartOut:
+    """Joining an exam and taking it are deliberately two different moments. The
+    lecturer sets a join window [starts_at, ends_at]: students may join any time
+    in that window, but nobody's timer starts early and nobody who joins late gets
+    shortchanged -- every attempt's clock starts at the SAME instant (ends_at, when
+    joining closes) and runs for the full duration_seconds from there. That instant
+    is fixed here at join time (identically for every student), not computed later,
+    so there's no separate "start the exam for everyone" step to run."""
     classroom = await _get_classroom_or_404(db, classroom_id)
     await _require_member_or_lecturer(db, classroom, user)
     exam = (await db.execute(
@@ -438,12 +466,12 @@ async def start_attempt(
     now = datetime.now(UTC)
     if exam.status == "draft":
         raise ConflictError("This exam is not yet published.")
-    if exam.starts_at and now < exam.starts_at:
-        raise ConflictError("This exam has not started yet.")
-    if exam.ends_at and now > exam.ends_at:
-        raise ConflictError("This exam window has closed.")
     if exam.status == "closed":
         raise ConflictError("This exam is closed.")
+    if exam.starts_at and now < exam.starts_at:
+        raise ConflictError("Joining hasn't opened yet.")
+    if not exam.ends_at or now > exam.ends_at:
+        raise ConflictError("Joining has closed for this exam.")
 
     existing = (await db.execute(
         select(ClassroomExamAttempt).where(
@@ -452,32 +480,30 @@ async def start_attempt(
         )
     )).scalar_one_or_none()
     if existing:
-        if existing.status != "in_progress":
+        if existing.status in ("submitted", "terminated"):
             raise ConflictError("You have already submitted this exam.")
-        remaining = int((existing.server_deadline_at - now).total_seconds())
-        if remaining <= 0:
-            existing.status = "submitted"
-            existing.submitted_at = now
-            await db.commit()
-            raise ConflictError("Your exam time has expired.")
-        return ClassroomExamAttemptStartOut(
-            attempt_id=existing.id, server_deadline_at=existing.server_deadline_at, remaining_seconds=max(remaining, 0),
-        )
+        return _attempt_start_out(existing, exam, now)
 
     question_order = list(exam.question_ids)
     random.shuffle(question_order)
-    deadline = min(now + timedelta(seconds=exam.duration_seconds), exam.ends_at) if exam.ends_at else now + timedelta(seconds=exam.duration_seconds)
+    # Every student who joins gets the exam's full duration -- their clock starts
+    # when joining closes (exam.ends_at), not when they clicked join, so someone
+    # who joins a second before the deadline gets exactly the same time as someone
+    # who joined when the window opened.
+    deadline = exam.ends_at + timedelta(seconds=exam.duration_seconds)
+    # status stays the model default ("in_progress") even while the student is
+    # still in the pre-start waiting room -- "has this attempt actually started"
+    # is answered purely by `now >= started_at` (checked by every endpoint below
+    # that would let them see questions, answer, or be flagged for integrity
+    # violations), not by a distinct status value.
     attempt = ClassroomExamAttempt(
         exam_id=exam_id, student_id=user.id, question_order=question_order,
-        started_at=now, server_deadline_at=deadline,
+        started_at=exam.ends_at, server_deadline_at=deadline,
     )
     db.add(attempt)
     await db.commit()
     await db.refresh(attempt)
-    remaining = int((deadline - now).total_seconds())
-    return ClassroomExamAttemptStartOut(
-        attempt_id=attempt.id, server_deadline_at=deadline, remaining_seconds=remaining,
-    )
+    return _attempt_start_out(attempt, exam, now)
 
 
 @router.get("/exams/attempts/{attempt_id}/questions")
@@ -492,6 +518,8 @@ async def get_attempt_questions(
     if attempt.status != "in_progress":
         raise ConflictError("This attempt has already been submitted.")
     now = datetime.now(UTC)
+    if now < attempt.started_at:
+        raise ConflictError("The exam hasn't started yet — hang tight, it begins automatically once joining closes.", code="exam_not_started")
     if now > attempt.server_deadline_at:
         attempt.status = "submitted"
         attempt.submitted_at = now
@@ -525,6 +553,8 @@ async def submit_attempt(
     if attempt.status != "in_progress":
         raise ConflictError("This attempt has already been submitted.")
     now = datetime.now(UTC)
+    if now < attempt.started_at:
+        raise ConflictError("The exam hasn't started yet.", code="exam_not_started")
     total_earned = 0
     total_possible = 0
     for ans in body.answers:
@@ -574,6 +604,9 @@ async def report_integrity_event(
         raise NotFoundError("Attempt not found.")
     if attempt.status != "in_progress":
         return IntegrityEventResponse(recorded=False, terminated=attempt.status == "terminated")
+    if datetime.now(UTC) < attempt.started_at:
+        # Still in the pre-start waiting room -- nothing to flag yet.
+        return IntegrityEventResponse(recorded=False)
 
     exam = await db.get(ClassroomExam, attempt.exam_id)
     if not exam or not exam.integrity_monitoring_enabled:

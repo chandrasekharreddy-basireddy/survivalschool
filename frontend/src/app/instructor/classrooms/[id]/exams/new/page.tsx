@@ -158,6 +158,14 @@ function InstructorExamEditorInner() {
     return `${selectedQuestionIds.length} selected`;
   }, [examId, selectedQuestionIds.length]);
 
+  const examRunsLabel = useMemo(() => {
+    if (!endsAt || !durationMinutes) return "";
+    const start = new Date(endsAt);
+    if (Number.isNaN(start.getTime())) return "";
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
+    return `Exam runs ${start.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}–${end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`;
+  }, [endsAt, durationMinutes]);
+
   if (loading) return <div className="mx-auto max-w-3xl px-6 py-16"><PageLoader size="md" /></div>;
 
   const locked = existingStatus === "open" || existingStatus === "closed";
@@ -180,14 +188,20 @@ function InstructorExamEditorInner() {
                 <input type="number" min={1} max={1440} className="input mt-1" value={durationMinutes} onChange={(e) => setDurationMinutes(Number(e.target.value))} />
               </label>
               <label className="text-sm text-fg-muted">
-                Opens
+                Joining opens
                 <input type="datetime-local" className="input mt-1" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
               </label>
               <label className="text-sm text-fg-muted">
-                Closes
+                Joining closes
                 <input type="datetime-local" className="input mt-1" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
               </label>
             </div>
+            <p className="text-xs text-fg-subtle">
+              Students can join any time in that window. The exam itself starts for everyone the moment joining
+              closes, and every student gets the full duration from that instant — nobody who joins right at the
+              deadline gets shortchanged.
+              {examRunsLabel && <> <span className="text-fg-muted">{examRunsLabel}</span></>}
+            </p>
           </div>
 
           <div className="card mt-4">

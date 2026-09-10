@@ -93,7 +93,7 @@ export default function ClassroomDetailPage() {
                   <Link key={e.id} href={`/classrooms/${id}/exam/${e.id}`} className="card !p-4 flex items-center justify-between gap-4 transition hover:border-brand-500/50">
                     <div className="min-w-0">
                       <p className="truncate font-medium text-fg">{e.title}</p>
-                      <p className="text-xs text-fg-subtle">{e.question_count} questions · {Math.round(e.duration_seconds / 60)} min · {formatDate(e.starts_at)} – {formatDate(e.ends_at)}</p>
+                      <p className="text-xs text-fg-subtle">{e.question_count} questions · {Math.round(e.duration_seconds / 60)} min · Join {formatDate(e.starts_at)} – {formatDate(e.ends_at)}</p>
                     </div>
                     <span className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${STATUS_STYLE[e.status] || ""}`}>
                       {e.status}

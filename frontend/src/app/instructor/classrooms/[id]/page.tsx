@@ -131,7 +131,7 @@ export default function InstructorClassroomManagePage() {
                 <p className="truncate font-medium text-fg">{e.title}</p>
                 <p className="text-xs text-fg-subtle">
                   {e.question_count} question{e.question_count !== 1 ? "s" : ""} · {Math.round(e.duration_seconds / 60)} min
-                  {e.starts_at && <> · {formatDate(e.starts_at)} – {formatDate(e.ends_at)}</>}
+                  {e.starts_at && <> · Join {formatDate(e.starts_at)} – {formatDate(e.ends_at)}</>}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">

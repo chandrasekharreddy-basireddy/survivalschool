@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { ExamSecurityShell } from "@/components/exams/ExamSecurityShell";
@@ -17,7 +17,11 @@ interface ExamInfo {
 }
 interface Option { id: string; text: string; order_index: number; }
 interface Question { id: string; prompt: string; question_type: string; points: number; options: Option[]; }
-interface AttemptStart { attempt_id: string; server_deadline_at: string; remaining_seconds: number; }
+interface AttemptStart {
+  attempt_id: string; status: "waiting" | "in_progress";
+  exam_starts_at: string; server_deadline_at: string;
+  seconds_until_start: number; remaining_seconds: number;
+}
 interface AttemptResult {
   id: string; score_percent: number | null; points_earned: number | null;
   points_possible: number | null; status: string;
@@ -29,17 +33,19 @@ export default function ClassroomExamPage() {
   const { user } = useAuth();
 
   const [exam, setExam] = useState<ExamInfo | null>(null);
-  const [phase, setPhase] = useState<"loading" | "info" | "security" | "exam" | "submitted" | "error">("loading");
+  const [phase, setPhase] = useState<"loading" | "info" | "security" | "waiting" | "exam" | "submitted" | "error">("loading");
   const [error, setError] = useState("");
   const [attemptId, setAttemptId] = useState("");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [currentIdx, setCurrentIdx] = useState(0);
+  const [secondsUntilStart, setSecondsUntilStart] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [deviceFp, setDeviceFp] = useState("");
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const waitTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   useEffect(() => {
     if (!examId || !classroomId) return;
@@ -52,14 +58,38 @@ export default function ClassroomExamPage() {
       .catch(() => setPhase("error"));
   }, [examId, classroomId]);
 
+  // Joining and taking the exam are different moments: everyone who joins gets
+  // the exam's full duration starting from the SAME instant (when joining
+  // closes), so a student who joins seconds before the deadline isn't
+  // shortchanged relative to one who joined when it opened. If that instant is
+  // still in the future, this drops into a waiting-room phase with its own
+  // countdown instead of fetching questions immediately.
+  const fetchQuestions = useCallback(async (attId: string) => {
+    try {
+      const qs = await apiFetch<Question[]>(`/classrooms/exams/attempts/${attId}/questions`);
+      setQuestions(qs);
+      setPhase("exam");
+    } catch (err) {
+      // A slightly-early request (clock skew between browser and server) is
+      // expected right at the boundary -- the waiting-room countdown will
+      // retry a moment later rather than surfacing this as a real failure.
+      if (err instanceof ApiError && err.code === "exam_not_started") return;
+      setError(err instanceof ApiError ? err.message : "Failed to load questions.");
+      setPhase("error");
+    }
+  }, []);
+
   const startAttempt = async () => {
     try {
       const res = await apiFetch<AttemptStart>(`/classrooms/${classroomId}/exams/${examId}/attempts`, { method: "POST" });
       setAttemptId(res.attempt_id);
-      setRemainingSeconds(res.remaining_seconds);
-      const qs = await apiFetch<Question[]>(`/classrooms/exams/attempts/${res.attempt_id}/questions`);
-      setQuestions(qs);
-      setPhase("exam");
+      if (res.status === "waiting") {
+        setSecondsUntilStart(res.seconds_until_start);
+        setPhase("waiting");
+      } else {
+        setRemainingSeconds(res.remaining_seconds);
+        await fetchQuestions(res.attempt_id);
+      }
     } catch (err: any) {
       setError(err?.message || "Failed to start exam.");
       setPhase("error");
@@ -118,6 +148,21 @@ export default function ClassroomExamPage() {
     return () => clearInterval(timerRef.current);
   }, [phase, hasTimeLeft, handleSubmit]);
 
+  useEffect(() => {
+    if (phase !== "waiting") return;
+    waitTimerRef.current = setInterval(() => {
+      setSecondsUntilStart(prev => {
+        if (prev <= 1) {
+          setRemainingSeconds(exam?.duration_seconds ?? 0);
+          fetchQuestions(attemptId);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(waitTimerRef.current);
+  }, [phase, attemptId, exam?.duration_seconds, fetchQuestions]);
+
   const reportEvent = useCallback(async (eventType: string) => {
     if (!attemptId) return;
     try {
@@ -156,12 +201,17 @@ export default function ClassroomExamPage() {
         <h1 className="text-2xl font-bold text-fg">{exam.title}</h1>
         <p className="mt-2 text-sm text-fg-muted">{exam.description}</p>
         <div className="mt-6 space-y-2 text-sm text-fg-subtle">
-          <p>{exam.question_count} questions · {Math.round(exam.duration_seconds / 60)} minutes</p>
-          {exam.starts_at && <p>Opens: {new Date(exam.starts_at).toLocaleString()}</p>}
-          {exam.ends_at && <p>Closes: {new Date(exam.ends_at).toLocaleString()}</p>}
+          <p>{exam.question_count} questions · {Math.round(exam.duration_seconds / 60)} minutes once it starts</p>
+          {exam.starts_at && <p>Joining opens: {new Date(exam.starts_at).toLocaleString()}</p>}
+          {exam.ends_at && <p>Joining closes: {new Date(exam.ends_at).toLocaleString()}</p>}
+          {exam.ends_at && (
+            <p className="text-fg-subtle/80">
+              The exam begins for everyone the moment joining closes — join any time before then and you&apos;ll still get the full {Math.round(exam.duration_seconds / 60)} minutes.
+            </p>
+          )}
         </div>
         {exam.status === "open" ? (
-          <button onClick={() => setPhase("security")} className="btn-primary mt-8 w-full">Start Exam</button>
+          <button onClick={() => setPhase("security")} className="btn-primary mt-8 w-full">Join Exam</button>
         ) : exam.status === "scheduled" ? (
           <p className="mt-8 text-center text-sm text-amber-400">This exam hasn&apos;t opened yet.</p>
         ) : (
@@ -176,6 +226,20 @@ export default function ClassroomExamPage() {
       <ExamSecurityShell fullscreenRequired={exam.fullscreen_required} onReady={handleSecurityReady}>
         <div />
       </ExamSecurityShell>
+    );
+  }
+
+  if (phase === "waiting") {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-ink-950 px-4 text-center">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-brand-500/10 text-2xl">⏳</div>
+        <h1 className="text-xl font-bold text-fg">You&apos;re in</h1>
+        <p className="mt-2 max-w-sm text-sm text-fg-muted">
+          The exam starts automatically for everyone once joining closes. Stay on this page — it&apos;ll begin on its own.
+        </p>
+        <p className="mt-6 font-mono text-4xl font-bold text-fg">{formatTime(secondsUntilStart)}</p>
+        <p className="mt-1 text-xs text-fg-subtle">until the exam begins</p>
+      </div>
     );
   }
 

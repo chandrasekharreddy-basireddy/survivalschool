@@ -34,7 +34,7 @@ from app.core.exceptions import (
     NotFoundError,
     ValidationAppError,
 )
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.dependencies import (
     get_client_ip,
     get_current_session_id,
@@ -151,7 +151,7 @@ async def _issue_tokens(db: AsyncSession, user: User, request: Request, device_l
 
 
 @router.post("/register", response_model=UserOut, status_code=201)
-async def register(payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def register(payload: RegisterRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"register:{get_client_ip(request)}", limit=settings.RATE_LIMIT_REGISTER_PER_HOUR, window_seconds=3600)
 
     existing = await db.execute(select(User).where(User.email == payload.email.lower()))
@@ -205,18 +205,24 @@ async def register(payload: RegisterRequest, request: Request, db: AsyncSession 
     verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
     # The account is already committed at this point -- a real email delivery
     # failure (bad SMTP creds, provider outage, unverified sender domain,
-    # etc.) must not roll back a successful registration. But send_email()
-    # returning False is a real signal the caller shouldn't just discard: the
-    # user has no other way to learn their verification link never arrived.
-    email_delivery_ok = await send_email(
+    # etc.) must not roll back a successful registration. Sending is deferred
+    # to a background task (same reasoning as resend_verification below):
+    # awaiting the real network call here held the whole response open for
+    # however long the email provider took (up to send_email's own 15s
+    # bound), which on top of a cold Render worker was enough to blow past
+    # the frontend's request timeout and make registration itself look like
+    # it had failed even though the account was created fine. The user can
+    # always use "resend verification" if the deferred send doesn't land.
+    background_tasks.add_task(
+        send_email,
         user.email, f"Verify your {settings.APP_NAME} account", "verify_email",
         full_name=user.full_name, verify_url=verify_url, ttl_hours=settings.EMAIL_VERIFICATION_TTL_HOURS,
     )
-    await emit_event("student.registered", {"email": user.email, "full_name": user.full_name})
+    background_tasks.add_task(emit_event, "student.registered", {"email": user.email, "full_name": user.full_name})
 
     return UserOut(id=user.id, email=user.email, full_name=user.full_name,
                     is_email_verified=user.is_email_verified, roles=["STUDENT"],
-                    email_delivery_ok=email_delivery_ok)
+                    email_delivery_ok=True)
 
 
 @router.post("/instructor-applications", response_model=InstructorApplicationOut, status_code=201)
@@ -274,7 +280,11 @@ async def apply_as_instructor(
         raw_token, token_hash, expires_at = new_email_verification_token()
         db.add(EmailVerification(user_id=user.id, token_hash=token_hash, expires_at=expires_at))
         verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-        email_delivery_ok = await send_email(
+        # Deferred for the same reason as register() above -- an awaited
+        # send_email() here held the response open for the full email-provider
+        # round trip on top of any cold-start delay.
+        background_tasks.add_task(
+            send_email,
             user.email, f"Verify your {settings.APP_NAME} account", "verify_email",
             full_name=user.full_name, verify_url=verify_url, ttl_hours=settings.EMAIL_VERIFICATION_TTL_HOURS,
         )
@@ -311,7 +321,7 @@ async def apply_as_instructor(
 
 
 @router.post("/verify-email", response_model=MessageResponse)
-async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def verify_email(payload: VerifyEmailRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"verify-email-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP, window_seconds=3600)
     token_hash = hash_token(payload.token)
     result = await db.execute(select(EmailVerification).where(EmailVerification.token_hash == token_hash))
@@ -333,7 +343,8 @@ async def verify_email(payload: VerifyEmailRequest, request: Request, db: AsyncS
     await record_audit_event(db, actor_id=user.id, action="user.verify_email", resource_type="user", resource_id=str(user.id))
     await db.commit()
 
-    await send_email(
+    background_tasks.add_task(
+        send_email,
         user.email, f"Welcome to {settings.APP_NAME}", "welcome",
         full_name=user.full_name, dashboard_url=f"{settings.FRONTEND_URL}/dashboard",
     )
@@ -373,8 +384,31 @@ async def resend_verification(payload: ResendVerificationRequest, request: Reque
     return generic
 
 
+async def _notify_login_alert(user_id: uuid.UUID, device_label: str | None, ip_address: str | None) -> None:
+    """Runs as a background task, after the login response is already on the
+    wire -- the request's own `db` session is closed by then, so this opens
+    its own short-lived session rather than reusing it. Kept out of the
+    login critical path because the inline version awaited a real email
+    send (notify_security_event -> create_notification -> send_email,
+    bounded at 15s) before returning tokens, which on top of a cold Render
+    worker was long enough to make a successful login look like a timeout."""
+    async with AsyncSessionLocal() as db:
+        try:
+            user = await db.get(User, user_id)
+            if user is None:
+                return
+            await notify_security_event(
+                db, user, "login_alert", "New sign-in to your account",
+                device_label=device_label, ip_address=ip_address,
+            )
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            logger.warning("login_alert_notify_failed", user_id=str(user_id))
+
+
 @router.post("/login", response_model=TokenResponse | MFAChallengeOut)
-async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def login(payload: LoginRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"login:{get_client_ip(request)}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
     await enforce_rate_limit(f"login-email:{payload.email.lower()}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
 
@@ -446,23 +480,15 @@ async def login(payload: LoginRequest, request: Request, db: AsyncSession = Depe
     await db.commit()
 
     # The login already succeeded and committed above. The security-alert
-    # notification is a best-effort side effect: if it (or its own commit)
-    # fails, log it and still return valid tokens rather than turning a
-    # successful sign-in into a 500 the user can do nothing about.
-    try:
-        await notify_security_event(
-            db, user, "login_alert", "New sign-in to your account",
-            device_label=payload.device_label, ip_address=get_client_ip(request),
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.warning("login_alert_notify_failed", user_id=str(user.id))
+    # notification is a best-effort side effect -- deferred to a background
+    # task (see _notify_login_alert) so the email round trip never delays
+    # the tokens the user is waiting on.
+    background_tasks.add_task(_notify_login_alert, user.id, payload.device_label, get_client_ip(request))
     return tokens
 
 
 @router.post("/2fa/verify-login", response_model=TokenResponse)
-async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, db: AsyncSession = Depends(get_db)):
+async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """Second step of login for accounts with TOTP enabled. Takes the
     mfa_token from the MFAChallengeOut response plus a 6-digit TOTP code
     (or an 8-character backup code) and, if valid, issues real tokens via
@@ -513,15 +539,7 @@ async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, db: 
     await db.commit()
 
     # Best-effort post-login alert — see the note on the password login path.
-    try:
-        await notify_security_event(
-            db, user, "login_alert", "New sign-in to your account",
-            device_label=None, ip_address=get_client_ip(request),
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.warning("login_alert_notify_failed", user_id=str(user.id))
+    background_tasks.add_task(_notify_login_alert, user.id, None, get_client_ip(request))
     return tokens
 
 
@@ -987,7 +1005,7 @@ async def passkey_login_options(payload: PasskeyLoginOptionsIn, request: Request
 
 
 @router.post("/passkeys/login/verify", response_model=TokenResponse)
-async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, db: AsyncSession = Depends(get_db)):
+async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     await enforce_rate_limit(f"passkey-login:{get_client_ip(request)}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
     email = payload.email.lower()
     await enforce_rate_limit(f"passkey-login-email:{email}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
@@ -1080,13 +1098,5 @@ async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, 
 
     # Best-effort post-login alert -- see the matching note on the password
     # login path above.
-    try:
-        await notify_security_event(
-            db, user, "login_alert", "New sign-in to your account",
-            device_label=payload.device_label, ip_address=get_client_ip(request),
-        )
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        logger.warning("login_alert_notify_failed", user_id=str(user.id))
+    background_tasks.add_task(_notify_login_alert, user.id, payload.device_label, get_client_ip(request))
     return tokens

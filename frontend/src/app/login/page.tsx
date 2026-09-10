@@ -71,6 +71,12 @@ function LoginPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [resending, setResending] = useState(false);
+  // The backend runs on Render's free tier and sleeps after ~15 minutes idle;
+  // its first request after that can take up to a minute to wake, well past
+  // a normal sign-in. Rather than let that look like a broken/hung button,
+  // surface an explicit "waking up" notice once the request has been
+  // pending a while.
+  const [wakingUp, setWakingUp] = useState(false);
   const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
   // Checked only after mount (isPasskeySupported reads window.PublicKeyCredential)
@@ -93,6 +99,8 @@ function LoginPageInner() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+    setWakingUp(false);
+    const wakeTimer = setTimeout(() => setWakingUp(true), 6000);
     try {
       const result = await login(email, password);
       if (result.mfaRequired) {
@@ -103,6 +111,8 @@ function LoginPageInner() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
+      clearTimeout(wakeTimer);
+      setWakingUp(false);
       setSubmitting(false);
     }
   };
@@ -237,6 +247,11 @@ function LoginPageInner() {
           <button type="submit" disabled={submitting} className="btn-primary w-full">
             {submitting ? "Signing in…" : "Sign in"}
           </button>
+          {wakingUp && (
+            <p className="text-center text-xs text-fg-subtle">
+              Waking up the server after a period of inactivity — this can take up to a minute on the first try.
+            </p>
+          )}
         </form>
 
         {passkeySupported && (

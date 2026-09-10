@@ -10,7 +10,12 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && user && (isAdmin(user) || isInstructor(user))) {
+    if (loading) return;
+    if (!user) {
+      router.replace(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+      return;
+    }
+    if (isAdmin(user) || isInstructor(user)) {
       router.replace(getPostLoginPath(user));
     }
   }, [loading, router, user]);

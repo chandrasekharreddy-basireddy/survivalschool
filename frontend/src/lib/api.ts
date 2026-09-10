@@ -79,8 +79,10 @@ async function tryRefresh(): Promise<string | null> {
 /** Default per-request timeout. Uploads override this via options.timeoutMs
  * because multipart bodies legitimately take longer. Without a timeout a slow
  * or wedged backend leaves the UI stuck on a loading state that never
- * resolves. */
-const DEFAULT_TIMEOUT_MS = 30_000;
+ * resolves. Set high enough to survive a cold start of the free-tier Render
+ * backend (which can take up to ~50s to wake from sleep) rather than firing
+ * a false "request timed out" on the very first request of a session. */
+const DEFAULT_TIMEOUT_MS = 45_000;
 
 /** Sends the user to the login screen when their session can no longer be
  * refreshed. Kept here (rather than in every caller) so a hard expiry always

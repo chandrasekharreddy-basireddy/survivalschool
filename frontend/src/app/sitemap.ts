@@ -4,7 +4,7 @@ import type { MetadataRoute } from "next";
 // dashboards, instructor tools, and anything behind auth are deliberately
 // excluded (and blocked in robots.txt) since a crawler indexing them serves
 // no one and every visit would just bounce to /login anyway.
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://survivalschool.example.com";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://survivalschool.vercel.app";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const staticPaths = ["/", "/contests", "/leaderboard", "/certificates/verify", "/login", "/register"];

@@ -19,6 +19,10 @@ export default function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [emailDeliveryOk, setEmailDeliveryOk] = useState(true);
+  // See the matching note on the login page: the backend can take up to a
+  // minute to wake from a Render free-tier cold start, so a slow first
+  // request needs an explanation instead of looking like a hung button.
+  const [wakingUp, setWakingUp] = useState(false);
 
   // Already signed in? Nothing to register — send them to their own home.
   useEffect(() => {
@@ -29,6 +33,8 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+    setWakingUp(false);
+    const wakeTimer = setTimeout(() => setWakingUp(true), 6000);
     try {
       const res = await apiFetch<{ email_delivery_ok: boolean }>("/auth/register", {
         method: "POST",
@@ -40,6 +46,8 @@ export default function RegisterPage() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
     } finally {
+      clearTimeout(wakeTimer);
+      setWakingUp(false);
       setSubmitting(false);
     }
   };
@@ -158,6 +166,11 @@ export default function RegisterPage() {
         <button type="submit" disabled={submitting} className="btn-primary w-full">
           {submitting ? "Creating account…" : "Create account"}
         </button>
+        {wakingUp && (
+          <p className="text-center text-xs text-fg-subtle">
+            Waking up the server after a period of inactivity — this can take up to a minute on the first try.
+          </p>
+        )}
       </form>
       <p className="mt-6 text-center text-sm text-fg-muted">
         Already have an account?{" "}

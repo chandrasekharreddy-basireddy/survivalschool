@@ -22,22 +22,63 @@ const QUOTES = [
   "Consistency beats intensity when intensity can't be sustained.",
 ];
 
+// Small inline "this failed, not just empty" row, shared by every widget
+// below. A failed fetch used to be indistinguishable from a genuinely empty
+// list/stat — same dashed box, same reassuring copy — which is actively
+// misleading on a page whose whole job is to show a student their own
+// progress: "0 points" and "we couldn't load your points" are not the same
+// message.
+function WidgetError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-700 px-4 py-3 text-sm text-fg-muted">
+      <span>Couldn&apos;t load this — usually just a slow-to-wake server.</span>
+      <button type="button" onClick={onRetry} className="btn-secondary shrink-0 !px-3 !py-1 text-xs">Retry</button>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user, loading } = useAuth();
   const [upcomingContests, setUpcomingContests] = useState<Contest[] | null>(null);
+  const [contestsFailed, setContestsFailed] = useState(false);
   const [battles, setBattles] = useState<Battle[] | null>(null);
+  const [battlesFailed, setBattlesFailed] = useState(false);
   const [certificates, setCertificates] = useState<Certificate[] | null>(null);
+  const [certificatesFailed, setCertificatesFailed] = useState(false);
   const [stats, setStats] = useState<GamificationStats | null>(null);
+  const [statsFailed, setStatsFailed] = useState(false);
   const [notifications, setNotifications] = useState<Notification[] | null>(null);
+  const [notificationsFailed, setNotificationsFailed] = useState(false);
   const [quote] = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+
+  const loadContests = () => {
+    setContestsFailed(false);
+    apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcomingContests).catch(() => setContestsFailed(true));
+  };
+  const loadBattles = () => {
+    setBattlesFailed(false);
+    apiFetch<Battle[]>("/elimination/battles/me").then(setBattles).catch(() => setBattlesFailed(true));
+  };
+  const loadCertificates = () => {
+    setCertificatesFailed(false);
+    apiFetch<Certificate[]>("/contests/me/certificates").then(setCertificates).catch(() => setCertificatesFailed(true));
+  };
+  const loadStats = () => {
+    setStatsFailed(false);
+    apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => setStatsFailed(true));
+  };
+  const loadNotifications = () => {
+    setNotificationsFailed(false);
+    apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotificationsFailed(true));
+  };
 
   useEffect(() => {
     if (!user) return;
-    apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcomingContests).catch(() => setUpcomingContests([]));
-    apiFetch<Battle[]>("/elimination/battles/me").then(setBattles).catch(() => setBattles([]));
-    apiFetch<Certificate[]>("/contests/me/certificates").then(setCertificates).catch(() => setCertificates([]));
-    apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => setStats(null));
-    apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotifications([]));
+    loadContests();
+    loadBattles();
+    loadCertificates();
+    loadStats();
+    loadNotifications();
   }, [user]);
 
   if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
@@ -67,7 +108,9 @@ export default function DashboardPage() {
               <h2 className="font-semibold text-fg">Upcoming contests</h2>
               <Link href="/contests" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All contests</Link>
             </div>
-            {upcomingContests === null ? (
+            {contestsFailed ? (
+              <WidgetError onRetry={loadContests} />
+            ) : upcomingContests === null ? (
               <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : upcomingContests.length === 0 ? (
               <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
@@ -92,7 +135,9 @@ export default function DashboardPage() {
               <h2 className="font-semibold text-fg">Elimination battles</h2>
               <Link href="/elimination" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All battles</Link>
             </div>
-            {battles === null ? (
+            {battlesFailed ? (
+              <WidgetError onRetry={loadBattles} />
+            ) : battles === null ? (
               <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : battles.length === 0 ? (
               <div className="mt-6 rounded-lg border border-dashed border-ink-700 p-8 text-center text-sm text-fg-subtle">
@@ -114,7 +159,9 @@ export default function DashboardPage() {
 
           <div className="card">
             <h2 className="font-semibold text-fg">Recent notifications</h2>
-            {notifications === null ? (
+            {notificationsFailed ? (
+              <WidgetError onRetry={loadNotifications} />
+            ) : notifications === null ? (
               <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : notifications.length === 0 ? (
               <p className="mt-4 text-sm text-fg-subtle">You&apos;re all caught up.</p>
@@ -134,7 +181,9 @@ export default function DashboardPage() {
         <div className="space-y-6">
           <div className="card">
             <h2 className="font-semibold text-fg">Your progress</h2>
-            {stats === null ? (
+            {statsFailed ? (
+              <WidgetError onRetry={loadStats} />
+            ) : stats === null ? (
               <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : (
               <>
@@ -163,7 +212,11 @@ export default function DashboardPage() {
 
           <div className="card">
             <h2 className="font-semibold text-fg">Certificates earned</h2>
-            <p className="mt-2 text-sm text-fg-subtle">{certificates === null ? "…" : certificates.length} certificate{certificates?.length === 1 ? "" : "s"} earned</p>
+            {certificatesFailed ? (
+              <WidgetError onRetry={loadCertificates} />
+            ) : (
+              <p className="mt-2 text-sm text-fg-subtle">{certificates === null ? "…" : certificates.length} certificate{certificates?.length === 1 ? "" : "s"} earned</p>
+            )}
             <Link href="/contests/certificates" className="mt-3 inline-block text-sm text-brand-600 dark:text-brand-400 hover:underline">
               View certificates →
             </Link>

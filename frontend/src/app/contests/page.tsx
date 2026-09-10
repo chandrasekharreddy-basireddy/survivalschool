@@ -33,17 +33,28 @@ const PAGE_SIZE = 50;
 export default function ContestsPage() {
   const [upcoming, setUpcoming] = useState<Contest[] | null>(null);
   const [all, setAll] = useState<Contest[] | null>(null);
+  const [allFailed, setAllFailed] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  useEffect(() => {
-    apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcoming).catch(() => setUpcoming([]));
+  const loadAll = () => {
+    setAllFailed(false);
     apiFetch<Contest[]>(`/contests?limit=${PAGE_SIZE}&offset=0`, { auth: false })
       .then((page) => {
         setAll(page);
         setHasMore(page.length === PAGE_SIZE);
       })
-      .catch(() => setAll([]));
+      // A failed/timed-out request is not the same thing as "no contests
+      // exist" — collapsing both into an empty list used to tell a student
+      // "check back this weekend" when the real story was a slow backend.
+      // Keep `all` at null (still-loading shape) and flip allFailed instead,
+      // so the page can tell the two apart and offer a real retry.
+      .catch(() => setAllFailed(true));
+  };
+
+  useEffect(() => {
+    apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcoming).catch(() => setUpcoming([]));
+    loadAll();
   }, []);
 
   const loadMore = async () => {
@@ -88,8 +99,16 @@ export default function ContestsPage() {
 
       <div className="mt-8 space-y-3">
         <h2 className="font-semibold text-fg">All contests</h2>
-        {all === null && <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
-        {all !== null && all.length === 0 && <p className="text-sm text-fg-subtle">No contests yet — check back this weekend.</p>}
+        {all === null && !allFailed && <p className="text-sm text-fg-subtle"><PageLoader size="sm" /></p>}
+        {allFailed && (
+          <div className="card !p-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-fg-muted">
+              Couldn&apos;t load contests — this is usually a slow-to-wake server, not a real problem.
+            </p>
+            <button type="button" onClick={loadAll} className="btn-secondary shrink-0">Retry</button>
+          </div>
+        )}
+        {all !== null && !allFailed && all.length === 0 && <p className="text-sm text-fg-subtle">No contests yet — check back this weekend.</p>}
         {all?.map((c) => (
           <Link key={c.id} href={`/contests/${c.id}`} className="card !p-4 flex items-center justify-between gap-4 transition hover:border-brand-500/50">
             <div className="min-w-0">

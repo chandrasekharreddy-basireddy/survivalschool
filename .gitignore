@@ -54,3 +54,9 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+
+# Claude Code local session/tooling state — not project source
+.claude/
+
+# Stray exported patch files from agent sessions — should never be committed
+*.patch

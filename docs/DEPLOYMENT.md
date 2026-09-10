@@ -7,6 +7,46 @@ See `CHANGELOG.md` for what's new in the current version
 (`SERVICE_VERSION`, also `GET /health`'s `version` field and
 `frontend/package.json`).
 
+## What's actually running in production
+
+The three options below (Docker Compose, Kubernetes) are documented in
+detail because they're the portable, self-hostable path — but the system
+that's actually live and serving real users today runs on none of them.
+This section exists so that fact isn't only discoverable by querying each
+provider directly.
+
+- **Frontend — Vercel.** The `survivalschool` project auto-deploys the
+  Next.js app from `main` on every push (and every PR gets its own preview
+  deployment). `NEXT_PUBLIC_API_BASE_URL` is set at the Vercel project level
+  to the Render backend's public URL — see below.
+- **Backend — Render.** A single free-tier web service runs the FastAPI app
+  (`survivalschool-backend`). Two things worth knowing before you rely on
+  it: the free tier sleeps after ~15 minutes idle and takes roughly
+  15–50 seconds to wake on the next request (the frontend pings `/health`
+  as early as possible on every page load — `src/lib/warm.ts` — specifically
+  to shrink that window, but it can't eliminate it on a fully cold start);
+  and this service is **not** reachable through the Kubernetes/Docker
+  Compose config in this repo — it was provisioned directly against this
+  codebase's `backend/Dockerfile`, independent of `infra/k8s/`.
+- **Database & storage — Supabase.** A managed Postgres 17 instance
+  (project `survivalschool-prod`, `ap-south-1`) is `DATABASE_URL`, reached
+  directly by SQLAlchemy — the backend does not go through Supabase's
+  PostgREST/client-SDK layer for its own tables, which is why every table in
+  this schema (see the RLS-hardening migrations, e.g.
+  `b7f9c3d1e2a4_lock_down_public_tables_with_rls.py`) carries a
+  deny-all-to-`PUBLIC` RLS policy: PostgREST access to this data was never
+  meant to exist, only the backend's own trusted connection is. Supabase
+  Storage is used for durable file uploads (`STORAGE_BACKEND=supabase`),
+  since Render's container disk is wiped on every redeploy.
+- **CI/CD — GitHub Actions**, exactly as documented in `docs/CI_CD.md`, is
+  the one piece of this list that matches the Kubernetes-era docs below: it
+  runs the same way regardless of where the built artifacts end up deployed.
+
+If you're setting up a **new** deployment from scratch, the Docker
+Compose/Kubernetes path below is still the right one to follow — this
+section is describing where the *existing* production instance happens to
+live, not recommending Render/Vercel/Supabase over it.
+
 ## Extra setup steps for 1.0.0's new features
 
 None of these are required to boot the app — every one of them is designed

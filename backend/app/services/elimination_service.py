@@ -508,6 +508,26 @@ async def start_battle(db: AsyncSession, battle: EliminationBattle, host: User) 
         # the battle, which would turn "still generating" into "dead,
         # unretriable" for what is now the common case rather than the
         # rare one that hard-cancel path was designed for.
+        #
+        # That said, "try again shortly" is only honest for a genuinely
+        # young battle. generate_and_persist_questions doesn't record
+        # anywhere that it already gave up (see _generate_questions_in_
+        # background), so there is no direct "generation failed" signal to
+        # check here -- but battle.created_at age is a reasonable proxy:
+        # confirmed live, Sarvam intermittently returns empty responses for
+        # every retry on some requests (see ai_provider.py's
+        # _EMPTY_RESPONSE_RETRY_ATTEMPTS comment) and generation gives up
+        # for good well under a couple of minutes. Repeating "try again" at
+        # that point is actively misleading -- it will not start working on
+        # its own retry N -- so switch to telling the host plainly and
+        # pointing at the one thing actually in their control: pick a
+        # different topic.
+        battle_age_seconds = (datetime.now(UTC) - battle.created_at).total_seconds()
+        if battle_age_seconds > 120:
+            raise ValidationAppError(
+                "We couldn't generate questions for this topic — the AI provider isn't cooperating right now. "
+                "Try a different or more specific topic, or start a battle on a topic that already has questions."
+            )
         raise ValidationAppError(
             "Questions are still being generated for this battle — try starting again in about a minute."
         )

@@ -24,6 +24,7 @@ const lora = Lora({
 import { AuthProvider } from "@/lib/auth-context";
 import { ToastProvider } from "@/lib/toast";
 import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
+import { WARM_BACKEND_SCRIPT } from "@/lib/warm";
 import { NavBar } from "@/components/NavBar";
 import { Footer } from "@/components/Footer";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
@@ -73,6 +74,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning className={`${inter.variable} ${lora.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: NO_FLASH_THEME_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: WARM_BACKEND_SCRIPT }} />
       </head>
       <body>
         <ThemeProvider>

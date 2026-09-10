@@ -22,6 +22,13 @@ interface DashboardStats {
   contest_attempts_30d: number;
 }
 
+interface ClassroomStats {
+  total_classrooms: number;
+  active_classrooms: number;
+  total_exams: number;
+  open_exams: number;
+}
+
 const TILES: { key: keyof DashboardStats; label: string }[] = [
   { key: "total_students", label: "Total students" },
   { key: "active_students_7d", label: "Active (7d)" },
@@ -29,9 +36,17 @@ const TILES: { key: keyof DashboardStats; label: string }[] = [
   { key: "contest_attempts_30d", label: "Contest attempts (30d)" },
 ];
 
+const CLASSROOM_TILES: { key: keyof ClassroomStats; label: string }[] = [
+  { key: "total_classrooms", label: "Classrooms" },
+  { key: "active_classrooms", label: "Active classrooms" },
+  { key: "total_exams", label: "Classroom exams" },
+  { key: "open_exams", label: "Open right now" },
+];
+
 export default function AdminDashboardPage() {
   const { user, loading } = useAuth();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [classroomStats, setClassroomStats] = useState<ClassroomStats | null>(null);
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +56,7 @@ export default function AdminDashboardPage() {
       .then(setStats)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again."));
     apiFetch<SystemHealth>("/admin/system-health").then(setHealth).catch(() => setHealth(null));
+    apiFetch<ClassroomStats>("/classrooms/admin/stats").then(setClassroomStats).catch(() => setClassroomStats(null));
   }, [user]);
 
   if (loading) return <div className="mx-auto max-w-6xl px-6 py-16 text-fg-muted"><PageLoader size="md" /></div>;
@@ -80,6 +96,20 @@ export default function AdminDashboardPage() {
               <p className="mt-2 text-3xl font-bold text-fg">{stats[t.key]}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {classroomStats && (
+        <div className="mt-8">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-fg-subtle">Classrooms</h2>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {CLASSROOM_TILES.map((t) => (
+              <div key={t.key} className="card">
+                <p className="text-xs uppercase tracking-wide text-fg-subtle">{t.label}</p>
+                <p className="mt-2 text-3xl font-bold text-fg">{classroomStats[t.key]}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

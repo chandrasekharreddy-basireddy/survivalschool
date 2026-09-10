@@ -1,28 +1,50 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { WarningModal } from "./WarningModal";
 
 type IntegrityEventType = "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click";
 
 interface Props {
   enabled: boolean;
   fullscreenRequired: boolean;
+  maxWarnings?: number;
   onIntegrityEvent: (event: IntegrityEventType) => void;
+  onTerminate?: () => void;
   children: React.ReactNode;
 }
 
 const BLOCKED_KEYS = new Set(["F12", "PrintScreen"]);
 
-export function ExamIntegrityGuard({ enabled, fullscreenRequired, onIntegrityEvent, children }: Props) {
+export function ExamIntegrityGuard({ enabled, fullscreenRequired, maxWarnings = 2, onIntegrityEvent, onTerminate, children }: Props) {
   const lastEventRef = useRef<string>("");
+  const [warningCount, setWarningCount] = useState(0);
+  const [pendingWarning, setPendingWarning] = useState<{ number: number; reason: string } | null>(null);
 
-  const report = (type: IntegrityEventType) => {
+  const report = useCallback((type: IntegrityEventType) => {
     const now = Date.now();
     const key = `${type}:${Math.floor(now / 500)}`;
     if (lastEventRef.current === key) return;
     lastEventRef.current = key;
     onIntegrityEvent(type);
-  };
+
+    setWarningCount(prev => {
+      const next = prev + 1;
+      if (next <= maxWarnings) {
+        setPendingWarning({ number: next, reason: type });
+      } else {
+        onTerminate?.();
+      }
+      return next;
+    });
+  }, [maxWarnings, onIntegrityEvent, onTerminate]);
+
+  const handleAcknowledge = useCallback(() => {
+    setPendingWarning(null);
+    if (fullscreenRequired && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }, [fullscreenRequired]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -78,7 +100,19 @@ export function ExamIntegrityGuard({ enabled, fullscreenRequired, onIntegrityEve
       document.removeEventListener("contextmenu", contextMenu, true);
       document.removeEventListener("keydown", keyDown, true);
     };
-  }, [enabled, fullscreenRequired, onIntegrityEvent]);
+  }, [enabled, fullscreenRequired, report]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      {pendingWarning && (
+        <WarningModal
+          warningNumber={pendingWarning.number}
+          maxWarnings={maxWarnings}
+          reason={pendingWarning.reason}
+          onAcknowledge={handleAcknowledge}
+        />
+      )}
+    </>
+  );
 }

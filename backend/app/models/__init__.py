@@ -9,6 +9,13 @@ from app.models.ai_practice import (  # noqa: F401
 from app.models.assessment import Question, QuestionOption  # noqa: F401
 from app.models.campus_timetable import CampusTimetableEntry, CampusTimetableSource  # noqa: F401
 from app.models.challenge import DailyChallenge, DailyChallengeAttempt  # noqa: F401
+from app.models.classroom import (  # noqa: F401
+    Classroom,
+    ClassroomExam,
+    ClassroomExamAnswer,
+    ClassroomExamAttempt,
+    ClassroomMember,
+)
 from app.models.contest import (  # noqa: F401
     Contest,
     ContestAnswer,

@@ -52,6 +52,30 @@ async def my_question_stats(
     return MyQuestionStatsOut(questions_created=len(single_count) + bulk_count)
 
 
+@router.get("", response_model=list[QuestionOut])
+async def list_questions(
+    subject_id: uuid.UUID | None = None,
+    topic_id: uuid.UUID | None = None,
+    search: str | None = Query(default=None, max_length=200),
+    limit: int = Query(default=50, ge=1, le=200),
+    user: User = Depends(require_permission("quiz.create", "exam.manage")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Browse the shared bank to pick specific questions for something that
+    isn't randomly assembled from it (e.g. a classroom exam) -- everything
+    else (contests, elimination, ai_practice) draws a random subset by
+    subject/topic/difficulty instead of needing this."""
+    query = select(Question)
+    if subject_id:
+        query = query.where(Question.subject_id == subject_id)
+    if topic_id:
+        query = query.where(Question.topic_id == topic_id)
+    if search:
+        query = query.where(Question.prompt.ilike(f"%{search}%"))
+    rows = (await db.execute(query.order_by(Question.created_at.desc()).limit(limit))).scalars().all()
+    return rows
+
+
 @router.post("", response_model=QuestionOut, status_code=201)
 async def create_question(
     payload: QuestionCreate,

@@ -11,6 +11,7 @@ from app.api.v1 import (
     campus_timetable,
     challenges,
     chat,
+    classroom,
     contests,
     elimination,
     exam_platform,
@@ -47,3 +48,4 @@ api_router.include_router(ai_practice.router)
 api_router.include_router(challenges.router)
 api_router.include_router(exam_platform.router)
 api_router.include_router(elimination.router)
+api_router.include_router(classroom.router)

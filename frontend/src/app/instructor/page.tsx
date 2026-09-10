@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useRole } from "@/lib/use-role";
 import { apiFetch, ApiError } from "@/lib/api";
@@ -159,10 +160,26 @@ export default function InstructorPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-2xl font-bold text-fg">Question bank</h1>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <h1 className="text-2xl font-bold text-fg">Instructor tools</h1>
+        <Link href="/instructor/classrooms" className="btn-primary shrink-0">My classrooms</Link>
+      </div>
       <p className="mt-1 text-sm text-fg-muted">
-        Add real, human-authored questions to the shared bank — every AI Weekly Exam, Elimination Battle, and practice
-        session draws from this pool alongside AI-generated ones.
+        Manage your classrooms and exams, or add to the shared question bank below.
+      </p>
+
+      <div className="card mt-6">
+        <h2 className="font-semibold text-fg">Classrooms</h2>
+        <p className="mt-1 text-sm text-fg-muted">
+          Create a classroom, share a join code with your students, and schedule exams built from the shared question bank.
+        </p>
+        <Link href="/instructor/classrooms" className="btn-secondary mt-4 inline-flex">Go to my classrooms</Link>
+      </div>
+
+      <h2 className="mt-10 text-xl font-bold text-fg">Question bank</h2>
+      <p className="mt-1 text-sm text-fg-muted">
+        Add real, human-authored questions to the shared bank — every AI Weekly Exam, Elimination Battle, classroom
+        exam, and practice session draws from this pool alongside AI-generated ones.
       </p>
 
       <div className="card mt-6 flex items-center justify-between !p-4">

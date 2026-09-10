@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
         from app.services.scheduler_runtime import scheduler_loop
         scheduler_task = asyncio.create_task(scheduler_loop(stop_event))
         # A separate, much tighter loop than the 60s scheduler tick — a
-        # strict 15-second elimination-battle deadline can't wait behind a
+        # strict 10-second elimination-battle deadline can't wait behind a
         # tick built for hourly/weekly jobs. See elimination_service.py's
         # module docstring for why this needs its own cadence.
         from app.services.elimination_service import elimination_sweep_loop

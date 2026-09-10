@@ -5,7 +5,7 @@ const STEPS = [
   { n: "1", title: "Create an account", desc: "Signup is open every day — no waiting for a window." },
   { n: "2", title: "Register for the weekly exam", desc: "Pick a subject and topic. Registration opens every Thursday (IST); the topic must clear a 70% AI difficulty bar." },
   { n: "3", title: "Sit the full 2-hour exam", desc: "50 questions, everyone completes the whole thing — no elimination. It's fullscreen, integrity-monitored, and graded entirely on the server." },
-  { n: "4", title: "Or battle friends live", desc: "Host an elimination battle, invite people by name, and answer one question at a time under a strict 15-second clock. Miss it or get it wrong and you're out." },
+  { n: "4", title: "Or battle friends live", desc: "Host an elimination battle, invite people by name, and answer one question at a time under a strict 10-second clock. Miss it or get it wrong and you're out." },
 ];
 
 export default function LandingPage() {

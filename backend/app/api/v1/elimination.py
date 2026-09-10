@@ -4,7 +4,7 @@ import io
 import uuid
 
 import qrcode
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.config import get_settings
 from app.core.exceptions import AuthorizationError, NotFoundError
 from app.database import get_db
-from app.dependencies import get_current_verified_user
+from app.dependencies import get_client_ip, get_current_verified_user
 from app.models.assessment import Question
 from app.models.elimination import (
     EliminationAnswer,
@@ -74,16 +74,16 @@ async def _handle_for(db: AsyncSession, user_id: uuid.UUID) -> str | None:
 
 
 @router.post("/battles", response_model=BattleOut, status_code=201)
-async def create_elimination_battle(payload: BattleCreate, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
-    battle = await create_battle(db, user, payload.title, payload.subject_name, payload.topic_name, payload.scheduled_start_at)
+async def create_elimination_battle(payload: BattleCreate, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    battle = await create_battle(db, user, payload.title, payload.subject_name, payload.topic_name, payload.scheduled_start_at, get_client_ip(request))
     return battle
 
 
 @router.post("/battles/join", response_model=BattleOut, status_code=201)
-async def join_elimination_battle_by_code(payload: JoinByCodeIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def join_elimination_battle_by_code(payload: JoinByCodeIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     """The Free Fire-style room-code join — no invitation or connection
     required, unlike POST /battles/{id}/invite."""
-    return await join_battle_by_code(db, user, payload.code)
+    return await join_battle_by_code(db, user, payload.code, get_client_ip(request))
 
 
 @router.get("/battles/{battle_id}/qr", response_class=Response)
@@ -214,13 +214,13 @@ async def list_incoming_invitations(user: User = Depends(get_current_verified_us
 
 
 @router.post("/invitations/{invitation_id}/accept", response_model=InvitationOut)
-async def accept_invitation(invitation_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def accept_invitation(invitation_id: uuid.UUID, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
     invitation = await db.get(EliminationInvitation, invitation_id)
     if invitation is None:
         raise NotFoundError("Invitation not found.")
     battle = await db.get(EliminationBattle, invitation.battle_id)
     inviter = await db.get(User, invitation.inviter_id)
-    invitation = await respond_to_invitation(db, invitation, user, accept=True)
+    invitation = await respond_to_invitation(db, invitation, user, accept=True, ip_address=get_client_ip(request))
     return InvitationOut(id=invitation.id, battle_id=invitation.battle_id, battle_title=battle.title if battle else "", inviter_id=invitation.inviter_id, inviter_name=inviter.full_name if inviter else "", inviter_handle=await _handle_for(db, invitation.inviter_id), invitee_id=invitation.invitee_id, status=invitation.status, created_at=invitation.created_at)
 
 
@@ -245,12 +245,12 @@ async def start_elimination_battle(battle_id: uuid.UUID, user: User = Depends(ge
 
 
 @router.post("/battles/{battle_id}/answer", response_model=SubmitAnswerOut)
-async def submit_battle_answer(battle_id: uuid.UUID, payload: SubmitAnswerIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
-    result = await submit_answer(db, battle_id, user, payload.selected_option_ids)
+async def submit_battle_answer(battle_id: uuid.UUID, payload: SubmitAnswerIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    result = await submit_answer(db, battle_id, user, payload.selected_option_ids, get_client_ip(request))
     return SubmitAnswerOut(**result)
 
 
 @router.post("/battles/{battle_id}/integrity-violation", response_model=IntegrityViolationOut)
-async def report_battle_integrity_violation(battle_id: uuid.UUID, payload: IntegrityViolationIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
-    result = await report_integrity_violation(db, battle_id, user, payload.violation_type)
+async def report_battle_integrity_violation(battle_id: uuid.UUID, payload: IntegrityViolationIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+    result = await report_integrity_violation(db, battle_id, user, payload.violation_type, get_client_ip(request))
     return IntegrityViolationOut(**result)

@@ -32,6 +32,7 @@ import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://survivalschool.vercel.app"),
   title: {
     default: "Survival School — Learn. Compete. Certify.",
     template: "%s · Survival School",

@@ -20,16 +20,27 @@ from app.services.ai_provider import GeneratedMCQ
 # response is. Two independent, narrow content-safety checks, neither of
 # which requires guessing whether the *meaning* of the text was hijacked:
 #
-# 1. Reject markup outright. A jailbroken generation that injects HTML/script
-#    content is caught here regardless of whether any frontend surface that
-#    renders question text turns out to escape it correctly — defense in
-#    depth, not a substitute for that escaping.
+# 1. Reject actually-dangerous markup (script/iframe/event-handler/
+#    javascript: constructs) — the real XSS surface — rather than any
+#    "<...>" substring. A blanket "<[a-zA-Z][^>]*>" match used to flag
+#    completely ordinary DSA/programming content (vector<int>, List<T>,
+#    comparisons like "a<b>c") as unsafe. Since validate_generated_batch
+#    is all-or-nothing per generated pool, one such false positive silently
+#    discarded the ENTIRE batch and left the topic permanently stuck at
+#    zero questions — every subsequent battle/exam on that topic saw "no
+#    questions available" with no obvious cause, because programming/CS
+#    topics hit this constantly. Real injection payloads use actual tags
+#    or event handlers to do anything, not bare angle brackets, so
+#    narrowing to those preserves the defense without the false positives.
 # 2. Reject text that talks ABOUT the generation prompt itself (leaked
 #    system-prompt fragments, "ignore previous instructions" style phrases).
 #    A real exam question never has a legitimate reason to contain either —
 #    seeing one is a strong, low-false-positive signal the model's actual
 #    output was hijacked rather than just generating a bad-quality question.
-_HTML_TAG_RE = re.compile(r"<[a-zA-Z!/][^>]*>")
+_HTML_TAG_RE = re.compile(
+    r"<\s*(script|iframe|object|embed|style|link|meta|form|svg|img)\b|javascript:|on\w+\s*=\s*['\"]",
+    re.IGNORECASE,
+)
 _INJECTION_MARKERS = (
     "ignore previous instructions", "ignore all previous", "disregard the above",
     "system prompt", "you are now", "act as", "new instructions:",

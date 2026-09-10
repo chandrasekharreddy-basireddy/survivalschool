@@ -1,5 +1,5 @@
 """Student-hosted elimination battles: one question at a time, a strict
-15-second server-authoritative deadline per question, wrong/no answer
+10-second server-authoritative deadline per question, wrong/no answer
 eliminates you immediately, last survivor wins. Independent of the AI
 weekly exam (Contest) — a student creates and invites specific friends by
 user id, not a scheduled platform-wide event.
@@ -37,7 +37,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 from app.models.base import Timestamped, UUIDPk
 
-QUESTION_DEADLINE_SECONDS = 15
+QUESTION_DEADLINE_SECONDS = 10
 
 
 class EliminationBattle(Base, UUIDPk, Timestamped):
@@ -108,7 +108,19 @@ class EliminationParticipant(Base, UUIDPk, Timestamped):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), default="ready", nullable=False)
     eliminated_at_round: Mapped[int | None] = mapped_column(Integer)
-    eliminated_reason: Mapped[str | None] = mapped_column(String(30))  # wrong_answer | timeout
+    eliminated_reason: Mapped[str | None] = mapped_column(String(30))  # wrong_answer | timeout | integrity_violation | ip_mismatch
+    # Captured the first time this participant makes an authenticated
+    # battle request (join, or the host at creation) and compared on every
+    # subsequent one (submit_answer, report_integrity_violation) — a
+    # mismatch is treated exactly like a tab-switch/fullscreen-exit
+    # violation (instant elimination, see elimination_service._verify_ip_or_eliminate).
+    # This is IP *binding*, not identity verification: a participant on an
+    # unstable mobile/carrier-NAT connection can legitimately see their
+    # public IP change mid-battle and get caught by this the same as
+    # someone actually swapping devices/networks to get help — a
+    # deliberate tradeoff given the format's zero-tolerance design (see
+    # report_integrity_violation's docstring), not an oversight.
+    ip_address: Mapped[str | None] = mapped_column(String(64))
 
 
 class EliminationRound(Base, UUIDPk, Timestamped):

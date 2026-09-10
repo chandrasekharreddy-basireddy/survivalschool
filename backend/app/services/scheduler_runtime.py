@@ -11,7 +11,7 @@ standalone worker deployed alongside this — exactly one process runs the
 tick at a time. If Redis is unavailable the tick is simply skipped that
 cycle (logged), never duplicated.
 
-Elimination battles are NOT driven from this tick — a strict 15-second
+Elimination battles are NOT driven from this tick — a strict 10-second
 per-question deadline can't wait behind a 60s cadence built for
 hourly/weekly jobs. See elimination_service.py's own, much tighter sweep
 loop, started separately from the same app lifespan (main.py).

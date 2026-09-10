@@ -88,7 +88,7 @@ export default function EliminationPage() {
     <div className="mx-auto max-w-3xl px-6 py-10">
       <h1 className="text-2xl font-bold text-fg">Elimination battles</h1>
       <p className="mt-1 text-sm text-fg-muted">
-        Invite friends by name, one question at a time with a strict 15-second deadline. Miss it or answer wrong and
+        Invite friends by name, one question at a time with a strict 10-second deadline. Miss it or answer wrong and
         you&apos;re out — last one standing wins.
       </p>
 

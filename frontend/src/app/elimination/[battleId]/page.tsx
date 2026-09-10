@@ -8,8 +8,13 @@ import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
-import { BattleChat } from "@/components/elimination/BattleChat";
+import { FaceProctor } from "@/components/exams/FaceProctor";
 import { EliminationSocket, EliminationEvent } from "@/lib/ws";
+
+// Server-authoritative deadline per question — must match QUESTION_DEADLINE_SECONDS
+// in backend/app/models/elimination.py, which is what actually enforces it;
+// this is only used to size the countdown progress bar.
+const QUESTION_DEADLINE_SECONDS = 10;
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
@@ -56,6 +61,8 @@ export default function EliminationBattlePage() {
   const [winnerId, setWinnerId] = useState<string | null | undefined>(undefined);
   const [now, setNow] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [cameraDenied, setCameraDenied] = useState(false);
+  const [cameraDeniedReported, setCameraDeniedReported] = useState(false);
   const me = participants.find((p) => p.user_id === user?.id);
 
   const loadState = useCallback(() => {
@@ -241,7 +248,7 @@ export default function EliminationBattlePage() {
   // "partial credit" fallback the way a written exam does, so a single
   // reported violation eliminates the participant immediately.
   const reportIntegrityEvent = useCallback(
-    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click") => {
+    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click" | "no_face_detected" | "multiple_faces_detected") => {
       apiFetch<{ eliminated: boolean }>(`/elimination/battles/${params.battleId}/integrity-violation`, {
         method: "POST", body: JSON.stringify({ violation_type: eventType }),
       })
@@ -314,7 +321,7 @@ export default function EliminationBattlePage() {
           <div className={`card border ${isFullscreen ? "border-emerald-500/40" : "border-amber-500/40"}`}>
             <h2 className="font-semibold text-fg">Exam environment</h2>
             <p className="mt-1 text-xs text-fg-subtle">
-              This battle is integrity-monitored — once it starts, leaving fullscreen, switching tabs, or copy/paste eliminates you immediately, no warning. Get into fullscreen now so you&apos;re not caught out the moment it begins.
+              This battle is integrity-monitored — once it starts, leaving fullscreen, switching tabs, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning. Get into fullscreen and allow camera access now so you&apos;re not caught out the moment it begins.
             </p>
             <button
               onClick={enterFullscreen}
@@ -390,8 +397,6 @@ export default function EliminationBattlePage() {
             </div>
           )}
           {!isHost && <p className="text-sm text-fg-subtle">Waiting for the host to start the battle…</p>}
-
-          {battle.chat_room_id && <BattleChat roomId={battle.chat_room_id} />}
         </div>
       )}
 
@@ -399,20 +404,39 @@ export default function EliminationBattlePage() {
         <ExamIntegrityGuard
           enabled={me?.status === "active"}
           fullscreenRequired={true}
+          maxWarnings={0}
           onIntegrityEvent={reportIntegrityEvent}
         >
         <div className="mt-6 space-y-4">
           {me?.status === "active" && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-              This battle is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste eliminates you immediately, no warning.
+              This battle is integrity-monitored — leaving fullscreen, switching tabs, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning.
             </p>
           )}
+          {me?.status === "active" && cameraDenied && (
+            <p className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-400">
+              Camera access is required for this battle. Please allow camera permission and reload the page to continue.
+            </p>
+          )}
+          <FaceProctor
+            enabled={me?.status === "active"}
+            onProctorEvent={reportIntegrityEvent}
+            onCameraReady={() => setCameraDenied(false)}
+            onCameraDenied={() => {
+              setCameraDenied(true);
+              if (!cameraDeniedReported) {
+                setCameraDeniedReported(true);
+                reportIntegrityEvent("no_face_detected");
+              }
+            }}
+          />
           {me?.status === "eliminated" ? (
             <div className="card text-center border-red-500/40">
               <p className="text-sm font-medium text-red-700 dark:text-red-400">
                 You&apos;ve been eliminated (
                 {me.eliminated_reason === "timeout" ? "ran out of time"
                   : me.eliminated_reason === "integrity_violation" ? "left the exam environment"
+                  : me.eliminated_reason === "ip_mismatch" ? "changed network or device"
                   : "wrong answer"}
                 ).
               </p>
@@ -425,6 +449,12 @@ export default function EliminationBattlePage() {
               <div className="flex items-center justify-between">
                 <p className="text-xs uppercase tracking-widest text-fg-subtle">Round {round.number}</p>
                 <span className={`font-mono text-lg font-bold ${secondsLeft <= 5 ? "text-red-600 dark:text-red-400" : "text-fg"}`}>{secondsLeft}s</span>
+              </div>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-ink-800">
+                <div
+                  className={`h-full rounded-full transition-[width] duration-200 ease-linear ${secondsLeft <= 5 ? "bg-red-500" : "bg-brand-500"}`}
+                  style={{ width: `${Math.max(0, Math.min(100, (secondsLeft / QUESTION_DEADLINE_SECONDS) * 100))}%` }}
+                />
               </div>
               <p className="mt-3 font-medium text-fg">{round.question.prompt}</p>
               <div className="mt-4 space-y-2">
@@ -482,8 +512,6 @@ export default function EliminationBattlePage() {
               ))}
             </ul>
           </div>
-
-          {battle.chat_room_id && <BattleChat roomId={battle.chat_room_id} />}
         </div>
         </ExamIntegrityGuard>
       )}

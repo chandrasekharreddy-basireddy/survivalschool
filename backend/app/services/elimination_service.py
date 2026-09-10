@@ -1,6 +1,6 @@
 """Elimination battle state machine — the whole point of this module is
 that the browser is a display/input device only. Every decision (is this
-answer correct, has the 15-second window expired, who's eliminated, who
+answer correct, has the 10-second window expired, who's eliminated, who
 won) is made here against durable Postgres rows and a Redis-coordinated
 sweep, never trusted from a client request.
 
@@ -24,7 +24,7 @@ Round lifecycle:
   or when its deadline passes, whichever comes first — enforced by
   elimination_sweep_loop below, a *separate, tight* loop from the 60s
   scheduler_runtime.py tick (that cadence is far too coarse against a
-  strict 15-second deadline; a naive add-on there could miss/delay
+  strict 10-second deadline; a naive add-on there could miss/delay
   elimination by up to 59 seconds — see scheduler_runtime.py's own
   docstring on TICK_SECONDS). resolve_round() auto-eliminates anyone who
   never submitted (reason="timeout"), then either declares a winner (one
@@ -115,18 +115,38 @@ def _generate_join_code() -> str:
     return "".join(secrets.choice(_JOIN_CODE_ALPHABET) for _ in range(_JOIN_CODE_LENGTH))
 
 
+_GENERATION_VALIDATION_RETRIES = 2
+
+
 async def _generate_questions_in_background(topic: Topic) -> None:
     """Runs detached from the request that created the battle — see the
     asyncio.create_task call site in create_battle for why this must never
     be awaited inline. A failure here just means the topic still has zero
     questions when someone tries to start; _wait_for_questions/start_battle
-    surface that as a normal "couldn't start" error rather than a crash."""
-    try:
-        await generate_and_persist_questions(topic, ELIMINATION_SINGLE_COUNT, ELIMINATION_MULTIPLE_COUNT)
-    except QuestionValidationError as exc:
-        logger.error("elimination_generation_failed_validation", topic_id=str(topic.id), error=str(exc))
-    except Exception:
-        logger.error("elimination_generation_failed", topic_id=str(topic.id), exc_info=True)
+    surface that as a normal "couldn't start" error rather than a crash.
+
+    A validation failure specifically is retried a couple of times before
+    giving up — validate_generated_batch rejects the WHOLE batch over a
+    single bad question (a duplicate, a blank option, ...), and since the
+    AI provider's output is non-deterministic, a fresh generation call
+    routinely produces a clean batch on the next try. Without this, one
+    flaky question anywhere in the pool permanently stranded the topic at
+    zero questions until a human noticed and created a new battle to
+    re-trigger generation."""
+    last_error: QuestionValidationError | None = None
+    for attempt in range(1, _GENERATION_VALIDATION_RETRIES + 1):
+        try:
+            await generate_and_persist_questions(topic, ELIMINATION_SINGLE_COUNT, ELIMINATION_MULTIPLE_COUNT)
+            return
+        except QuestionValidationError as exc:
+            last_error = exc
+            logger.warning(
+                "elimination_generation_validation_retry", topic_id=str(topic.id), attempt=attempt, error=str(exc),
+            )
+        except Exception:
+            logger.error("elimination_generation_failed", topic_id=str(topic.id), exc_info=True)
+            return
+    logger.error("elimination_generation_failed_validation", topic_id=str(topic.id), error=str(last_error))
 
 
 # How long start_battle waits for a background generation (see above) to
@@ -167,7 +187,7 @@ async def _wait_for_questions(db: AsyncSession, topic_id: uuid.UUID) -> bool:
 
 async def create_battle(
     db: AsyncSession, host: User, title: str, subject_name: str, topic_name: str,
-    scheduled_start_at: datetime | None = None,
+    scheduled_start_at: datetime | None = None, host_ip: str | None = None,
 ) -> EliminationBattle:
     """The subject/topic are freely typed by the host — same pattern as AI
     Weekly Exam registration (ai_exam_service.py): resolve/create the real
@@ -225,7 +245,7 @@ async def create_battle(
             battle.join_code = _generate_join_code()
     else:
         raise ConflictError("Couldn't allocate a battle room code — please try again.")
-    db.add(EliminationParticipant(battle_id=battle.id, user_id=host.id, status="ready"))
+    db.add(EliminationParticipant(battle_id=battle.id, user_id=host.id, status="ready", ip_address=host_ip))
 
     # Every battle gets its own chat room, reusing the same ChatRoom/
     # ChatMember/ChatMessage models and /ws/chat/{room_id} socket the
@@ -251,7 +271,7 @@ async def create_battle(
     return battle
 
 
-async def _add_participant_if_room(db: AsyncSession, battle: EliminationBattle, user_id: uuid.UUID) -> None:
+async def _add_participant_if_room(db: AsyncSession, battle: EliminationBattle, user_id: uuid.UUID, ip_address: str | None = None) -> None:
     """Shared by join_battle_by_code and respond_to_invitation's accept
     path — a battle can be joined by either route, so both need the exact
     same capacity guard, not two independently-maintained copies of it.
@@ -274,12 +294,12 @@ async def _add_participant_if_room(db: AsyncSession, battle: EliminationBattle, 
         )).scalars().all()
         if len(participant_count) >= MAX_INVITEES_PER_BATTLE + 1:
             raise ConflictError(f"This battle is full ({MAX_INVITEES_PER_BATTLE + 1} players max).")
-        db.add(EliminationParticipant(battle_id=battle.id, user_id=user_id, status="ready"))
+        db.add(EliminationParticipant(battle_id=battle.id, user_id=user_id, status="ready", ip_address=ip_address))
         if battle.chat_room_id is not None:
             db.add(ChatMember(room_id=battle.chat_room_id, user_id=user_id, role="member"))
 
 
-async def join_battle_by_code(db: AsyncSession, user: User, code: str) -> EliminationBattle:
+async def join_battle_by_code(db: AsyncSession, user: User, code: str, ip_address: str | None = None) -> EliminationBattle:
     """The Free Fire-style path: anyone holding the room code joins
     directly, no invitation or prior connection required — that's the
     whole point of a shareable code over the connections-gated invite flow
@@ -292,7 +312,7 @@ async def join_battle_by_code(db: AsyncSession, user: User, code: str) -> Elimin
     if battle.status != "lobby":
         raise ConflictError("This battle has already started or finished.")
 
-    await _add_participant_if_room(db, battle, user.id)
+    await _add_participant_if_room(db, battle, user.id, ip_address)
     await db.commit()
     return battle
 
@@ -360,7 +380,7 @@ async def _send_invite_email(db: AsyncSession, battle: EliminationBattle, invite
         logger.warning("elimination_invite_email_failed", battle_id=str(battle.id), invitee_id=str(invitee.id), exc_info=True)
 
 
-async def respond_to_invitation(db: AsyncSession, invitation: EliminationInvitation, user: User, accept: bool) -> EliminationInvitation:
+async def respond_to_invitation(db: AsyncSession, invitation: EliminationInvitation, user: User, accept: bool, ip_address: str | None = None) -> EliminationInvitation:
     if invitation.invitee_id != user.id:
         raise NotFoundError("Invitation not found.")
     if invitation.status != "pending":
@@ -376,7 +396,7 @@ async def respond_to_invitation(db: AsyncSession, invitation: EliminationInvitat
             # accepting late. Raising here aborts the whole transaction,
             # so invitation.status above rolls back to "pending" too rather
             # than leaving an "accepted" invitation with no participant row.
-            await _add_participant_if_room(db, battle, user.id)
+            await _add_participant_if_room(db, battle, user.id, ip_address)
     await db.commit()
     await db.refresh(invitation)
     return invitation
@@ -509,7 +529,47 @@ async def start_battle(db: AsyncSession, battle: EliminationBattle, host: User) 
     return battle
 
 
-async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, selected_option_ids: list[uuid.UUID]) -> dict:
+async def _verify_ip_or_eliminate(db: AsyncSession, battle_id: uuid.UUID, participant: EliminationParticipant, current_ip: str | None) -> bool:
+    """IP binding: the first authenticated battle request from a
+    participant (join, or the host at creation) records their IP; every
+    subsequent one is compared against it. A mismatch is treated exactly
+    like a reported tab-switch/fullscreen-exit violation — instant
+    elimination, no warning, same zero-tolerance rationale as
+    report_integrity_violation below. Returns True if this call just
+    eliminated the participant, so the caller can stop processing whatever
+    it was about to do (grade an answer, record a violation type) rather
+    than act on behalf of someone who no longer has standing in the round.
+
+    Fails OPEN, not closed, when current_ip is None (can't resolve the
+    caller's IP — see get_client_ip's TRUST_PROXY_HEADERS gate) or the
+    participant has no stored IP yet: a misconfigured deployment or a
+    legitimately IP-less first request must never itself eliminate anyone."""
+    if current_ip is None:
+        return False
+    if participant.ip_address is None:
+        participant.ip_address = current_ip
+        return False
+    if participant.ip_address == current_ip:
+        return False
+
+    battle = await db.get(EliminationBattle, battle_id)
+    participant.status = "eliminated"
+    participant.eliminated_at_round = battle.current_round_number if battle else participant.eliminated_at_round
+    participant.eliminated_reason = "ip_mismatch"
+    await db.commit()
+
+    logger.warning(
+        "elimination_ip_mismatch", battle_id=str(battle_id), participant_id=str(participant.id),
+        user_id=str(participant.user_id),
+    )
+    await ws_manager.broadcast(await _battle_channel(battle_id), {
+        "event": "battle.participant_eliminated", "battle_id": str(battle_id), "user_id": str(participant.user_id),
+        "round_number": participant.eliminated_at_round, "reason": "ip_mismatch",
+    })
+    return True
+
+
+async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, selected_option_ids: list[uuid.UUID], ip_address: str | None = None) -> dict:
     async with try_lock(_battle_lock_key(battle_id), ttl_seconds=10) as got_lock:
         if not got_lock:
             # Another worker is mid-resolve for this exact battle (e.g. the
@@ -528,6 +588,8 @@ async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, sele
             raise NotFoundError("You're not a participant in this battle.")
         if participant.status != "active":
             raise ConflictError("You've already been eliminated from this battle.")
+        if await _verify_ip_or_eliminate(db, battle_id, participant, ip_address):
+            return {"is_correct": False, "eliminated": True}
 
         round_ = (await db.execute(
             select(EliminationRound).where(EliminationRound.battle_id == battle_id, EliminationRound.round_number == battle.current_round_number)
@@ -577,13 +639,13 @@ async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, sele
         return {"is_correct": is_correct, "eliminated": not is_correct}
 
 
-async def report_integrity_violation(db: AsyncSession, battle_id: uuid.UUID, user: User, violation_type: str) -> dict:
+async def report_integrity_violation(db: AsyncSession, battle_id: uuid.UUID, user: User, violation_type: str, ip_address: str | None = None) -> dict:
     """Zero-tolerance by design, unlike the AI Weekly Exam/contest path
     (see ExamIntegrityGuard's contest usage), which counts violations and
     only auto-submits past a threshold. A live head-to-head elimination
     battle has no meaningful "partial credit" state to fall back to the
     way a written exam does — leaving fullscreen or switching tabs during
-    a 15-second-deadline round is exactly the kind of advantage (looking
+    a 10-second-deadline round is exactly the kind of advantage (looking
     up an answer, texting a teammate) the format can't tolerate at all,
     so any single reported violation eliminates instantly, same
     mechanism as a wrong answer."""
@@ -604,6 +666,8 @@ async def report_integrity_violation(db: AsyncSession, battle_id: uuid.UUID, use
             # not an error (a straggler violation event from a tab that's
             # already been told it's over is routine, not exceptional).
             return {"eliminated": participant.status == "eliminated"}
+        if await _verify_ip_or_eliminate(db, battle_id, participant, ip_address):
+            return {"eliminated": True}
 
         participant.status = "eliminated"
         participant.eliminated_at_round = battle.current_round_number
@@ -751,7 +815,7 @@ async def _sweep_once() -> None:
 async def elimination_sweep_loop(stop: asyncio.Event) -> None:
     """A separate, tight loop from scheduler_runtime.py's 60s tick — see
     this module's docstring for why that cadence can't serve a strict
-    15-second deadline. Runs unconditionally on every worker; the
+    10-second deadline. Runs unconditionally on every worker; the
     per-battle Redis lock (not a single global leader lock) is what keeps
     concurrent workers from double-resolving the same round, so this scales
     with however many battles are active rather than bottlenecking on one

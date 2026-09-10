@@ -67,20 +67,39 @@ def _upcoming_saturday_slot(now_ist: datetime) -> tuple[datetime, datetime, str]
     return starts_at, ends_at, target_date.isoformat()
 
 
+_GENERATION_VALIDATION_RETRIES = 2
+
+
 async def _generate_ai_weekly_questions_in_background(contest_id: uuid.UUID, topic: Topic) -> None:
     """Runs detached from the registration request that created the
     contest — see the asyncio.create_task call site in
     get_or_create_ai_weekly_contest. Writes question_ids onto the contest
     once generation lands; if it fails, the contest is left with an empty
     question_ids and start_contest_attempt's own guard below catches that
-    rather than serving a broken/empty exam."""
-    try:
-        question_ids = await generate_and_persist_questions(topic, AI_WEEKLY_SINGLE_COUNT, AI_WEEKLY_MULTIPLE_COUNT)
-    except QuestionValidationError as exc:
-        logger.error("ai_weekly_generation_failed_validation", topic_id=str(topic.id), error=str(exc))
-        return
-    except Exception:
-        logger.error("ai_weekly_generation_failed", topic_id=str(topic.id), exc_info=True)
+    rather than serving a broken/empty exam.
+
+    A validation failure is retried a couple of times before giving up —
+    validate_generated_batch rejects the WHOLE 50-question batch over a
+    single bad question, and the AI provider's non-deterministic output
+    routinely produces a clean batch on the next try (see the matching
+    comment on elimination_service._generate_questions_in_background,
+    same root cause)."""
+    question_ids: list[uuid.UUID] | None = None
+    last_error: QuestionValidationError | None = None
+    for attempt in range(1, _GENERATION_VALIDATION_RETRIES + 1):
+        try:
+            question_ids = await generate_and_persist_questions(topic, AI_WEEKLY_SINGLE_COUNT, AI_WEEKLY_MULTIPLE_COUNT)
+            break
+        except QuestionValidationError as exc:
+            last_error = exc
+            logger.warning(
+                "ai_weekly_generation_validation_retry", topic_id=str(topic.id), attempt=attempt, error=str(exc),
+            )
+        except Exception:
+            logger.error("ai_weekly_generation_failed", topic_id=str(topic.id), exc_info=True)
+            return
+    if question_ids is None:
+        logger.error("ai_weekly_generation_failed_validation", topic_id=str(topic.id), error=str(last_error))
         return
 
     from app.database import AsyncSessionLocal

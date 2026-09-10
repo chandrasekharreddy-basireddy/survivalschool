@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
@@ -10,8 +11,15 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 import { ContestCountdown } from "@/components/ContestCountdown";
 import { AttemptTimer } from "@/components/exams/AttemptTimer";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
-import { FaceProctor } from "@/components/exams/FaceProctor";
 import { PageLoader } from "@/components/PageLoader";
+
+// @vladmandic/face-api touches browser-only globals (navigator, canvas) at
+// module-evaluation time, not just when its functions are called -- a plain
+// static import crashes Next's server-side render of this route (React
+// error #419: "The server could not finish this Suspense boundary...").
+// "use client" alone doesn't prevent that; the component still gets
+// server-rendered for the initial HTML unless explicitly opted out of SSR.
+const FaceProctor = dynamic(() => import("@/components/exams/FaceProctor").then((m) => m.FaceProctor), { ssr: false });
 
 interface Contest {
   id: string; title: string; description: string; starts_at: string; ends_at: string;

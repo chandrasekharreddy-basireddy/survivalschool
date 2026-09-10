@@ -211,6 +211,14 @@ export default function DashboardPage() {
           </div>
 
           <div className="card">
+            <h2 className="font-semibold text-fg">Daily challenge</h2>
+            <p className="mt-2 text-sm text-fg-subtle">One real question, every day — keeps your streak alive.</p>
+            <Link href="/daily-challenge" className="mt-3 inline-block text-sm text-brand-600 dark:text-brand-400 hover:underline">
+              Today&apos;s question →
+            </Link>
+          </div>
+
+          <div className="card">
             <h2 className="font-semibold text-fg">Certificates earned</h2>
             {certificatesFailed ? (
               <WidgetError onRetry={loadCertificates} />

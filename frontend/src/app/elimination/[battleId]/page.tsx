@@ -3,13 +3,21 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError, getAccessToken } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
-import { FaceProctor } from "@/components/exams/FaceProctor";
 import { EliminationSocket, EliminationEvent } from "@/lib/ws";
+
+// @vladmandic/face-api touches browser-only globals (navigator, canvas) at
+// module-evaluation time, not just when its functions are called -- a plain
+// static import crashes Next's server-side render of this route (React
+// error #419: "The server could not finish this Suspense boundary...").
+// "use client" alone doesn't prevent that; the component still gets
+// server-rendered for the initial HTML unless explicitly opted out of SSR.
+const FaceProctor = dynamic(() => import("@/components/exams/FaceProctor").then((m) => m.FaceProctor), { ssr: false });
 
 // Server-authoritative deadline per question — must match QUESTION_DEADLINE_SECONDS
 // in backend/app/models/elimination.py, which is what actually enforces it;

@@ -106,6 +106,17 @@ class ClassroomExamAttemptStartOut(BaseModel):
     remaining_seconds: int
 
 
+class MyExamAttemptOut(ClassroomExamAttemptStartOut):
+    """Same shape as ClassroomExamAttemptStartOut (status can additionally be
+    "submitted"/"terminated" here, not just waiting/in_progress) plus the
+    score once there is one -- lets a student who reloads the exam page
+    after already finishing see their result instead of a generic
+    "exam closed" message with no memory of what they did."""
+    score_percent: int | None = None
+    points_earned: int | None = None
+    points_possible: int | None = None
+
+
 class ClassroomExamSubmit(BaseModel):
     answers: list[AnswerSubmit] = Field(max_length=500)
 

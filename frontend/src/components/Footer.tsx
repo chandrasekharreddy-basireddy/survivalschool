@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useIsFullscreen } from "@/lib/useFullscreen";
 
 const LINK_GROUPS: { title: string; links: { href: string; label: string }[] }[] = [
   {
@@ -47,6 +50,10 @@ function LogoMark() {
  * reached the copyright bar. */
 export function Footer() {
   const year = new Date().getFullYear();
+  const isFullscreen = useIsFullscreen();
+  // Same reasoning as NavBar: a locked-down exam in fullscreen has no use
+  // for the footer's nav links either.
+  if (isFullscreen) return null;
   return (
     <footer className="border-t border-ink-700">
       <div className="page-frame flex flex-col gap-6 py-8 sm:flex-row sm:items-start sm:justify-between sm:gap-12">

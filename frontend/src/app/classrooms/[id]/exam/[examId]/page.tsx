@@ -2,18 +2,25 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useAuth } from "@/lib/auth-context";
 import { apiFetch, ApiError } from "@/lib/api";
 import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { ExamSecurityShell } from "@/components/exams/ExamSecurityShell";
 
+// @vladmandic/face-api touches browser-only globals at module-evaluation
+// time, not just when its functions are called -- see the matching note on
+// contests/[id]/page.tsx and elimination/[battleId]/page.tsx (React error
+// #419, confirmed live). Dynamic + ssr:false keeps it out of the server render.
+const FaceProctor = dynamic(() => import("@/components/exams/FaceProctor").then((m) => m.FaceProctor), { ssr: false });
+
 interface ExamInfo {
   id: string; classroom_id: string; title: string; description: string;
   question_count: number; duration_seconds: number;
   starts_at: string | null; ends_at: string | null; status: string;
   fullscreen_required: boolean; integrity_monitoring_enabled: boolean;
-  max_warnings_before_terminate: number;
+  max_warnings_before_terminate: number; face_proctoring_required: boolean;
 }
 interface Option { id: string; text: string; order_index: number; }
 interface Question { id: string; prompt: string; question_type: string; points: number; options: Option[]; }
@@ -21,6 +28,12 @@ interface AttemptStart {
   attempt_id: string; status: "waiting" | "in_progress";
   exam_starts_at: string; server_deadline_at: string;
   seconds_until_start: number; remaining_seconds: number;
+}
+interface MyAttempt {
+  attempt_id: string; status: "waiting" | "in_progress" | "submitted" | "terminated";
+  exam_starts_at: string; server_deadline_at: string;
+  seconds_until_start: number; remaining_seconds: number;
+  score_percent: number | null; points_earned: number | null; points_possible: number | null;
 }
 interface AttemptResult {
   id: string; score_percent: number | null; points_earned: number | null;
@@ -44,6 +57,8 @@ export default function ClassroomExamPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [deviceFp, setDeviceFp] = useState("");
+  const [cameraDenied, setCameraDenied] = useState(false);
+  const [cameraDeniedReported, setCameraDeniedReported] = useState(false);
   // exam.status only ever reflects what the host set it to at publish time
   // ("open" if published after starts_at, "scheduled" if published before)
   // -- nothing updates it later, by design (see start_attempt's docstring:
@@ -66,17 +81,6 @@ export default function ClassroomExamPage() {
     return () => clearInterval(id);
   }, [phase]);
 
-  useEffect(() => {
-    if (!examId || !classroomId) return;
-    apiFetch<ExamInfo[]>(`/classrooms/${classroomId}/exams`)
-      .then(exams => {
-        const found = exams.find(e => e.id === examId);
-        if (found) { setExam(found); setPhase("info"); }
-        else setPhase("error");
-      })
-      .catch(() => setPhase("error"));
-  }, [examId, classroomId]);
-
   // Joining and taking the exam are different moments: everyone who joins gets
   // the exam's full duration starting from the SAME instant (when joining
   // closes), so a student who joins seconds before the deadline isn't
@@ -97,6 +101,51 @@ export default function ClassroomExamPage() {
       setPhase("error");
     }
   }, []);
+
+  useEffect(() => {
+    if (!examId || !classroomId) return;
+    apiFetch<ExamInfo[]>(`/classrooms/${classroomId}/exams`)
+      .then(async exams => {
+        const found = exams.find(e => e.id === examId);
+        if (!found) { setPhase("error"); return; }
+        setExam(found);
+
+        // A fresh page load (or a refresh mid-exam, or revisiting after
+        // finishing) has no way to know whether this student already has
+        // an attempt -- without checking, a submitted student saw the same
+        // generic "join/closed" screen as someone who never attempted it,
+        // with their real score nowhere in sight.
+        try {
+          const mine = await apiFetch<MyAttempt | null>(`/classrooms/${classroomId}/exams/${examId}/attempts/me`);
+          if (mine) {
+            if (mine.status === "submitted" || mine.status === "terminated") {
+              setResult({ id: mine.attempt_id, score_percent: mine.score_percent, points_earned: mine.points_earned, points_possible: mine.points_possible, status: mine.status });
+              setPhase("submitted");
+              return;
+            }
+            // Still going (waiting or in_progress) -- deliberately NOT
+            // jumped straight into, even though the attempt already exists.
+            // Route through the security shell every time, the exact same
+            // path a fresh join takes, so fullscreen and the camera are
+            // actually (re-)confirmed THIS session before any question is
+            // shown -- a student who alt-tabbed away, closed the tab, or
+            // reloaded mid-exam must not land back in live questions with
+            // no fullscreen and no camera check just because an attempt
+            // row already exists. startAttempt()'s POST is idempotent for
+            // an existing attempt (see start_attempt's backend docstring),
+            // so this resumes into exactly the right waiting/in_progress
+            // state once the shell's fullscreen/camera gate is cleared.
+            setPhase("security");
+            return;
+          }
+        } catch {
+          // No existing attempt (or a transient failure reading it) --
+          // fall through to the normal join screen below.
+        }
+        setPhase("info");
+      })
+      .catch(() => setPhase("error"));
+  }, [examId, classroomId, fetchQuestions]);
 
   const startAttempt = async () => {
     try {
@@ -253,7 +302,7 @@ export default function ClassroomExamPage() {
 
   if (phase === "security" && exam) {
     return (
-      <ExamSecurityShell fullscreenRequired={exam.fullscreen_required} onReady={handleSecurityReady}>
+      <ExamSecurityShell fullscreenRequired={exam.fullscreen_required} faceProctoringRequired={exam.face_proctoring_required} onReady={handleSecurityReady}>
         <div />
       </ExamSecurityShell>
     );
@@ -321,6 +370,24 @@ export default function ClassroomExamPage() {
             {formatTime(remainingSeconds)}
           </span>
         </div>
+
+        {exam?.face_proctoring_required && cameraDenied && (
+          <p className="mx-auto mt-4 max-w-2xl rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-2.5 text-xs text-red-700 dark:text-red-400">
+            Camera access is required for this exam. Please allow camera permission and reload the page to continue.
+          </p>
+        )}
+        <FaceProctor
+          enabled={!!exam?.face_proctoring_required}
+          onProctorEvent={reportEvent}
+          onCameraReady={() => setCameraDenied(false)}
+          onCameraDenied={() => {
+            setCameraDenied(true);
+            if (!cameraDeniedReported) {
+              setCameraDeniedReported(true);
+              reportEvent("no_face_detected");
+            }
+          }}
+        />
 
         <div className="mx-auto max-w-2xl px-6 py-8">
           <div className="flex gap-2 overflow-x-auto pb-4">

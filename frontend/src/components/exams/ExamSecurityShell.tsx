@@ -4,6 +4,7 @@ import { useState } from "react";
 
 interface Props {
   fullscreenRequired: boolean;
+  faceProctoringRequired?: boolean;
   onReady: (fingerprint: string) => void;
   children: React.ReactNode;
 }
@@ -23,20 +24,58 @@ function getDeviceFingerprint(): string {
   return Math.abs(hash).toString(36);
 }
 
-export function ExamSecurityShell({ fullscreenRequired, onReady, children }: Props) {
+export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired = false, onReady, children }: Props) {
   const [accepted, setAccepted] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [checkError, setCheckError] = useState("");
 
   const handleStart = async () => {
-    if (fullscreenRequired) {
-      try {
-        await document.documentElement.requestFullscreen();
-      } catch {
-        // Some browsers block programmatic fullscreen without user gesture in the same handler
+    setStarting(true);
+    setCheckError("");
+    try {
+      if (fullscreenRequired) {
+        try {
+          await document.documentElement.requestFullscreen();
+        } catch {
+          // Some browsers block programmatic fullscreen without a user
+          // gesture in the same handler -- the check right below is what
+          // actually catches that, not this catch block. Silently moving
+          // on here (the old behavior) let an exam that requires
+          // fullscreen start without ever actually being in it, with
+          // nothing to notice until some unrelated future fullscreenchange
+          // event happened to fire -- which might be never.
+        }
+        if (!document.fullscreenElement) {
+          setCheckError("Fullscreen couldn't be enabled — your browser may have blocked it. Please allow fullscreen and try again.");
+          setStarting(false);
+          return;
+        }
       }
+
+      if (faceProctoringRequired) {
+        try {
+          // A one-time permission + device check, not continuous
+          // monitoring -- the exam view's own <FaceProctor> opens its real
+          // stream once the exam actually starts. This just makes sure
+          // camera access is genuinely available before letting the
+          // student in, rather than discovering it's missing partway
+          // through the exam with no way to fix it mid-attempt.
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          stream.getTracks().forEach((track) => track.stop());
+        } catch {
+          setCheckError("Camera access is required for this exam. Please allow camera permission and try again.");
+          if (fullscreenRequired && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+          setStarting(false);
+          return;
+        }
+      }
+
+      const fp = getDeviceFingerprint();
+      setAccepted(true);
+      onReady(fp);
+    } finally {
+      setStarting(false);
     }
-    const fp = getDeviceFingerprint();
-    setAccepted(true);
-    onReady(fp);
   };
 
   if (accepted) return <>{children}</>;
@@ -59,6 +98,12 @@ export function ExamSecurityShell({ fullscreenRequired, onReady, children }: Pro
               <span>Do not exit fullscreen mode. The exam requires fullscreen.</span>
             </li>
           )}
+          {faceProctoringRequired && (
+            <li className="flex gap-2">
+              <span className="mt-0.5 text-red-400">✕</span>
+              <span>Stay visible to your camera the whole time. Losing face detection counts as a violation.</span>
+            </li>
+          )}
           <li className="flex gap-2">
             <span className="mt-0.5 text-red-400">✕</span>
             <span>Copy, paste, and right-click are disabled.</span>
@@ -72,8 +117,11 @@ export function ExamSecurityShell({ fullscreenRequired, onReady, children }: Pro
             <span>You will receive <strong className="text-fg">2 warnings</strong> before your exam is terminated.</span>
           </li>
         </ul>
-        <button type="button" onClick={handleStart} className="btn-primary mt-6 w-full">
-          I understand — start exam
+        {checkError && (
+          <p className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-400">{checkError}</p>
+        )}
+        <button type="button" onClick={handleStart} disabled={starting} className="btn-primary mt-6 w-full disabled:opacity-60">
+          {starting ? "Checking…" : "I understand — start exam"}
         </button>
       </div>
     </div>

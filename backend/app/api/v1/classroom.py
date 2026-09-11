@@ -37,6 +37,7 @@ from app.schemas.classroom import (
     ClassroomUpdate,
     IntegrityEventIn,
     IntegrityEventResponse,
+    MyExamAttemptOut,
 )
 
 router = APIRouter(prefix="/classrooms", tags=["classrooms"])
@@ -504,6 +505,40 @@ async def start_attempt(
     await db.commit()
     await db.refresh(attempt)
     return _attempt_start_out(attempt, exam, now)
+
+
+@router.get("/{classroom_id}/exams/{exam_id}/attempts/me")
+async def my_exam_attempt(
+    classroom_id: uuid.UUID,
+    exam_id: uuid.UUID,
+    user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+) -> MyExamAttemptOut | None:
+    """Lets the exam page tell "I haven't joined this exam" apart from "I
+    already finished it" on a fresh page load/refresh -- without this, a
+    student revisiting the page after the join window closed (or just
+    reloading after submitting) saw the same generic "this exam is closed"
+    message as someone who never attempted it at all, with no way to see
+    their score. Returns null, not a 404, when there's genuinely no
+    attempt yet -- that's an expected, normal state for this endpoint, not
+    an error."""
+    classroom = await _get_classroom_or_404(db, classroom_id)
+    await _require_member_or_lecturer(db, classroom, user)
+    exam = (await db.execute(
+        select(ClassroomExam).where(ClassroomExam.id == exam_id, ClassroomExam.classroom_id == classroom_id)
+    )).scalar_one_or_none()
+    if not exam:
+        raise NotFoundError("Exam not found.")
+    attempt = (await db.execute(
+        select(ClassroomExamAttempt).where(ClassroomExamAttempt.exam_id == exam_id, ClassroomExamAttempt.student_id == user.id)
+    )).scalar_one_or_none()
+    if attempt is None:
+        return None
+    base = _attempt_start_out(attempt, exam, datetime.now(UTC))
+    return MyExamAttemptOut(
+        **base.model_dump(),
+        score_percent=attempt.score_percent, points_earned=attempt.points_earned, points_possible=attempt.points_possible,
+    )
 
 
 @router.get("/exams/attempts/{attempt_id}/questions")

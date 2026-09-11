@@ -91,6 +91,17 @@ export function ExamIntegrityGuard({ enabled, fullscreenRequired, maxWarnings = 
     document.addEventListener("contextmenu", contextMenu, true);
     document.addEventListener("keydown", keyDown, true);
 
+    // Verify the CURRENT state the instant monitoring turns on, not just
+    // subsequent changes. Both listeners above only fire on a *transition*
+    // (fullscreenchange, visibilitychange) -- if fullscreen was never
+    // actually entered (the request silently failed, lost its user-gesture
+    // context, or an exam was resumed some other way) there is no future
+    // transition to ever catch it, so the exam would run with zero
+    // enforcement the entire time and nothing would ever look wrong here.
+    // Checking once, right now, closes that gap.
+    fullscreen();
+    visibility();
+
     return () => {
       document.removeEventListener("visibilitychange", visibility);
       document.removeEventListener("fullscreenchange", fullscreen);

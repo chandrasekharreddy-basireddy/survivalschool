@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { hasRole, isAdmin, isInstructor } from "@/lib/roles";
+import { useIsFullscreen } from "@/lib/useFullscreen";
 
 function LogoMark() {
   return (
@@ -22,6 +23,7 @@ function LogoMark() {
 export function NavBar() {
   const { user, loading, logout } = useAuth();
   const pathname = usePathname();
+  const isFullscreen = useIsFullscreen();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = () => setMobileOpen(false);
   const canTeach = isInstructor(user);
@@ -49,6 +51,10 @@ export function NavBar() {
     `rounded-lg px-2.5 py-1.5 text-[0.82rem] font-medium transition-colors ${
       isActive(href) ? "bg-ink-800 text-fg" : "text-fg-muted hover:bg-ink-800/70 hover:text-fg"
     }`;
+
+  // A locked-down exam in fullscreen has no use for the site header — it's
+  // dead space at best and, worse, a way out of the exam via its nav links.
+  if (isFullscreen) return null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-ink-700/80 bg-ink-950">

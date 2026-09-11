@@ -92,6 +92,10 @@ export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired =
             <span className="mt-0.5 text-red-400">✕</span>
             <span>Do not switch tabs or leave this window during the exam.</span>
           </li>
+          <li className="flex gap-2">
+            <span className="mt-0.5 text-red-400">✕</span>
+            <span>Stay active — going untouched for a while (mouse, keyboard, or touch) counts as a violation.</span>
+          </li>
           {fullscreenRequired && (
             <li className="flex gap-2">
               <span className="mt-0.5 text-red-400">✕</span>

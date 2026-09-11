@@ -256,7 +256,7 @@ export default function EliminationBattlePage() {
   // "partial credit" fallback the way a written exam does, so a single
   // reported violation eliminates the participant immediately.
   const reportIntegrityEvent = useCallback(
-    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click" | "no_face_detected" | "multiple_faces_detected") => {
+    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click" | "idle" | "no_face_detected" | "multiple_faces_detected") => {
       apiFetch<{ eliminated: boolean }>(`/elimination/battles/${params.battleId}/integrity-violation`, {
         method: "POST", body: JSON.stringify({ violation_type: eventType }),
       })
@@ -329,7 +329,7 @@ export default function EliminationBattlePage() {
           <div className={`card border ${isFullscreen ? "border-emerald-500/40" : "border-amber-500/40"}`}>
             <h2 className="font-semibold text-fg">Exam environment</h2>
             <p className="mt-1 text-xs text-fg-subtle">
-              This battle is integrity-monitored — once it starts, leaving fullscreen, switching tabs, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning. Get into fullscreen and allow camera access now so you&apos;re not caught out the moment it begins.
+              This battle is integrity-monitored — once it starts, leaving fullscreen, switching tabs, going idle, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning. Get into fullscreen and allow camera access now so you&apos;re not caught out the moment it begins.
             </p>
             <button
               onClick={enterFullscreen}
@@ -418,7 +418,7 @@ export default function EliminationBattlePage() {
         <div className="mt-6 space-y-4">
           {me?.status === "active" && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-              This battle is integrity-monitored — leaving fullscreen, switching tabs, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning.
+              This battle is integrity-monitored — leaving fullscreen, switching tabs, going idle, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning.
             </p>
           )}
           {me?.status === "active" && cameraDenied && (

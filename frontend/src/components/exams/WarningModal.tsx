@@ -24,8 +24,13 @@ export function WarningModal({ warningNumber, maxWarnings, reason, onAcknowledge
           {reason === "copy" && "Copy attempt detected."}
           {reason === "paste" && "Paste attempt detected."}
           {reason === "right_click" && "Restricted action detected."}
-          {!["tab_blur", "fullscreen_exit", "copy", "paste", "right_click"].includes(reason) &&
-            "An integrity violation was detected."}
+          {reason === "idle" && "No activity detected for a while — make sure you're still there."}
+          {reason === "no_face_detected" && "Your face wasn't visible to the camera."}
+          {reason === "multiple_faces_detected" && "More than one face was detected by the camera."}
+          {![
+            "tab_blur", "fullscreen_exit", "copy", "paste", "right_click",
+            "idle", "no_face_detected", "multiple_faces_detected",
+          ].includes(reason) && "An integrity violation was detected."}
         </p>
         {remaining > 0 ? (
           <p className="mt-2 text-sm font-medium text-red-400">

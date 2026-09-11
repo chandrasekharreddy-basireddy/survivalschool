@@ -85,7 +85,7 @@ export default function ContestDetailPage() {
   };
 
   const reportIntegrityEvent = useCallback(
-    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click" | "no_face_detected" | "multiple_faces_detected") => {
+    (eventType: "tab_blur" | "fullscreen_exit" | "copy" | "paste" | "right_click" | "idle" | "no_face_detected" | "multiple_faces_detected") => {
       if (!attemptId) return;
       apiFetch<{ logged: boolean; violation_count: number; auto_submitted: boolean }>(
         `/contests/attempts/${attemptId}/events`, { method: "PUT", body: JSON.stringify({ event_type: eventType }) }

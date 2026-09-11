@@ -69,6 +69,17 @@ export default function ContestDetailPage() {
   }, [params.id, loadLeaderboard]);
 
   const join = async () => {
+    // Must be the very first synchronous thing this click handler does.
+    // Browsers only honor requestFullscreen() inside the original
+    // user-gesture call stack -- it does not survive an awaited network
+    // request. This used to run after two awaited API calls below, so it
+    // was likely to silently fail on any real network latency; when it
+    // did, ExamIntegrityGuard's immediate on-mount fullscreen check (see
+    // that component) would fire a violation the instant the exam view
+    // rendered, warning a student for a system failure they had no part in.
+    if (contest?.fullscreen_required && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
     setJoining(true);
     try {
       const start = await apiFetch<{ attempt_id: string; server_deadline_at: string; resumed: boolean }>(
@@ -78,11 +89,6 @@ export default function ContestDetailPage() {
       setDeadline(start.server_deadline_at);
       const qs = await apiFetch<QuestionPublic[]>(`/contests/attempts/${start.attempt_id}/questions`);
       setQuestions(qs);
-      if (contest?.fullscreen_required && document.documentElement.requestFullscreen) {
-        // Best-effort — some browsers/contexts refuse this without a more
-        // direct user gesture, but the "join" click itself usually counts.
-        document.documentElement.requestFullscreen().catch(() => {});
-      }
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setAlreadyCompeted(true);

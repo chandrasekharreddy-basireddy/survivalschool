@@ -339,7 +339,7 @@ export default function EliminationBattlePage() {
           <div className={`card border ${isFullscreen ? "border-emerald-500/40" : "border-amber-500/40"}`}>
             <h2 className="font-semibold text-fg">Exam environment</h2>
             <p className="mt-1 text-xs text-fg-subtle">
-              This battle is integrity-monitored — once it starts, leaving fullscreen, switching tabs, going idle, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning. Get into fullscreen and allow camera access now so you&apos;re not caught out the moment it begins.
+              This battle is integrity-monitored — once it starts, leaving fullscreen, switching tabs, going idle, copy/paste, or a network/device change eliminates you immediately, no warning. Get into fullscreen now so you&apos;re not caught out the moment it begins.
             </p>
             <button
               onClick={enterFullscreen}

@@ -11,6 +11,7 @@ import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { EliminationSocket, EliminationEvent } from "@/lib/ws";
 import { setExamChromeHidden } from "@/lib/useFullscreen";
+import { FACE_PROCTORING_ENABLED } from "@/lib/featureFlags";
 
 // @vladmandic/face-api touches browser-only globals (navigator, canvas) at
 // module-evaluation time, not just when its functions are called -- a plain
@@ -427,16 +428,16 @@ export default function EliminationBattlePage() {
         <div className="mt-6 space-y-4">
           {me?.status === "active" && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-              This battle is integrity-monitored — leaving fullscreen, switching tabs, going idle, copy/paste, losing face-camera view, or a network/device change eliminates you immediately, no warning.
+              This battle is integrity-monitored — leaving fullscreen, switching tabs, going idle, copy/paste, or a network/device change eliminates you immediately, no warning.
             </p>
           )}
-          {me?.status === "active" && cameraDenied && (
+          {FACE_PROCTORING_ENABLED && me?.status === "active" && cameraDenied && (
             <p className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-400">
               Camera access is required for this battle. Please allow camera permission and reload the page to continue.
             </p>
           )}
           <FaceProctor
-            enabled={me?.status === "active"}
+            enabled={FACE_PROCTORING_ENABLED && me?.status === "active"}
             onProctorEvent={reportIntegrityEvent}
             onCameraReady={() => setCameraDenied(false)}
             onCameraDenied={() => {

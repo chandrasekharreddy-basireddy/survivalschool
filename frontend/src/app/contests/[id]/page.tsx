@@ -13,6 +13,7 @@ import { AttemptTimer } from "@/components/exams/AttemptTimer";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { PageLoader } from "@/components/PageLoader";
 import { setExamChromeHidden } from "@/lib/useFullscreen";
+import { FACE_PROCTORING_ENABLED } from "@/lib/featureFlags";
 
 // @vladmandic/face-api touches browser-only globals (navigator, canvas) at
 // module-evaluation time, not just when its functions are called -- a plain
@@ -194,19 +195,19 @@ export default function ContestDetailPage() {
               This exam is integrity-monitored — leaving fullscreen, switching tabs, or copy/paste is logged and can auto-submit your attempt immediately, with no credit for anything left unanswered.
             </p>
           )}
-          {contest.face_proctoring_required && (
+          {FACE_PROCTORING_ENABLED && contest.face_proctoring_required && (
             <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
               This exam requires face proctoring — your camera checks that you&apos;re present throughout. Video is processed entirely on your device
               and is never uploaded or recorded; only whether a face was visible is sent to us.
             </p>
           )}
-          {cameraDenied && (
+          {FACE_PROCTORING_ENABLED && cameraDenied && (
             <p className="rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-700 dark:text-red-400">
               Camera access is required for this exam. Please allow camera permission and reload the page to continue.
             </p>
           )}
           <FaceProctor
-            enabled={!!contest.face_proctoring_required}
+            enabled={FACE_PROCTORING_ENABLED && !!contest.face_proctoring_required}
             onProctorEvent={reportIntegrityEvent}
             onCameraReady={() => setCameraDenied(false)}
             onCameraDenied={() => {

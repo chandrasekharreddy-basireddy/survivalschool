@@ -9,6 +9,7 @@ import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { ExamSecurityShell } from "@/components/exams/ExamSecurityShell";
 import { setExamChromeHidden } from "@/lib/useFullscreen";
+import { FACE_PROCTORING_ENABLED } from "@/lib/featureFlags";
 
 // @vladmandic/face-api touches browser-only globals at module-evaluation
 // time, not just when its functions are called -- see the matching note on
@@ -316,7 +317,7 @@ export default function ClassroomExamPage() {
 
   if (phase === "security" && exam) {
     return (
-      <ExamSecurityShell fullscreenRequired={exam.fullscreen_required} faceProctoringRequired={exam.face_proctoring_required} onReady={handleSecurityReady}>
+      <ExamSecurityShell fullscreenRequired={exam.fullscreen_required} faceProctoringRequired={FACE_PROCTORING_ENABLED && exam.face_proctoring_required} onReady={handleSecurityReady}>
         <div />
       </ExamSecurityShell>
     );
@@ -385,13 +386,13 @@ export default function ClassroomExamPage() {
           </span>
         </div>
 
-        {exam?.face_proctoring_required && cameraDenied && (
+        {FACE_PROCTORING_ENABLED && exam?.face_proctoring_required && cameraDenied && (
           <p className="mx-auto mt-4 max-w-2xl rounded-lg border border-red-500/40 bg-red-500/5 px-4 py-2.5 text-xs text-red-700 dark:text-red-400">
             Camera access is required for this exam. Please allow camera permission and reload the page to continue.
           </p>
         )}
         <FaceProctor
-          enabled={!!exam?.face_proctoring_required}
+          enabled={FACE_PROCTORING_ENABLED && !!exam?.face_proctoring_required}
           onProctorEvent={reportEvent}
           onCameraReady={() => setCameraDenied(false)}
           onCameraDenied={() => {

@@ -5,14 +5,19 @@ import string
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import AuthorizationError, ConflictError, NotFoundError
 from app.database import get_db
-from app.dependencies import get_current_user, get_current_verified_user, require_role
+from app.dependencies import (
+    get_client_ip,
+    get_current_user,
+    get_current_verified_user,
+    require_role,
+)
 from app.models.assessment import Question, QuestionOption
 from app.models.classroom import (
     Classroom,
@@ -631,6 +636,7 @@ async def submit_attempt(
 async def report_integrity_event(
     attempt_id: uuid.UUID,
     body: IntegrityEventIn,
+    request: Request,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ) -> IntegrityEventResponse:
@@ -661,6 +667,21 @@ async def report_integrity_event(
             return IntegrityEventResponse(recorded=True, terminated=True)
     elif body.device_fingerprint and not attempt.device_fingerprint:
         attempt.device_fingerprint = body.device_fingerprint
+
+    client_ip = get_client_ip(request)
+    if attempt.allowed_ip and client_ip and client_ip != attempt.allowed_ip:
+        attempt.status = "terminated"
+        attempt.submitted_at = datetime.now(UTC)
+        attempt.time_taken_seconds = int((attempt.submitted_at - attempt.started_at).total_seconds())
+        if len(attempt.flagged_events) < MAX_FLAGGED_EVENTS:
+            attempt.flagged_events = [*attempt.flagged_events, {
+                "type": "network_change", "detail": "IP address changed mid-exam",
+                "at": datetime.now(UTC).isoformat(),
+            }]
+        await db.commit()
+        return IntegrityEventResponse(recorded=True, terminated=True)
+    elif client_ip and not attempt.allowed_ip:
+        attempt.allowed_ip = client_ip
 
     attempt.violation_count += 1
     if len(attempt.flagged_events) < MAX_FLAGGED_EVENTS:

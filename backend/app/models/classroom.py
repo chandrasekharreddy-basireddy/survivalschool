@@ -116,6 +116,11 @@ class ClassroomExamAttempt(Base, UUIDPk, Timestamped):
     points_possible: Mapped[int | None] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(20), default="in_progress", nullable=False)
     device_fingerprint: Mapped[str | None] = mapped_column(String(256))
+    # Same lazy bind-on-first-report, compare-thereafter shape as
+    # device_fingerprint above -- see report_integrity_event. Contests and
+    # elimination battles already bind the client IP; classroom exams never
+    # did, despite carrying identical integrity-monitoring requirements.
+    allowed_ip: Mapped[str | None] = mapped_column(String(64))
     violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     warning_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     flagged_events: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)

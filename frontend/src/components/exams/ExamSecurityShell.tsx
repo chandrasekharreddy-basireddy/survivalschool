@@ -94,18 +94,15 @@ export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired =
       }
 
       if (faceProctoringRequired) {
-        if (cameraPermission === "denied") {
-          // Already known to be blocked -- don't bother calling
-          // getUserMedia() again, it will fail identically. Send them
-          // straight to the fastest fix instead of a generic error.
-          setCheckError(
-            "Camera is blocked for this site. Click the camera icon (or the lock/info icon) in your browser's address bar, set Camera to Allow, then click Start again — no reload needed."
-          );
-          if (fullscreenRequired && document.fullscreenElement) document.exitFullscreen().catch(() => {});
-          setStarting(false);
-          return;
-        }
         try {
+          // Always make the real call rather than trusting the cached
+          // Permissions API read -- that state can drift from what the
+          // browser will actually do (seen live: the site-settings toggle
+          // shows "Allow" but a stale "denied" read here was short-
+          // circuiting past ever calling getUserMedia() again, so the
+          // block message never cleared even after the user fixed it).
+          // getUserMedia() is the only ground truth.
+          //
           // A one-time permission + device check, not continuous
           // monitoring -- the exam view's own <FaceProctor> opens its real
           // stream once the exam actually starts. This just makes sure
@@ -114,12 +111,21 @@ export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired =
           // through the exam with no way to fix it mid-attempt.
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
           stream.getTracks().forEach((track) => track.stop());
-        } catch {
-          setCheckError(
-            cameraPermission === "unknown"
-              ? "Camera access is required for this exam. Please allow camera permission when your browser asks, then try again."
-              : "Camera is blocked for this site. Click the camera icon (or the lock/info icon) in your browser's address bar, set Camera to Allow, then click Start again — no reload needed."
-          );
+        } catch (err) {
+          const name = err instanceof DOMException ? err.name : "";
+          let message: string;
+          if (name === "NotFoundError" || name === "OverconstrainedError") {
+            message = "No camera was found on this device. Connect a camera and click Start again.";
+          } else if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") {
+            message =
+              "Your camera couldn't be started — it's likely in use by another app or browser tab (Zoom, Teams, the Windows Camera app, another tab). Close it and click Start again.";
+          } else if (name === "NotAllowedError" || name === "SecurityError" || cameraPermission === "denied") {
+            message =
+              "Camera is blocked for this site. Click the camera icon (or the lock/info icon) in your browser's address bar, set Camera to Allow, then click Start again — no reload needed.";
+          } else {
+            message = "Camera access is required for this exam. Please allow camera permission when your browser asks, then try again.";
+          }
+          setCheckError(message);
           if (fullscreenRequired && document.fullscreenElement) document.exitFullscreen().catch(() => {});
           setStarting(false);
           return;

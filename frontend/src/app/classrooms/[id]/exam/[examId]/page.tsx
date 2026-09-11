@@ -44,8 +44,27 @@ export default function ClassroomExamPage() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<AttemptResult | null>(null);
   const [deviceFp, setDeviceFp] = useState("");
+  // exam.status only ever reflects what the host set it to at publish time
+  // ("open" if published after starts_at, "scheduled" if published before)
+  // -- nothing updates it later, by design (see start_attempt's docstring:
+  // whether joining/the exam itself is actually open is answered purely by
+  // comparing `now` against starts_at/ends_at, same as the backend does).
+  // Gating the "Join Exam" button on a literal status==="open" check was a
+  // leftover from before that redesign: an exam published early (the
+  // ordinary case — a host publishes ahead of the window, not at the exact
+  // instant it opens) stayed "scheduled" forever, so the button never
+  // appeared even once the real joining window had opened. Ticking `now`
+  // here instead lets the page reflect the real, current window without
+  // requiring a manual refresh right as it opens.
+  const [now, setNow] = useState(() => Date.now());
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const waitTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  useEffect(() => {
+    if (phase !== "info") return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [phase]);
 
   useEffect(() => {
     if (!examId || !classroomId) return;
@@ -196,6 +215,13 @@ export default function ClassroomExamPage() {
   }
 
   if (phase === "info" && exam) {
+    const startsAtMs = exam.starts_at ? new Date(exam.starts_at).getTime() : null;
+    const endsAtMs = exam.ends_at ? new Date(exam.ends_at).getTime() : null;
+    const notYetPublished = exam.status === "draft";
+    const closedForGood = exam.status === "closed" || (endsAtMs !== null && now > endsAtMs);
+    const joiningNotYetOpen = !notYetPublished && !closedForGood && startsAtMs !== null && now < startsAtMs;
+    const canJoin = !notYetPublished && !closedForGood && !joiningNotYetOpen;
+
     return (
       <div className="mx-auto max-w-lg px-6 py-16">
         <h1 className="text-2xl font-bold text-fg">{exam.title}</h1>
@@ -210,10 +236,14 @@ export default function ClassroomExamPage() {
             </p>
           )}
         </div>
-        {exam.status === "open" ? (
+        {canJoin ? (
           <button onClick={() => setPhase("security")} className="btn-primary mt-8 w-full">Join Exam</button>
-        ) : exam.status === "scheduled" ? (
-          <p className="mt-8 text-center text-sm text-amber-400">This exam hasn&apos;t opened yet.</p>
+        ) : notYetPublished ? (
+          <p className="mt-8 text-center text-sm text-fg-subtle">This exam hasn&apos;t been published yet.</p>
+        ) : joiningNotYetOpen ? (
+          <p className="mt-8 text-center text-sm text-amber-400">
+            Joining opens {exam.starts_at && new Date(exam.starts_at).toLocaleString()} — check back then.
+          </p>
         ) : (
           <p className="mt-8 text-center text-sm text-fg-subtle">This exam is closed.</p>
         )}

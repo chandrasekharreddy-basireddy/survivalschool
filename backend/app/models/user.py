@@ -127,6 +127,7 @@ class Profile(Base, UUIDPk, Timestamped):
     public_handle: Mapped[str | None] = mapped_column(String(30))
     avatar_url: Mapped[str | None] = mapped_column(String(500))
     bio: Mapped[str | None] = mapped_column(String(1000))
+    phone: Mapped[str | None] = mapped_column(String(30))
     timezone: Mapped[str] = mapped_column(String(64), default="UTC", nullable=False)
     locale: Mapped[str] = mapped_column(String(10), default="en", nullable=False)
     # Which school (SCDS, SOAI, SOB, ...) the student's section below

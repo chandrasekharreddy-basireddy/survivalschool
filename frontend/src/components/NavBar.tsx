@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { hasRole, isAdmin, isInstructor } from "@/lib/roles";
-import { useIsFullscreen } from "@/lib/useFullscreen";
+import { useHideChrome } from "@/lib/useFullscreen";
 
 function LogoMark() {
   return (
@@ -23,7 +23,7 @@ function LogoMark() {
 export function NavBar() {
   const { user, loading, logout } = useAuth();
   const pathname = usePathname();
-  const isFullscreen = useIsFullscreen();
+  const isFullscreen = useHideChrome();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = () => setMobileOpen(false);
   const canTeach = isInstructor(user);

@@ -12,6 +12,7 @@ import { ContestCountdown } from "@/components/ContestCountdown";
 import { AttemptTimer } from "@/components/exams/AttemptTimer";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { PageLoader } from "@/components/PageLoader";
+import { setExamChromeHidden } from "@/lib/useFullscreen";
 
 // @vladmandic/face-api touches browser-only globals (navigator, canvas) at
 // module-evaluation time, not just when its functions are called -- a plain
@@ -48,6 +49,14 @@ export default function ContestDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [cameraDenied, setCameraDenied] = useState(false);
   const [cameraDeniedReported, setCameraDeniedReported] = useState(false);
+
+  // Hides the site header/footer for the whole active attempt, not just
+  // while the browser happens to be in real fullscreen -- see the matching
+  // note in the classroom exam page for why that distinction matters.
+  useEffect(() => {
+    setExamChromeHidden(!!questions && !result);
+    return () => setExamChromeHidden(false);
+  }, [questions, result]);
 
   const loadLeaderboard = useCallback(() => {
     apiFetch<LeaderboardEntry[]>(`/contests/${params.id}/leaderboard`, { auth: false }).then(setLeaderboard).catch(() => {});

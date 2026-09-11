@@ -10,6 +10,7 @@ import { useToast } from "@/lib/toast";
 import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { EliminationSocket, EliminationEvent } from "@/lib/ws";
+import { setExamChromeHidden } from "@/lib/useFullscreen";
 
 // @vladmandic/face-api touches browser-only globals (navigator, canvas) at
 // module-evaluation time, not just when its functions are called -- a plain
@@ -72,6 +73,14 @@ export default function EliminationBattlePage() {
   const [cameraDenied, setCameraDenied] = useState(false);
   const [cameraDeniedReported, setCameraDeniedReported] = useState(false);
   const me = participants.find((p) => p.user_id === user?.id);
+
+  // Hides the site header/footer for the whole active battle, not just
+  // while the browser happens to be in real fullscreen -- see the matching
+  // note in the classroom exam page for why that distinction matters.
+  useEffect(() => {
+    setExamChromeHidden(battle?.status === "active");
+    return () => setExamChromeHidden(false);
+  }, [battle?.status]);
 
   const loadState = useCallback(() => {
     apiFetch<Battle>(`/elimination/battles/${params.battleId}`).then(setBattle).catch(() => setBattle(null));

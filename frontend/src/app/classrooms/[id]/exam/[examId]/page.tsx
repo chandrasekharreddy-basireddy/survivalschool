@@ -8,6 +8,7 @@ import { apiFetch, ApiError } from "@/lib/api";
 import { PageLoader } from "@/components/PageLoader";
 import { ExamIntegrityGuard } from "@/components/exams/ExamIntegrityGuard";
 import { ExamSecurityShell } from "@/components/exams/ExamSecurityShell";
+import { setExamChromeHidden } from "@/lib/useFullscreen";
 
 // @vladmandic/face-api touches browser-only globals at module-evaluation
 // time, not just when its functions are called -- see the matching note on
@@ -79,6 +80,19 @@ export default function ClassroomExamPage() {
     if (phase !== "info") return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
+  }, [phase]);
+
+  // Hides the site header/footer for the whole locked-down stretch, not
+  // just while the browser happens to be in real fullscreen -- fullscreen
+  // can fail to engage for reasons outside this app's control (a blocked
+  // permission, browser policy, a lost user-gesture context), and when
+  // that happens the exam is still genuinely running and the header is
+  // still exactly as much of a problem (dead space, and a way out of a
+  // supposedly locked-down exam via its nav links).
+  useEffect(() => {
+    const hidden = phase === "security" || phase === "waiting" || phase === "exam";
+    setExamChromeHidden(hidden);
+    return () => setExamChromeHidden(false);
   }, [phase]);
 
   // Joining and taking the exam are different moments: everyone who joins gets

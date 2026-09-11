@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useIsFullscreen } from "@/lib/useFullscreen";
+import { useHideChrome } from "@/lib/useFullscreen";
 
 const LINK_GROUPS: { title: string; links: { href: string; label: string }[] }[] = [
   {
@@ -50,7 +50,7 @@ function LogoMark() {
  * reached the copyright bar. */
 export function Footer() {
   const year = new Date().getFullYear();
-  const isFullscreen = useIsFullscreen();
+  const isFullscreen = useHideChrome();
   // Same reasoning as NavBar: a locked-down exam in fullscreen has no use
   // for the footer's nav links either.
   if (isFullscreen) return null;

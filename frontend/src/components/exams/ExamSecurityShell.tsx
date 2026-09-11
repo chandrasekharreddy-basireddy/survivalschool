@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   fullscreenRequired: boolean;
@@ -28,6 +28,47 @@ export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired =
   const [accepted, setAccepted] = useState(false);
   const [starting, setStarting] = useState(false);
   const [checkError, setCheckError] = useState("");
+  // "unknown" covers both "not checked yet" and browsers (Safari) that
+  // don't support querying this permission at all -- those fall back to
+  // just trying getUserMedia() when the button is clicked, same as before.
+  const [cameraPermission, setCameraPermission] = useState<"unknown" | "granted" | "denied" | "prompt">("unknown");
+
+  // Once a browser has recorded "block" for this site's camera, NO
+  // webpage's own code can make it prompt again -- that decision only the
+  // user can undo, from the browser's own UI (there is no API for a site
+  // to reset its own permission state; that would defeat the entire point
+  // of the permission existing). What this CAN do: know the current state
+  // without waiting for a failed getUserMedia() call, so a student sees
+  // the real recovery instructions immediately instead of only after
+  // clicking start once and getting a generic failure -- and, since
+  // PermissionStatus fires a live 'change' event, notice the moment they
+  // actually fix it in their browser's site settings and clear the error
+  // without needing a page reload.
+  const permissionStatusRef = useRef<PermissionStatus | null>(null);
+  useEffect(() => {
+    if (!faceProctoringRequired) return;
+    if (!navigator.permissions?.query) return;
+    let cancelled = false;
+    navigator.permissions.query({ name: "camera" as PermissionName })
+      .then((status) => {
+        if (cancelled) return;
+        permissionStatusRef.current = status;
+        setCameraPermission(status.state as "granted" | "denied" | "prompt");
+        status.onchange = () => {
+          setCameraPermission(status.state as "granted" | "denied" | "prompt");
+          if (status.state !== "denied") setCheckError("");
+        };
+      })
+      .catch(() => {
+        // Permissions API doesn't support querying "camera" in this
+        // browser (Safari) -- cameraPermission stays "unknown", the
+        // button-click getUserMedia() path below is the only check.
+      });
+    return () => {
+      cancelled = true;
+      if (permissionStatusRef.current) permissionStatusRef.current.onchange = null;
+    };
+  }, [faceProctoringRequired]);
 
   const handleStart = async () => {
     setStarting(true);
@@ -53,6 +94,17 @@ export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired =
       }
 
       if (faceProctoringRequired) {
+        if (cameraPermission === "denied") {
+          // Already known to be blocked -- don't bother calling
+          // getUserMedia() again, it will fail identically. Send them
+          // straight to the fastest fix instead of a generic error.
+          setCheckError(
+            "Camera is blocked for this site. Click the camera icon (or the lock/info icon) in your browser's address bar, set Camera to Allow, then click Start again — no reload needed."
+          );
+          if (fullscreenRequired && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+          setStarting(false);
+          return;
+        }
         try {
           // A one-time permission + device check, not continuous
           // monitoring -- the exam view's own <FaceProctor> opens its real
@@ -63,7 +115,11 @@ export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired =
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
           stream.getTracks().forEach((track) => track.stop());
         } catch {
-          setCheckError("Camera access is required for this exam. Please allow camera permission and try again.");
+          setCheckError(
+            cameraPermission === "unknown"
+              ? "Camera access is required for this exam. Please allow camera permission when your browser asks, then try again."
+              : "Camera is blocked for this site. Click the camera icon (or the lock/info icon) in your browser's address bar, set Camera to Allow, then click Start again — no reload needed."
+          );
           if (fullscreenRequired && document.fullscreenElement) document.exitFullscreen().catch(() => {});
           setStarting(false);
           return;
@@ -121,6 +177,11 @@ export function ExamSecurityShell({ fullscreenRequired, faceProctoringRequired =
             <span>You will receive <strong className="text-fg">2 warnings</strong> before your exam is terminated.</span>
           </li>
         </ul>
+        {faceProctoringRequired && cameraPermission === "denied" && !checkError && (
+          <p className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+            Your browser has camera access blocked for this site. Click the camera/lock icon in your address bar and set it to Allow before starting.
+          </p>
+        )}
         {checkError && (
           <p className="mt-4 rounded-lg border border-red-500/40 bg-red-500/5 px-3 py-2 text-xs text-red-400">{checkError}</p>
         )}

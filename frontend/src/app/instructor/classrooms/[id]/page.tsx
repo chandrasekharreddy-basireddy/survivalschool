@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { apiFetch, ApiError } from "@/lib/api";
@@ -40,13 +40,13 @@ export default function InstructorClassroomManagePage() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const load = () => {
+  const load = useCallback(() => {
     apiFetch<Classroom>(`/classrooms/${id}`).then(setClassroom).catch((e) => setError(e?.message || "Not found"));
     apiFetch<Exam[]>(`/classrooms/${id}/exams`).then(setExams).catch(() => setExams([]));
     apiFetch<Member[]>(`/classrooms/${id}/members`).then(setMembers).catch(() => setMembers([]));
-  };
+  }, [id]);
 
-  useEffect(() => { if (id) load(); }, [id]);
+  useEffect(() => { if (id) load(); }, [id, load]);
 
   const copyCode = () => {
     if (!classroom) return;

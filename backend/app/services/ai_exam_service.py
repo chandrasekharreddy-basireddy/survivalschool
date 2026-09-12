@@ -67,7 +67,20 @@ def _upcoming_saturday_slot(now_ist: datetime) -> tuple[datetime, datetime, str]
     return starts_at, ends_at, target_date.isoformat()
 
 
-_GENERATION_VALIDATION_RETRIES = 2
+# Higher than elimination_service's identical constant on purpose: an
+# elimination battle needs its questions in real time (the host is waiting
+# to start), so retrying too many times just delays a live user. An AI
+# Weekly Exam is generated days ahead of when anyone can actually sit it
+# (Thursday registration, Saturday exam) with zero time pressure -- there's
+# no reason to give up after 2 tries when 6 costs nothing but a few more
+# minutes of a detached background task, and directly caused a real
+# incident: a topic with an unusually broad, syllabus-like name (multiple
+# subtopics concatenated into one string) exhausted 2 retries and left a
+# scheduled contest with zero questions for its entire live window, only
+# caught by start_contest_attempt's empty-question_ids guard turning every
+# registered student's attempt into "try again in a moment" for two hours
+# straight rather than a broken exam.
+_GENERATION_VALIDATION_RETRIES = 6
 
 
 async def _generate_ai_weekly_questions_in_background(contest_id: uuid.UUID, topic: Topic) -> None:

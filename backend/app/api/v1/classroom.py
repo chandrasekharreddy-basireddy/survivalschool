@@ -594,7 +594,7 @@ async def submit_attempt(
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ) -> ClassroomExamAttemptOut:
-    attempt = await db.get(ClassroomExamAttempt, attempt_id)
+    attempt = await db.get(ClassroomExamAttempt, attempt_id, with_for_update=True)
     if not attempt or attempt.student_id != user.id:
         raise NotFoundError("Attempt not found.")
     if attempt.status != "in_progress":
@@ -602,6 +602,15 @@ async def submit_attempt(
     now = datetime.now(UTC)
     if now < attempt.started_at:
         raise ConflictError("The exam hasn't started yet.", code="exam_not_started")
+    # Was missing entirely -- get_attempt_questions rejects a fetch once the
+    # deadline passes, but submit_attempt had no equivalent check at all, so
+    # a student who fetched questions before the deadline (or crafted a
+    # request directly) could submit answers indefinitely after time was up
+    # and still be graded normally. Mirrors contests.py's submit_contest_attempt:
+    # a late submission still succeeds as a request, but every answer is
+    # discarded (graded as unanswered) rather than crediting anything an
+    # extra, unauthorized amount of time could have produced.
+    late = now > attempt.server_deadline_at
     total_earned = 0
     total_possible = 0
     for ans in body.answers:
@@ -612,12 +621,14 @@ async def submit_attempt(
         if not q or str(q.id) not in attempt.question_order:
             continue
         from app.services.scoring_service import grade_answer
-        correct, points = grade_answer(q, [str(oid) for oid in ans.selected_option_ids], ans.text_answer)
+        selected_option_ids = [] if late else [str(oid) for oid in ans.selected_option_ids]
+        text_answer = None if late else ans.text_answer
+        correct, points = grade_answer(q, selected_option_ids, text_answer)
         total_earned += points
         total_possible += q.points
         db.add(ClassroomExamAnswer(
             attempt_id=attempt.id, question_id=q.id,
-            selected_option_ids=[str(oid) for oid in ans.selected_option_ids],
+            selected_option_ids=selected_option_ids,
             is_correct=correct, points_awarded=points,
         ))
     attempt.status = "submitted"

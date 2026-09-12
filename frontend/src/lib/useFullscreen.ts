@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-// A page-level pub/sub, not React context: NavBar/Footer are rendered once
+// A page-level pub/sub, not React context: Sidebar/Footer are rendered once
 // in the root layout, far above any specific exam page, and plumbing a
 // context provider down to them (or wrapping the whole app in one just for
 // this) is a lot of surface area for "hide two components while true".
@@ -25,7 +25,7 @@ export function setExamChromeHidden(active: boolean): void {
 }
 
 /** True while either the browser is actually in fullscreen OR an exam page
- * has called setExamChromeHidden(true) -- used by NavBar/Footer to hide
+ * has called setExamChromeHidden(true) -- used by Sidebar/Footer to hide
  * themselves. */
 export function useHideChrome(): boolean {
   const [isFullscreen, setIsFullscreen] = useState(false);

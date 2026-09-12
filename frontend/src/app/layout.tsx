@@ -25,7 +25,7 @@ import { AuthProvider } from "@/lib/auth-context";
 import { ToastProvider } from "@/lib/toast";
 import { ThemeProvider, NO_FLASH_THEME_SCRIPT } from "@/lib/theme";
 import { WARM_BACKEND_SCRIPT } from "@/lib/warm";
-import { NavBar } from "@/components/NavBar";
+import { Sidebar } from "@/components/Sidebar";
 import { Footer } from "@/components/Footer";
 import { AnalyticsTracker } from "@/components/AnalyticsTracker";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
@@ -81,12 +81,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>
-              <NavBar />
-              <AnalyticsTracker />
-              <GoogleAnalytics />
-              <ServiceWorkerRegister />
-              <main className="safe-area-x">{children}</main>
-              <Footer />
+              <div className="flex min-h-screen">
+                <Sidebar />
+                {/* min-w-0 keeps this column from being pushed wider than the
+                    viewport by its own content (long tables, code blocks) —
+                    a flex item's default min-width is its content's natural
+                    width, not 0, which would otherwise force horizontal
+                    scroll on the whole page instead of inside the content.
+                    pt-14 on mobile makes room for Sidebar's mobile top bar,
+                    which is `fixed` (so it can span full width without
+                    becoming a sized-to-content flex item of the row this div
+                    is also in) and so reserves no space of its own. */}
+                <div className="flex min-w-0 flex-1 flex-col pt-14 lg:pt-0">
+                  <AnalyticsTracker />
+                  <GoogleAnalytics />
+                  <ServiceWorkerRegister />
+                  <main className="safe-area-x flex-1">{children}</main>
+                  <Footer />
+                </div>
+              </div>
             </ToastProvider>
           </AuthProvider>
         </ThemeProvider>

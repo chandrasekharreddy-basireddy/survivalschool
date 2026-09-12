@@ -51,7 +51,7 @@ function LogoMark() {
 export function Footer() {
   const year = new Date().getFullYear();
   const isFullscreen = useHideChrome();
-  // Same reasoning as NavBar: a locked-down exam in fullscreen has no use
+  // Same reasoning as Sidebar: a locked-down exam in fullscreen has no use
   // for the footer's nav links either.
   if (isFullscreen) return null;
   return (

@@ -268,6 +268,12 @@
     border: 1px solid rgb(var(--line));
     border-radius: var(--radius);
     background: rgb(var(--bg-1));
+    /* Most usages across the app never added their own padding utility, so
+       this border sat flush against the content with nothing in between.
+       A Tailwind padding class on the same element (e.g. p-4) still wins —
+       utilities load after components in this Tailwind v4 setup — so this
+       is purely a sane default, not a forced value. */
+    padding: 1.25rem;
     transition: border-color 160ms ease, box-shadow 160ms ease;
   }
   .card-hover:hover {
@@ -279,6 +285,7 @@
     border: 1px solid rgb(var(--line));
     border-radius: var(--radius);
     background: rgb(var(--bg-1));
+    padding: 1.25rem;
   }
 
   /* Buttons */
@@ -377,7 +384,7 @@
     border: 1px solid rgb(var(--line));
     border-radius: var(--radius);
     background: rgb(var(--bg-1));
-    padding: 1.15rem;
+    padding: 1.5rem;
   }
 
   /* Chips / badges */

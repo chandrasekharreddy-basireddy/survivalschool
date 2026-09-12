@@ -53,6 +53,13 @@ _HOUSEKEEPING_INTERVALS = {
     # that's elapsed. 300s just keeps a short configured interval (the
     # schema's minimum is 5 minutes) reasonably responsive.
     "sync_campus_timetable_if_due": 300,
+    # Same 86400s (once daily) cadence as app/workers/worker.py's own JOBS
+    # entry for this. Was ONLY ever wired into that standalone worker's
+    # loop, which nothing deploys on the real single-web-service target —
+    # so the Power BI sync has never actually run in production, regardless
+    # of whether the POWERBI_* credentials are configured. Inert-by-default
+    # either way (see powerbi_service.py) if those env vars are unset.
+    "run_powerbi_sync": 86400,
 }
 _last_housekeeping_run: dict[str, float] = {}
 
@@ -69,12 +76,17 @@ async def _run_housekeeping() -> None:
     avoid a circular import (worker imports run_locked_tick from this module).
     """
     from app.services.campus_timetable_service import sync_campus_timetable_if_due
-    from app.workers.worker import cleanup_expired_tokens, recompute_leaderboard_snapshot
+    from app.workers.worker import (
+        cleanup_expired_tokens,
+        recompute_leaderboard_snapshot,
+        run_powerbi_sync,
+    )
 
     jobs = {
         "cleanup_expired_tokens": cleanup_expired_tokens,
         "recompute_leaderboard_snapshot": recompute_leaderboard_snapshot,
         "sync_campus_timetable_if_due": sync_campus_timetable_if_due,
+        "run_powerbi_sync": run_powerbi_sync,
     }
     now = asyncio.get_running_loop().time()
     for name, job in jobs.items():

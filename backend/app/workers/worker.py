@@ -91,13 +91,14 @@ async def run_powerbi_sync() -> None:
 JOBS = [
     # Same 60s cadence as scheduler_runtime.TICK_SECONDS, since both compete
     # for the same lock and only one of them will actually run any given tick.
-    # cleanup_expired_tokens and recompute_leaderboard_snapshot are NOT listed
-    # separately here — they now run inside that locked tick
-    # (scheduler_runtime._run_housekeeping, on their own 1h/5min intervals) so
-    # they also happen on deployments that run no worker at all. Listing them
-    # here too would double-run them outside the lock.
+    # cleanup_expired_tokens, recompute_leaderboard_snapshot, and
+    # run_powerbi_sync are NOT listed separately here — they now run inside
+    # that locked tick (scheduler_runtime._run_housekeeping, on their own
+    # 1h/5min/24h intervals) so they also happen on deployments that run no
+    # worker at all, which is the real, single-web-service deployment target
+    # today. Listing any of them here too would double-run them outside the
+    # lock if a standalone worker replica is ever deployed alongside it.
     (run_scheduler_tick, 60),
-    (run_powerbi_sync, 86400),  # once daily — pushes yesterday's aggregate stats
 ]
 
 

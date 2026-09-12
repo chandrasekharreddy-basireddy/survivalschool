@@ -45,7 +45,11 @@ class CampusTimetableSource(Base, UUIDPk, Timestamped):
         # (e8b3f1a9c4d7) but never mirrored here -- alembic's own drift
         # check was flagging this table's real constraint as something to
         # drop. Declaring it is the fix; the constraint itself never changed.
-        CheckConstraint("mode IN ('upload', 'live_sync')", name="ck_campus_timetable_sources_mode_valid"),
+        # Name is the SHORT form -- Base's naming convention (see
+        # database.py: "ck": "ck_%(table_name)s_%(constraint_name)s")
+        # prepends "ck_campus_timetable_sources_" automatically; passing the
+        # already-prefixed name here doubles it and still doesn't match.
+        CheckConstraint("mode IN ('upload', 'live_sync')", name="mode_valid"),
     )
 
     singleton: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -73,9 +77,10 @@ class CampusTimetableEntry(Base, UUIDPk, Timestamped):
         UniqueConstraint("row_key", name="uq_campus_timetable_entry_row_key"),
         Index("ix_campus_timetable_section_date", "section", "class_date"),
         # Same as CampusTimetableSource above -- real constraints from
-        # migration e8b3f1a9c4d7, never mirrored in this model.
-        CheckConstraint("day_of_week >= 0 AND day_of_week <= 6", name="ck_campus_timetable_entries_day_of_week_valid"),
-        CheckConstraint("source IN ('upload', 'live_sync')", name="ck_campus_timetable_entries_source_valid"),
+        # migration e8b3f1a9c4d7, never mirrored in this model. Short names
+        # again -- see the naming-convention note on CampusTimetableSource.
+        CheckConstraint("day_of_week >= 0 AND day_of_week <= 6", name="day_of_week_valid"),
+        CheckConstraint("source IN ('upload', 'live_sync')", name="source_valid"),
     )
 
     row_key: Mapped[str] = mapped_column(String(64), nullable=False)  # stable identity hash — see service

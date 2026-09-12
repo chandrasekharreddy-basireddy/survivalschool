@@ -12,8 +12,6 @@ branches off c9d4e7a1f6b8:
 This merge migration ties both into a single head so `alembic upgrade head`
 resolves to exactly one revision.
 """
-from alembic import op
-
 revision = "a1b2c3d4e5f6"
 down_revision = ("e1f4a6b8c2d0", "e7c4f1a2b9d0")
 branch_labels = None

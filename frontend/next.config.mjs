@@ -1,4 +1,4 @@
-import { withSentryConfig } from "@sentry/nextjs";
+import { withSentryConfig } from "@sentry/nextjs/config";
 import withSerwistInit from "@serwist/next";
 
 // next/image refuses to optimize a remote URL whose host isn't allow-listed

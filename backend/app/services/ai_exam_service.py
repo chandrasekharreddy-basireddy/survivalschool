@@ -23,7 +23,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -174,7 +174,7 @@ async def register_for_ai_weekly_exam(db: AsyncSession, user: User, subject_name
     # formula could score against. See ai_provider.py::evaluate_topic_scope.
     assessment = await get_ai_provider().evaluate_topic_scope(subject_name, topic_name)
     await db.execute(
-        TopicDifficultyEvaluation.__table__.update()
+        update(TopicDifficultyEvaluation)
         .where(TopicDifficultyEvaluation.topic_id == topic_id, TopicDifficultyEvaluation.is_current.is_(True))
         .values(is_current=False)
     )

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.assessment import Question, QuestionOption
@@ -108,7 +108,7 @@ async def evaluate_topic_difficulty(db: AsyncSession, topic_id: uuid.UUID) -> To
     # Supersede any prior evaluation for this topic rather than deleting it —
     # history stays queryable, only the "current" flag moves.
     await db.execute(
-        TopicDifficultyEvaluation.__table__.update()
+        update(TopicDifficultyEvaluation)
         .where(TopicDifficultyEvaluation.topic_id == topic_id, TopicDifficultyEvaluation.is_current.is_(True))
         .values(is_current=False)
     )

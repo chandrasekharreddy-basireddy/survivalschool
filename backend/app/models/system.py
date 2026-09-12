@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
@@ -23,7 +24,7 @@ class AnalyticsEvent(Base, UUIDPk):
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     session_id: Mapped[str | None] = mapped_column(String(64))
     source: Mapped[str] = mapped_column(String(30), default="web", nullable=False)
-    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()", index=True)
 
 
@@ -42,7 +43,7 @@ class AuditLog(Base, UUIDPk):
     result: Mapped[str] = mapped_column(String(20), nullable=False, index=True)  # success|failure
     ip_address: Mapped[str | None] = mapped_column(String(64))
     request_id: Mapped[str | None] = mapped_column(String(64))
-    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default="now()", index=True)
 
 
@@ -80,5 +81,5 @@ class SystemSetting(Base, UUIDPk, Timestamped):
     __tablename__ = "system_settings"
 
     key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
-    value_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    value_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     description: Mapped[str | None] = mapped_column(String(255))

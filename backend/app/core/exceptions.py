@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import structlog
 from fastapi import Request, status
@@ -12,7 +13,7 @@ from sqlalchemy.exc import TimeoutError as SATimeoutError
 try:
     from asyncpg.exceptions import PostgresError
 except ImportError:  # pragma: no cover - asyncpg is always installed outside tests using a different driver
-    PostgresError = ()  # type: ignore[assignment]
+    PostgresError = ()
 
 # Both signal "no DB connection available right now" — PostgresError when the
 # database/pooler itself rejects the connection (e.g. Supabase's pooler at
@@ -35,7 +36,7 @@ class AppError(Exception):
     status_code: int = status.HTTP_400_BAD_REQUEST
     code: str = "bad_request"
 
-    def __init__(self, message: str, *, code: str | None = None, details: dict | None = None):
+    def __init__(self, message: str, *, code: str | None = None, details: dict[str, Any] | None = None):
         self.message = message
         self.code = code or self.code
         self.details = details or {}
@@ -77,7 +78,14 @@ class ServiceUnavailableError(AppError):
     code = "service_unavailable"
 
 
-async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+async def app_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    # Starlette's add_exception_handler() signature is typed generically as
+    # Callable[[Request, Exception], ...] (it also accepts a handler keyed by
+    # HTTP status code, not just by exception class) -- but this handler is
+    # only ever actually invoked for the AppError class it's registered
+    # against in main.py, so this narrows the type rather than changing what
+    # can reach here.
+    assert isinstance(exc, AppError)
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     return JSONResponse(
         status_code=exc.status_code,
@@ -92,7 +100,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     )
 
 
-async def request_validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+async def request_validation_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """FastAPI/Pydantic's own request-parsing errors (a malformed body,
     wrong field type, missing required field, a Query/Path pattern
     mismatch) never went through AppError — they fell through to
@@ -104,6 +112,9 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
     body leaves err.message undefined there, so the UI falls back to
     the generic HTTP status text ("Unprocessable Entity") instead of
     telling the user which field was wrong."""
+    # Same note as app_error_handler above -- only ever actually invoked
+    # for RequestValidationError, per its registration in main.py.
+    assert isinstance(exc, RequestValidationError)
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     errors = jsonable_encoder(exc.errors())
     first = errors[0] if errors else None

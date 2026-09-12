@@ -23,10 +23,10 @@ PROCESS_STARTED_AT = time.time()
 # request handler that returns immediately) has no natural owner to hold
 # that reference, so it goes here instead. The done-callback removes each
 # task from the set once it finishes, so this never grows unbounded.
-_background_tasks: set[asyncio.Task] = set()
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
-def spawn_background_task(coro: Coroutine[Any, Any, Any]) -> asyncio.Task:
+def spawn_background_task(coro: Coroutine[Any, Any, Any]) -> asyncio.Task[Any]:
     """asyncio.create_task() with a kept strong reference — use this instead
     of calling asyncio.create_task() directly for any detached task that
     isn't awaited or otherwise referenced by its caller."""

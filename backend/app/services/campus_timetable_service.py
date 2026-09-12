@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_type
 from datetime import time as time_type
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -592,6 +593,13 @@ def _row_key(row: ParsedCampusRow, source: str) -> str:
     # here, two such rows hash to the identical key and the second upsert
     # silently overwrites the first instead of creating a second row — a
     # real lab group's room/teacher just vanishes on upload.
+    # Both callers (apply_campus_rows) only ever pass rows with row.error is
+    # None, and parsing sets row.error whenever class_date/start_time are
+    # missing (see _rows_from_dicts) -- these are always set by the time a
+    # row reaches here. The asserts just narrow the type for isoformat()
+    # below.
+    assert row.class_date is not None
+    assert row.start_time is not None
     identity = "|".join([
         source,
         (row.school or "").strip().lower(),
@@ -605,6 +613,8 @@ def _row_key(row: ParsedCampusRow, source: str) -> str:
 
 
 def _row_hash(row: ParsedCampusRow, is_cancelled: bool = False) -> str:
+    # Same guarantee as _row_key above -- only called on error-free rows.
+    assert row.end_time is not None
     content = "|".join([
         row.end_time.isoformat(),
         (row.room or "").strip().lower(),
@@ -618,12 +628,12 @@ def _row_hash(row: ParsedCampusRow, is_cancelled: bool = False) -> str:
 @dataclass
 class SyncResult:
     total_rows: int = 0
-    error_rows: list[dict] = field(default_factory=list)
+    error_rows: list[dict[str, Any]] = field(default_factory=list)
     created: int = 0
     updated: int = 0
     cancelled: int = 0
     unchanged: int = 0
-    changes: list[dict] = field(default_factory=list)
+    changes: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def apply_campus_rows(db: AsyncSession, rows: list[ParsedCampusRow], source: str) -> SyncResult:
@@ -640,8 +650,11 @@ async def apply_campus_rows(db: AsyncSession, rows: list[ParsedCampusRow], sourc
         return result
 
     incoming_by_key = {_row_key(r, source): r for r in valid_rows}
-    min_date = min(r.class_date for r in valid_rows)
-    max_date = max(r.class_date for r in valid_rows)
+    # valid_rows is error-free, so class_date is always set (see
+    # _rows_from_dicts) -- the "is not None" filters just narrow the type
+    # for min()/max() below without changing which rows are considered.
+    min_date = min(r.class_date for r in valid_rows if r.class_date is not None)
+    max_date = max(r.class_date for r in valid_rows if r.class_date is not None)
 
     existing = (await db.execute(
         select(CampusTimetableEntry).where(
@@ -653,6 +666,10 @@ async def apply_campus_rows(db: AsyncSession, rows: list[ParsedCampusRow], sourc
     existing_by_key = {e.row_key: e for e in existing}
 
     for key, row in incoming_by_key.items():
+        # Same guarantee as above -- these are always set on an error-free row.
+        assert row.class_date is not None
+        assert row.start_time is not None
+        assert row.end_time is not None
         new_hash = _row_hash(row)
         existing_entry = existing_by_key.get(key)
         if existing_entry is None:
@@ -706,7 +723,7 @@ async def apply_campus_rows(db: AsyncSession, rows: list[ParsedCampusRow], sourc
     return result
 
 
-async def _notify_affected_students(db: AsyncSession, changes: list[dict]) -> None:
+async def _notify_affected_students(db: AsyncSession, changes: list[dict[str, Any]]) -> None:
     """In-app + email notification for every student whose profile.section
     (and school, if set) matches a changed row — real, working delivery
     through this app's own notification/email infrastructure, independent
@@ -715,7 +732,7 @@ async def _notify_affected_students(db: AsyncSession, changes: list[dict]) -> No
     reach anyone today). Never allowed to fail the sync that triggered it,
     same contract as emit_event."""
     try:
-        by_group: dict[tuple[str | None, str], list[dict]] = {}
+        by_group: dict[tuple[str | None, str], list[dict[str, Any]]] = {}
         for c in changes:
             by_group.setdefault((c.get("school"), c["section"]), []).append(c)
 

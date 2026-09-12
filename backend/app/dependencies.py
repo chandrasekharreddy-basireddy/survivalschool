@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
+from typing import cast
 
 import jwt
 from fastapi import Depends, Header, Request
@@ -62,7 +64,7 @@ async def get_current_user(
 async def get_current_session_id(request: Request, user: User = Depends(get_current_user)) -> uuid.UUID:
     """The session row backing the bearer token used for this request — set
     by get_current_user, whose Depends() above guarantees it already ran."""
-    return request.state.session_id
+    return cast(uuid.UUID, request.state.session_id)
 
 
 async def get_current_verified_user(user: User = Depends(get_current_user)) -> User:
@@ -89,7 +91,7 @@ async def get_current_user_optional(
         return None
 
 
-def require_permission(*permission_codes: str):
+def require_permission(*permission_codes: str) -> Callable[..., Awaitable[User]]:
     """Backend-enforced authorization. Every protected endpoint declares the
     permission(s) it needs; the frontend hiding a button is never sufficient
     (spec section 9)."""
@@ -106,7 +108,7 @@ def require_permission(*permission_codes: str):
     return _dependency
 
 
-def require_role(*role_names: str):
+def require_role(*role_names: str) -> Callable[..., Awaitable[User]]:
     async def _dependency(user: User = Depends(get_current_user)) -> User:
         if user.has_role("SUPER_ADMIN"):
             return user

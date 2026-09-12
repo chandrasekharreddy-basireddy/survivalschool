@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,7 @@ async def track_event(
     user_id: uuid.UUID | None = None,
     session_id: str | None = None,
     source: str = "web",
-    metadata: dict | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """Fire-and-forget-ish event capture into the append-only analytics stream
     that feeds the Power BI dataset (spec sections 23-24). Deliberately never

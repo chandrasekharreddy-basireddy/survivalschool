@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +28,7 @@ from app.services.daily_challenge_service import (
 router = APIRouter(prefix="/daily-challenge", tags=["daily-challenge"])
 
 
-async def _current_streak_days(db: AsyncSession, student_id) -> int:
+async def _current_streak_days(db: AsyncSession, student_id: uuid.UUID) -> int:
     streak = (await db.execute(select(Streak).where(Streak.student_id == student_id))).scalar_one_or_none()
     return streak.current_streak_days if streak else 0
 
@@ -41,7 +43,7 @@ async def _build_out(db: AsyncSession, user: User, challenge: DailyChallenge) ->
         my_attempt = DailyChallengeAttemptOut(
             is_correct=attempt.is_correct,
             points_awarded=attempt.points_awarded,
-            selected_option_ids=list(attempt.selected_option_ids),
+            selected_option_ids=[uuid.UUID(oid) for oid in attempt.selected_option_ids],
             correct_option_ids=correct_option_ids,
         )
 
@@ -56,7 +58,7 @@ async def _build_out(db: AsyncSession, user: User, challenge: DailyChallenge) ->
 
 
 @router.get("/today", response_model=DailyChallengeOut)
-async def get_todays_challenge(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def get_todays_challenge(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> DailyChallengeOut:
     challenge = await get_or_create_todays_challenge(db)
     await db.commit()
     out = await _build_out(db, user, challenge)
@@ -68,7 +70,7 @@ async def submit_todays_challenge(
     payload: DailyChallengeSubmit,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> DailyChallengeOut:
     challenge = await get_or_create_todays_challenge(db)
     await submit_attempt(db, user=user, challenge=challenge, selected_option_ids=payload.selected_option_ids)
     await db.commit()
@@ -80,7 +82,7 @@ async def my_challenge_history(
     limit: int = Query(30, le=100),
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[DailyChallengeHistoryEntryOut]:
     rows = (
         await db.execute(
             select(DailyChallenge.challenge_date, DailyChallengeAttempt.is_correct, DailyChallengeAttempt.points_awarded, DailyChallengeAttempt.created_at)

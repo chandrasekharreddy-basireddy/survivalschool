@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/contests/ai-weekly", tags=["contests"])
 
 
 @router.get("/registration-status")
-async def ai_weekly_registration_status(db: AsyncSession = Depends(get_db)):
+async def ai_weekly_registration_status(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """Whether registration for the AI Weekly Exam is currently open.
     Unrelated to account signup, which is open every day."""
     window = await refresh_window(db)

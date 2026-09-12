@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from typing import Any
 
 import structlog
 from pywebpush import WebPushException, webpush
@@ -76,7 +77,7 @@ async def remove_subscription(db: AsyncSession, *, user_id: uuid.UUID, endpoint:
     return True
 
 
-def _send_one(subscription: PushSubscription, payload: dict) -> bool:
+def _send_one(subscription: PushSubscription, payload: dict[str, Any]) -> bool:
     """Synchronous — pywebpush uses the `requests` library under the hood, no
     async client exists upstream, so callers run this via a thread (see
     send_to_user below). Returns True on success, False on a dead

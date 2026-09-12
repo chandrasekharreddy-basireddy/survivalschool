@@ -41,7 +41,7 @@ async def bookmark_question(
     payload: BookmarkCreate,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> BookmarkOut:
     question = await db.get(Question, question_id)
     if question is None:
         raise NotFoundError("Question not found.")
@@ -73,7 +73,7 @@ async def remove_bookmark(
     question_id: uuid.UUID,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     existing = (await db.execute(
         select(QuestionBookmark).where(QuestionBookmark.student_id == user.id, QuestionBookmark.question_id == question_id)
     )).scalar_one_or_none()
@@ -84,7 +84,7 @@ async def remove_bookmark(
 
 
 @router.get("/practice/bookmarks", response_model=list[BookmarkOut])
-async def list_bookmarks(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def list_bookmarks(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> list[BookmarkOut]:
     rows = (await db.execute(
         select(QuestionBookmark).where(QuestionBookmark.student_id == user.id).order_by(QuestionBookmark.created_at.desc())
     )).scalars().all()
@@ -127,11 +127,11 @@ async def _mistake_question_ids(db: AsyncSession, student_id: uuid.UUID) -> list
     # single wrong answer, not a large history to page through).
     from app.models.elimination import EliminationRound
     elim_round_ids = [round_id for round_id, _ in elimination_rows]
-    elim_question_by_round = {}
+    elim_question_by_round: dict[uuid.UUID, uuid.UUID] = {}
     if elim_round_ids:
         elim_question_by_round = dict((await db.execute(
             select(EliminationRound.id, EliminationRound.question_id).where(EliminationRound.id.in_(elim_round_ids))
-        )).all())
+        )).tuples().all())
 
     by_id: dict[uuid.UUID, datetime] = {}
     for qid, created_at in contest_rows:
@@ -149,7 +149,7 @@ async def start_practice_session(
     payload: PracticeStartRequest,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> PracticeSessionStartOut:
     if payload.source == "bookmarks":
         question_ids = list((await db.execute(
             select(QuestionBookmark.question_id).where(QuestionBookmark.student_id == user.id)
@@ -184,7 +184,7 @@ async def get_practice_session_questions(
     session_id: uuid.UUID,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[PracticeQuestionOut]:
     session = await db.get(PracticeSession, session_id)
     if session is None or session.student_id != user.id:
         raise NotFoundError("Practice session not found.")
@@ -201,7 +201,7 @@ async def submit_practice_session(
     payload: PracticeSubmit,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> PracticeResultOut:
     session = await db.get(PracticeSession, session_id)
     if session is None or session.student_id != user.id:
         raise NotFoundError("Practice session not found.")
@@ -288,7 +288,7 @@ async def get_practice_session(
     session_id: uuid.UUID,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> PracticeResultOut:
     session = await db.get(PracticeSession, session_id)
     if session is None or session.student_id != user.id:
         raise NotFoundError("Practice session not found.")
@@ -298,7 +298,7 @@ async def get_practice_session(
 
 
 @router.get("/practice/me/sessions", response_model=list[PracticeSessionHistoryOut])
-async def my_practice_sessions(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def my_practice_sessions(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> list[PracticeSessionHistoryOut]:
     rows = (await db.execute(
         select(PracticeSession).where(PracticeSession.student_id == user.id).order_by(PracticeSession.started_at.desc())
     )).scalars().all()

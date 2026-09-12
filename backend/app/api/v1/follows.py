@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
@@ -37,7 +38,7 @@ async def _to_out(db: AsyncSession, req: FollowRequest) -> FollowRequestOut:
     return (await _to_out_many(db, [req]))[0]
 
 
-async def _to_out_many(db: AsyncSession, reqs: list[FollowRequest]) -> list[FollowRequestOut]:
+async def _to_out_many(db: AsyncSession, reqs: Sequence[FollowRequest]) -> list[FollowRequestOut]:
     """Same shape as _to_out, batched — _to_out itself does 4 queries per
     row (2x db.get(User) + 2x _handle_for's Profile lookup), which is fine
     for the single-row accept/decline responses but was also being used to
@@ -109,7 +110,7 @@ async def send_follow_request(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> FollowRequestOut:
     await enforce_rate_limit(f"follow-request:{user.id}", limit=settings.RATE_LIMIT_FOLLOW_REQUEST_PER_HOUR, window_seconds=3600)
     if payload.target_id == user.id:
         raise ValidationAppError("You can't follow yourself.")
@@ -157,7 +158,7 @@ async def send_follow_request(
 
 
 @router.get("/requests/incoming", response_model=list[FollowRequestOut])
-async def list_incoming_requests(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_incoming_requests(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[FollowRequestOut]:
     rows = (await db.execute(
         select(FollowRequest).where(FollowRequest.target_id == user.id, FollowRequest.status == "pending")
         .order_by(FollowRequest.created_at.desc())
@@ -166,7 +167,7 @@ async def list_incoming_requests(user: User = Depends(get_current_user), db: Asy
 
 
 @router.get("/requests/outgoing", response_model=list[FollowRequestOut])
-async def list_outgoing_requests(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_outgoing_requests(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[FollowRequestOut]:
     rows = (await db.execute(
         select(FollowRequest).where(FollowRequest.requester_id == user.id, FollowRequest.status == "pending")
         .order_by(FollowRequest.created_at.desc())
@@ -180,7 +181,7 @@ async def accept_follow_request(
     background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> FollowRequestOut:
     req = await db.get(FollowRequest, request_id)
     if req is None or req.target_id != user.id:
         raise NotFoundError("Follow request not found.")
@@ -200,7 +201,7 @@ async def decline_follow_request(
     request_id: uuid.UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> FollowRequestOut:
     req = await db.get(FollowRequest, request_id)
     if req is None or req.target_id != user.id:
         raise NotFoundError("Follow request not found.")
@@ -218,7 +219,7 @@ async def cancel_follow_request(
     request_id: uuid.UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     req = await db.get(FollowRequest, request_id)
     if req is None or req.requester_id != user.id:
         raise NotFoundError("Follow request not found.")
@@ -228,7 +229,7 @@ async def cancel_follow_request(
 
 
 @router.get("/connections", response_model=list[ConnectionOut])
-async def list_connections(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_connections(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[ConnectionOut]:
     # Deliberately not has_accepted_connection() here: that helper answers
     # "is this one specific pair connected?" — this endpoint needs to
     # enumerate every accepted row for the current user, a different query
@@ -260,7 +261,7 @@ async def remove_connection(
     user_id: uuid.UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     # Deliberately not has_accepted_connection() here: that helper only
     # returns a bool, and this endpoint needs the actual row to delete.
     row = (await db.execute(
@@ -285,7 +286,7 @@ async def search_people(
     limit: int = Query(20, le=50),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[PersonSearchResultOut]:
     """Authenticated-only (not public) — deliberately returns name/handle/
     avatar, never email, to keep this from being a plain account-lookup-by-
     email tool for anyone who signs up. Matches on the unique @handle as

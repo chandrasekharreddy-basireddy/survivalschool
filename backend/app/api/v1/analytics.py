@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,12 +21,12 @@ _ALLOWED_CLIENT_EVENTS = {"page_view", "ai_interaction", "chat_activity", "searc
 
 class ClientEvent(BaseModel):
     event_type: str
-    metadata: dict = {}
+    metadata: dict[str, Any] = {}
     session_id: str | None = None
 
 
 @router.post("/events", status_code=202)
-async def track_client_event(payload: ClientEvent, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def track_client_event(payload: ClientEvent, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict[str, bool]:
     if payload.event_type not in _ALLOWED_CLIENT_EVENTS:
         return {"accepted": False}
     await track_event(db, event_type=payload.event_type, user_id=user.id, session_id=payload.session_id, metadata=payload.metadata)

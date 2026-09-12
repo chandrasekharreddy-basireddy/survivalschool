@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
@@ -12,7 +14,7 @@ settings = get_settings()
 
 
 @router.get("/health")
-async def health():
+async def health() -> dict[str, Any]:
     """Liveness-ish general health summary."""
     db_ok = await check_db_health()
     redis_ok = await check_redis_health()
@@ -36,13 +38,13 @@ async def health():
 
 
 @router.get("/live")
-async def live():
+async def live() -> dict[str, str]:
     """Kubernetes liveness probe — process is up. No dependency checks."""
     return {"status": "alive"}
 
 
 @router.get("/ready")
-async def ready():
+async def ready() -> JSONResponse | dict[str, Any]:
     """Kubernetes readiness probe — can this instance serve traffic right now."""
     db_ok = await check_db_health()
     if not db_ok:

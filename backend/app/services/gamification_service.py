@@ -4,7 +4,8 @@ and validated server-side.")."""
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -35,7 +36,7 @@ async def get_total_points(db: AsyncSession, student_id: uuid.UUID) -> int:
     return int(result.scalar_one())
 
 
-def _apply_todays_activity(streak: Streak, today) -> None:
+def _apply_todays_activity(streak: Streak, today: date) -> None:
     last_date = streak.last_activity_date.date() if streak.last_activity_date else None
     if last_date == today:
         return
@@ -88,7 +89,7 @@ async def record_daily_activity(db: AsyncSession, student_id: uuid.UUID) -> Stre
         return streak
 
 
-async def evaluate_and_award_badges(db: AsyncSession, student_id: uuid.UUID, event: str, context: dict) -> list[Badge]:
+async def evaluate_and_award_badges(db: AsyncSession, student_id: uuid.UUID, event: str, context: dict[str, Any]) -> list[Badge]:
     """Very small, explicit rule engine — deliberately not a generic DSL, so every
     rule is auditable code, not opaque config."""
     awarded: list[Badge] = []

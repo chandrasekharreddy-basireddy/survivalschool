@@ -17,6 +17,7 @@ already stranded by the previous implementation heal themselves on next use.
 from __future__ import annotations
 
 import structlog
+from redis.commands.core import AsyncScript
 
 from app.core.exceptions import RateLimitedError
 from app.redis_client import get_redis
@@ -32,10 +33,10 @@ end
 return current
 """
 
-_script = None
+_script: AsyncScript | None = None
 
 
-def _get_script():
+def _get_script() -> AsyncScript:
     """Register the Lua script once per process (uses EVALSHA after first run)."""
     global _script
     if _script is None:

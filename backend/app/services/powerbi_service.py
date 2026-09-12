@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, date, datetime, timedelta
+from typing import Any, cast
 
 import httpx
 import structlog
@@ -64,7 +65,7 @@ TABLE_SCHEMA = {
 # little before expiry. Fine for a low-frequency (daily) sync job; a
 # multi-replica deployment just means each replica gets its own token,
 # which Azure AD is fine with (it's not a per-instance secret).
-_token_cache: dict = {"access_token": None, "expires_at": 0.0}
+_token_cache: dict[str, Any] = {"access_token": None, "expires_at": 0.0}
 
 # Dataset existence is checked/created once per process lifetime, not on
 # every push — Power BI's "create if not exists" is not idempotent (it
@@ -86,7 +87,7 @@ async def _get_access_token() -> str:
     the token in-process and refreshes 60s before actual expiry."""
     now = time.time()
     if _token_cache["access_token"] and now < _token_cache["expires_at"] - 60:
-        return _token_cache["access_token"]
+        return cast(str, _token_cache["access_token"])
 
     url = AAD_TOKEN_URL_TMPL.format(tenant=settings.POWERBI_TENANT_ID)
     data = {
@@ -104,14 +105,14 @@ async def _get_access_token() -> str:
         raise ServiceUnavailableError("Power BI authentication failed.", code="powerbi_auth_failed") from exc
 
     body = resp.json()
-    token = body["access_token"]
+    token = cast(str, body["access_token"])
     expires_in = int(body.get("expires_in", 3600))
     _token_cache["access_token"] = token
     _token_cache["expires_at"] = now + expires_in
     return token
 
 
-async def _pbi_request(method: str, path: str, *, json: dict | None = None) -> httpx.Response:
+async def _pbi_request(method: str, path: str, *, json: dict[str, Any] | None = None) -> httpx.Response:
     token = await _get_access_token()
     url = f"{POWERBI_API_BASE}{path}"
     try:
@@ -140,7 +141,7 @@ async def ensure_dataset() -> str:
     for ds in existing:
         if ds.get("name") == DATASET_NAME:
             _dataset_ensured = True
-            return ds["id"]
+            return cast(str, ds["id"])
 
     create_resp = await _pbi_request(
         "POST",
@@ -151,13 +152,13 @@ async def ensure_dataset() -> str:
             "tables": [TABLE_SCHEMA],
         },
     )
-    dataset_id = create_resp.json()["id"]
+    dataset_id = cast(str, create_resp.json()["id"])
     logger.info("powerbi_dataset_created", dataset_id=dataset_id)
     _dataset_ensured = True
     return dataset_id
 
 
-async def push_rows(dataset_id: str, rows: list[dict]) -> None:
+async def push_rows(dataset_id: str, rows: list[dict[str, Any]]) -> None:
     """POSTs rows into the push dataset's table. Power BI's push-dataset API
     caps a single POST at 10,000 rows / 15MB — nowhere near our daily-row
     volume, so no batching is needed here."""
@@ -171,7 +172,7 @@ async def push_rows(dataset_id: str, rows: list[dict]) -> None:
     )
 
 
-async def compute_daily_engagement(db: AsyncSession, *, day: date) -> dict:
+async def compute_daily_engagement(db: AsyncSession, *, day: date) -> dict[str, Any]:
     """Aggregates one calendar day (UTC) of platform activity into the row
     shape pushed to Power BI. Pure aggregation — no PII, no per-student rows.
     """
@@ -250,7 +251,7 @@ async def compute_daily_engagement(db: AsyncSession, *, day: date) -> dict:
     }
 
 
-async def sync_daily_engagement(db: AsyncSession, *, day: date | None = None) -> dict:
+async def sync_daily_engagement(db: AsyncSession, *, day: date | None = None) -> dict[str, Any]:
     """Full sync entry point: computes yesterday's (or the given day's)
     aggregate engagement row and pushes it to the Power BI push dataset,
     creating the dataset/table if this is the first run.

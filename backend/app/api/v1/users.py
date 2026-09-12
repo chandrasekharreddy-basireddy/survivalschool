@@ -36,7 +36,7 @@ class ProfileUpdate(BaseModel):
 
 
 @router.get("/me", response_model=UserOut)
-async def get_me(user: User = Depends(get_current_user)):
+async def get_me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut(
         id=user.id,
         email=user.email,
@@ -52,7 +52,7 @@ async def update_me(
     body: ProfileUpdate,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> UserOut:
     if body.full_name is not None:
         user.full_name = body.full_name
     if body.phone is not None:
@@ -121,7 +121,7 @@ async def _get_or_create_profile(db: AsyncSession, user: User) -> Profile:
 
 
 @router.get("/me/profile", response_model=ProfileOut)
-async def get_my_profile(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_my_profile(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> Profile:
     """The caller's profile, created on first read so settings pages always
     have a row to edit."""
     return await _get_or_create_profile(db, user)
@@ -132,7 +132,7 @@ async def update_my_profile(
     body: ProfilePatch,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Profile:
     profile = await _get_or_create_profile(db, user)
     if body.public_handle is not None:
         await set_profile_handle(db, profile, body.public_handle)
@@ -182,7 +182,7 @@ async def list_users(
     offset: int = Query(0, ge=0),
     admin: User = Depends(require_permission("users.read")),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[UserOut]:
     return await search_users(db, q, limit, offset)
 
 
@@ -191,7 +191,7 @@ async def get_user(
     user_id: uuid.UUID,
     admin: User = Depends(require_permission("users.read")),
     db: AsyncSession = Depends(get_db),
-):
+) -> UserOut:
     user = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
     if user is None:
         raise NotFoundError("User not found.")
@@ -207,7 +207,7 @@ async def assign_role(
     user_id: uuid.UUID, role_name: str,
     admin_user: User = Depends(require_permission("users.update")),
     db: AsyncSession = Depends(get_db),
-):
+) -> UserOut:
     from app.services.audit_service import record_audit_event
 
     target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
@@ -235,7 +235,7 @@ async def remove_role(
     user_id: uuid.UUID, role_name: str,
     admin_user: User = Depends(require_permission("users.update")),
     db: AsyncSession = Depends(get_db),
-):
+) -> UserOut:
     from app.services.audit_service import record_audit_event
 
     target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
@@ -269,7 +269,7 @@ async def delete_my_account(
     payload: DeleteAccountRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     """Permanently delete the caller's account and all associated data (GDPR
     erasure). Requires the current password and a typed "DELETE" confirmation.
     Deletion cascades to sessions and refresh tokens, so the access token used
@@ -291,7 +291,7 @@ async def delete_my_account(
 async def export_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Response:
     data = await export_user_data(db, user)
     # A full personal-data export is itself a sensitive action worth a
     # record — e.g. if the account is later compromised, "was a data

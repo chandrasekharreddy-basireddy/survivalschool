@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +11,7 @@ from app.models.system import AuditLog
 _FORBIDDEN_KEYS = {"password", "password_hash", "token", "refresh_token", "access_token", "secret"}
 
 
-def _sanitize(metadata: dict) -> dict:
+def _sanitize(metadata: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in metadata.items() if k.lower() not in _FORBIDDEN_KEYS}
 
 
@@ -24,7 +25,7 @@ async def record_audit_event(
     result: str = "success",
     ip_address: str | None = None,
     request_id: str | None = None,
-    metadata: dict | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     entry = AuditLog(
         actor_id=actor_id,

@@ -3,6 +3,7 @@ Exam registration flow depends on (see ai_exam_service.py)."""
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -38,13 +39,13 @@ async def _get_or_create_university(db: AsyncSession) -> University:
 
 
 @router.get("/subjects", response_model=list[SubjectOut])
-async def list_subjects(db: AsyncSession = Depends(get_db)):
+async def list_subjects(db: AsyncSession = Depends(get_db)) -> Sequence[Subject]:
     rows = (await db.execute(select(Subject).where(Subject.is_active.is_(True)).order_by(Subject.name))).scalars().all()
     return rows
 
 
 @router.post("/subjects", response_model=SubjectOut, status_code=201)
-async def create_subject(payload: SubjectCreate, user: User = Depends(require_permission("system.manage")), db: AsyncSession = Depends(get_db)):
+async def create_subject(payload: SubjectCreate, user: User = Depends(require_permission("system.manage")), db: AsyncSession = Depends(get_db)) -> Subject:
     university = await _get_or_create_university(db)
     subject = Subject(university_id=university.id, name=payload.name, slug=payload.slug, description=payload.description)
     db.add(subject)
@@ -54,7 +55,7 @@ async def create_subject(payload: SubjectCreate, user: User = Depends(require_pe
 
 
 @router.get("/subjects/{subject_id}/topics", response_model=list[TopicOut])
-async def list_topics(subject_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def list_topics(subject_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Sequence[Topic]:
     rows = (await db.execute(
         select(Topic).where(Topic.subject_id == subject_id, Topic.is_active.is_(True)).order_by(Topic.name)
     )).scalars().all()
@@ -62,7 +63,7 @@ async def list_topics(subject_id: uuid.UUID, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/subjects/{subject_id}/topics", response_model=TopicOut, status_code=201)
-async def create_topic(subject_id: uuid.UUID, payload: TopicCreate, user: User = Depends(require_permission("system.manage")), db: AsyncSession = Depends(get_db)):
+async def create_topic(subject_id: uuid.UUID, payload: TopicCreate, user: User = Depends(require_permission("system.manage")), db: AsyncSession = Depends(get_db)) -> Topic:
     subject = await db.get(Subject, subject_id)
     if subject is None:
         raise NotFoundError("Subject not found.")
@@ -74,7 +75,7 @@ async def create_topic(subject_id: uuid.UUID, payload: TopicCreate, user: User =
 
 
 @router.get("/topics/{topic_id}/difficulty", response_model=TopicDifficultyOut)
-async def topic_difficulty(topic_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def topic_difficulty(topic_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> TopicDifficultyOut:
     topic = await db.get(Topic, topic_id)
     if topic is None:
         raise NotFoundError("Topic not found.")

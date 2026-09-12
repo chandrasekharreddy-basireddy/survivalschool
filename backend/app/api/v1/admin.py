@@ -4,10 +4,11 @@ import hmac
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import CursorResult, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -60,7 +61,7 @@ class SystemHealthOut(BaseModel):
 
 
 @router.get("/dashboard", response_model=AdminDashboardOut)
-async def admin_dashboard(user: User = Depends(require_permission("analytics.view")), db: AsyncSession = Depends(get_db)):
+async def admin_dashboard(user: User = Depends(require_permission("analytics.view")), db: AsyncSession = Depends(get_db)) -> AdminDashboardOut:
     now = datetime.now(UTC)
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
@@ -90,7 +91,7 @@ async def audit_logs(
     until: datetime | None = Query(None, description="ISO 8601 — only logs at/before this time"),
     user: User = Depends(require_permission("system.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[AuditLogOut]:
     stmt = select(AuditLog)
     if actor_id is not None:
         stmt = stmt.where(AuditLog.actor_id == actor_id)
@@ -118,7 +119,7 @@ _SYSTEM_HEALTH_CACHE_TTL = 3
 
 
 @router.get("/system-health", response_model=SystemHealthOut)
-async def system_health(user: User = Depends(require_permission("system.manage"))):
+async def system_health(user: User = Depends(require_permission("system.manage"))) -> SystemHealthOut:
     # Each call does a real DB round trip plus a real Redis PING — fine for
     # one admin loading the dashboard, but several admins hitting it around
     # the same moment (e.g. everyone checking in at the start of an exam
@@ -155,7 +156,7 @@ async def admin_list_users(
     offset: int = Query(0, ge=0),
     user: User = Depends(require_permission("users.read")),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[UserOut]:
     """Same query as GET /users (see search_users) — kept here too under
     /admin because that's where the admin frontend expects it."""
     return await search_users(db, q, limit, offset)
@@ -166,7 +167,7 @@ async def deactivate_user(
     user_id: uuid.UUID,
     admin: User = Depends(require_permission("users.update")),
     db: AsyncSession = Depends(get_db),
-):
+) -> UserOut:
     target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
     if target is None:
         raise NotFoundError("User not found.")
@@ -183,7 +184,7 @@ async def activate_user(
     user_id: uuid.UUID,
     admin: User = Depends(require_permission("users.update")),
     db: AsyncSession = Depends(get_db),
-):
+) -> UserOut:
     target = (await db.execute(select(User).where(User.id == user_id).options(selectinload(User.roles)))).scalar_one_or_none()
     if target is None:
         raise NotFoundError("User not found.")
@@ -205,7 +206,7 @@ class PowerBISyncOut(BaseModel):
 async def trigger_powerbi_sync(
     admin: User = Depends(require_permission("analytics.view")),
     db: AsyncSession = Depends(get_db),
-):
+) -> PowerBISyncOut:
     """Manual on-demand trigger for the daily Power BI aggregate-analytics
     push (same code path as the worker's scheduled job — see
     app/workers/worker.py::run_powerbi_sync) so an admin can test/verify the
@@ -230,7 +231,7 @@ class MaintenanceResetOut(BaseModel):
 async def maintenance_reset_accounts(
     db: AsyncSession = Depends(get_db),
     x_maintenance_secret: str | None = Header(default=None),
-):
+) -> MaintenanceResetOut:
     """Destructive, explicitly-gated maintenance escape hatch: deletes every
     user account and everything that owns a hard reference to one (sessions,
     tokens, enrollments, submissions, etc. — every FK declared CASCADE),
@@ -264,7 +265,11 @@ async def maintenance_reset_accounts(
     if not x_maintenance_secret or not hmac.compare_digest(x_maintenance_secret, settings.MAINTENANCE_SECRET):
         raise NotFoundError("Not found.")
 
-    result = await db.execute(text("DELETE FROM users"))
+    # A raw textual DELETE always executes through the DBAPI cursor, so this
+    # is really a CursorResult (which carries .rowcount) at runtime -- the
+    # generic AsyncSession.execute() signature just types it as the common
+    # base Result[Any], which doesn't.
+    result = cast("CursorResult[Any]", await db.execute(text("DELETE FROM users")))
     # No actor_id — this bypasses normal auth entirely (see docstring), so
     # there is no user to attribute the action to. Still worth a row: the
     # request itself (and that the secret check passed) is the fact worth
@@ -295,7 +300,7 @@ async def list_instructor_applications(
     status_filter: str = Query(default="pending", alias="status", pattern="^(pending|approved|rejected|all)$"),
     admin: User = Depends(require_permission("users.update")),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[InstructorApplicationOut]:
     query = select(InstructorApplication).options(selectinload(InstructorApplication.user)).order_by(
         InstructorApplication.created_at.desc()
     )
@@ -311,7 +316,7 @@ async def approve_instructor_application(
     payload: InstructorApplicationReview,
     admin: User = Depends(require_permission("users.update")),
     db: AsyncSession = Depends(get_db),
-):
+) -> InstructorApplicationOut:
     """Approving grants INSTRUCTOR through the same path as
     POST /users/{id}/roles/{role} — this endpoint never appends the role
     itself without going through that audited, reviewed transition."""
@@ -357,7 +362,7 @@ async def reject_instructor_application(
     payload: InstructorApplicationReview,
     admin: User = Depends(require_permission("users.update")),
     db: AsyncSession = Depends(get_db),
-):
+) -> InstructorApplicationOut:
     application = (await db.execute(
         select(InstructorApplication)
         .where(InstructorApplication.id == application_id)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import uuid
+from collections.abc import Sequence
 
 import qrcode
 from fastapi import APIRouter, Depends, Request
@@ -74,20 +75,20 @@ async def _handle_for(db: AsyncSession, user_id: uuid.UUID) -> str | None:
 
 
 @router.post("/battles", response_model=BattleOut, status_code=201)
-async def create_elimination_battle(payload: BattleCreate, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def create_elimination_battle(payload: BattleCreate, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> EliminationBattle:
     battle = await create_battle(db, user, payload.title, payload.subject_name, payload.topic_name, payload.scheduled_start_at, get_client_ip(request))
     return battle
 
 
 @router.post("/battles/join", response_model=BattleOut, status_code=201)
-async def join_elimination_battle_by_code(payload: JoinByCodeIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def join_elimination_battle_by_code(payload: JoinByCodeIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> EliminationBattle:
     """The Free Fire-style room-code join — no invitation or connection
     required, unlike POST /battles/{id}/invite."""
     return await join_battle_by_code(db, user, payload.code, get_client_ip(request))
 
 
 @router.get("/battles/{battle_id}/qr", response_class=Response)
-async def elimination_battle_join_qr(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def elimination_battle_join_qr(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> Response:
     battle = await db.get(EliminationBattle, battle_id)
     if battle is None:
         raise NotFoundError("Battle not found.")
@@ -100,7 +101,7 @@ async def elimination_battle_join_qr(battle_id: uuid.UUID, user: User = Depends(
 
 
 @router.get("/battles/me", response_model=list[BattleOut])
-async def my_elimination_battles(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def my_elimination_battles(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> Sequence[EliminationBattle]:
     rows = (await db.execute(
         select(EliminationBattle)
         .join(EliminationParticipant, EliminationParticipant.battle_id == EliminationBattle.id)
@@ -112,7 +113,7 @@ async def my_elimination_battles(user: User = Depends(get_current_verified_user)
 
 
 @router.get("/battles/{battle_id}", response_model=BattleOut)
-async def get_elimination_battle(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def get_elimination_battle(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> EliminationBattle:
     battle = await db.get(EliminationBattle, battle_id)
     if battle is None:
         raise NotFoundError("Battle not found.")
@@ -121,7 +122,7 @@ async def get_elimination_battle(battle_id: uuid.UUID, user: User = Depends(get_
 
 
 @router.get("/battles/{battle_id}/participants", response_model=list[ParticipantOut])
-async def list_battle_participants(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def list_battle_participants(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> list[ParticipantOut]:
     battle = await db.get(EliminationBattle, battle_id)
     if battle is None:
         raise NotFoundError("Battle not found.")
@@ -139,7 +140,7 @@ async def list_battle_participants(battle_id: uuid.UUID, user: User = Depends(ge
 
 
 @router.get("/battles/{battle_id}/round", response_model=CurrentRoundOut | None)
-async def get_current_round(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def get_current_round(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> CurrentRoundOut | None:
     """REST fallback for the active round — the websocket only ever
     broadcasts battle.round_released once, at the moment it happens; a
     client that connects afterward (a page refresh mid-round, a dropped
@@ -185,7 +186,7 @@ async def get_current_round(battle_id: uuid.UUID, user: User = Depends(get_curre
 
 
 @router.post("/battles/{battle_id}/invite", response_model=InvitationOut, status_code=201)
-async def invite_to_elimination_battle(battle_id: uuid.UUID, payload: InviteCreate, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def invite_to_elimination_battle(battle_id: uuid.UUID, payload: InviteCreate, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> InvitationOut:
     battle = await db.get(EliminationBattle, battle_id)
     if battle is None:
         raise NotFoundError("Battle not found.")
@@ -198,7 +199,7 @@ async def invite_to_elimination_battle(battle_id: uuid.UUID, payload: InviteCrea
 
 
 @router.get("/invitations/incoming", response_model=list[InvitationOut])
-async def list_incoming_invitations(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def list_incoming_invitations(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> list[InvitationOut]:
     rows = (await db.execute(
         select(EliminationInvitation, EliminationBattle.title, User.full_name, Profile.public_handle)
         .join(EliminationBattle, EliminationBattle.id == EliminationInvitation.battle_id)
@@ -214,7 +215,7 @@ async def list_incoming_invitations(user: User = Depends(get_current_verified_us
 
 
 @router.post("/invitations/{invitation_id}/accept", response_model=InvitationOut)
-async def accept_invitation(invitation_id: uuid.UUID, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def accept_invitation(invitation_id: uuid.UUID, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> InvitationOut:
     invitation = await db.get(EliminationInvitation, invitation_id)
     if invitation is None:
         raise NotFoundError("Invitation not found.")
@@ -225,7 +226,7 @@ async def accept_invitation(invitation_id: uuid.UUID, request: Request, user: Us
 
 
 @router.post("/invitations/{invitation_id}/decline", response_model=InvitationOut)
-async def decline_invitation(invitation_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def decline_invitation(invitation_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> InvitationOut:
     invitation = await db.get(EliminationInvitation, invitation_id)
     if invitation is None:
         raise NotFoundError("Invitation not found.")
@@ -236,7 +237,7 @@ async def decline_invitation(invitation_id: uuid.UUID, user: User = Depends(get_
 
 
 @router.post("/battles/{battle_id}/start", response_model=BattleOut)
-async def start_elimination_battle(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def start_elimination_battle(battle_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> EliminationBattle:
     battle = await db.get(EliminationBattle, battle_id)
     if battle is None:
         raise NotFoundError("Battle not found.")
@@ -245,12 +246,12 @@ async def start_elimination_battle(battle_id: uuid.UUID, user: User = Depends(ge
 
 
 @router.post("/battles/{battle_id}/answer", response_model=SubmitAnswerOut)
-async def submit_battle_answer(battle_id: uuid.UUID, payload: SubmitAnswerIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def submit_battle_answer(battle_id: uuid.UUID, payload: SubmitAnswerIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> SubmitAnswerOut:
     result = await submit_answer(db, battle_id, user, payload.selected_option_ids, get_client_ip(request))
     return SubmitAnswerOut(**result)
 
 
 @router.post("/battles/{battle_id}/integrity-violation", response_model=IntegrityViolationOut)
-async def report_battle_integrity_violation(battle_id: uuid.UUID, payload: IntegrityViolationIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def report_battle_integrity_violation(battle_id: uuid.UUID, payload: IntegrityViolationIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> IntegrityViolationOut:
     result = await report_integrity_violation(db, battle_id, user, payload.violation_type, get_client_ip(request))
     return IntegrityViolationOut(**result)

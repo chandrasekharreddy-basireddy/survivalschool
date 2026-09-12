@@ -49,7 +49,7 @@ async def _still_participant(session_id: uuid.UUID, battle_id: uuid.UUID, user_i
 
 
 @router.websocket("/ws/elimination/{battle_id}")
-async def elimination_socket(websocket: WebSocket, battle_id: uuid.UUID):
+async def elimination_socket(websocket: WebSocket, battle_id: uuid.UUID) -> None:
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=4401, reason="Missing auth token")

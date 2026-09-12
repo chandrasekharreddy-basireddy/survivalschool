@@ -90,8 +90,15 @@ class AIWeeklyWinsLeaderboardEntryOut(BaseModel):
 
 
 class ContestCertificateOut(BaseModel):
-    certificate_number: str
-    contest_id: uuid.UUID
+    # Both are non-null for every real certificate. certificate_number is
+    # None only in the "certificate not found" verification response
+    # (ContestCertificatePublicOut, below) and contest_id is None once a
+    # certificate's source contest has been deleted (the FK is ON DELETE
+    # SET NULL -- see ContestCertificate.contest_id) -- the certificate
+    # itself, and its snapshot of contest_title/rank/score, still stand on
+    # their own.
+    certificate_number: str | None
+    contest_id: uuid.UUID | None
     contest_title: str
     rank: int
     score_percent: int

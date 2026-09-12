@@ -11,6 +11,7 @@ import io
 from datetime import date, datetime, time
 
 import openpyxl
+from openpyxl.worksheet.worksheet import Worksheet
 
 from app.core.exceptions import ValidationAppError
 
@@ -95,7 +96,7 @@ def _parse_xlsx_raw(content: bytes) -> list[list[str]]:
     return _rows_of(ws)
 
 
-def _rows_of(ws) -> list[list[str]]:
+def _rows_of(ws: Worksheet) -> list[list[str]]:
     return [
         ["" if v is None else str(v).strip() for v in row]
         for row in ws.iter_rows(values_only=True)

@@ -45,6 +45,7 @@ import contextlib
 import random
 import secrets
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import structlog
@@ -451,7 +452,7 @@ async def release_round(db: AsyncSession, battle: EliminationBattle) -> Eliminat
     return round_
 
 
-async def _activate_battle(db: AsyncSession, battle: EliminationBattle, participants: list[EliminationParticipant]) -> None:
+async def _activate_battle(db: AsyncSession, battle: EliminationBattle, participants: Sequence[EliminationParticipant]) -> None:
     """The actual state transition, shared by a host manually starting the
     battle (start_battle, authorization-checked) and the sweep loop
     auto-starting a scheduled one (_sweep_once, no host in the loop at all
@@ -589,7 +590,7 @@ async def _verify_ip_or_eliminate(db: AsyncSession, battle_id: uuid.UUID, partic
     return True
 
 
-async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, selected_option_ids: list[uuid.UUID], ip_address: str | None = None) -> dict:
+async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, selected_option_ids: list[uuid.UUID], ip_address: str | None = None) -> dict[str, bool]:
     async with try_lock(_battle_lock_key(battle_id), ttl_seconds=10) as got_lock:
         if not got_lock:
             # Another worker is mid-resolve for this exact battle (e.g. the
@@ -659,7 +660,7 @@ async def submit_answer(db: AsyncSession, battle_id: uuid.UUID, user: User, sele
         return {"is_correct": is_correct, "eliminated": not is_correct}
 
 
-async def report_integrity_violation(db: AsyncSession, battle_id: uuid.UUID, user: User, violation_type: str, ip_address: str | None = None) -> dict:
+async def report_integrity_violation(db: AsyncSession, battle_id: uuid.UUID, user: User, violation_type: str, ip_address: str | None = None) -> dict[str, bool]:
     """Zero-tolerance by design, unlike the AI Weekly Exam/contest path
     (see ExamIntegrityGuard's contest usage), which counts violations and
     only auto-submits past a threshold. A live head-to-head elimination

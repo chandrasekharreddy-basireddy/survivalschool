@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -47,7 +49,7 @@ if settings.SENTRY_DSN:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings.validate_for_production()
     from app.seed import seed_rbac
@@ -61,8 +63,8 @@ async def lifespan(app: FastAPI):
     # when no standalone worker is deployed. Guarded by a Redis leader lock in
     # scheduler_loop, so running multiple gunicorn workers is safe.
     stop_event = asyncio.Event()
-    scheduler_task: asyncio.Task | None = None
-    elimination_task: asyncio.Task | None = None
+    scheduler_task: asyncio.Task[None] | None = None
+    elimination_task: asyncio.Task[None] | None = None
     if settings.RUN_INPROCESS_SCHEDULER and settings.APP_ENV != "test":
         from app.services.scheduler_runtime import scheduler_loop
         scheduler_task = asyncio.create_task(scheduler_loop(stop_event))
@@ -127,7 +129,7 @@ Instrumentator(excluded_handlers=["/api/docs", "/api/redoc", "/api/openapi.json"
 
 
 @app.get("/")
-async def root():
+async def root() -> dict[str, Any]:
     return {
         "service": settings.APP_NAME,
         "status": "running",

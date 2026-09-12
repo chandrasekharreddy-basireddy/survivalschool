@@ -5,9 +5,9 @@ import time
 import uuid
 
 import structlog
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+from starlette.responses import RedirectResponse, Response
 
 from app.config import get_settings
 
@@ -42,7 +42,7 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
     otherwise a spoofed header could be used to bypass the redirect entirely.
     """
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         if settings.APP_ENV != "production" or request.url.path in _HTTPS_REDIRECT_EXEMPT_PATHS:
             return await call_next(request)
 
@@ -66,7 +66,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     access lines. Request IDs propagate into error envelopes and audit logs
     (spec sections 28, 30)."""
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         # A client-supplied X-Request-Id is convenient for correlating a
         # request across a caller's own logs and ours, but it's untrusted
         # input flowing straight into log fields and getting echoed back
@@ -97,7 +97,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Baseline OWASP-recommended security headers on every response."""
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"

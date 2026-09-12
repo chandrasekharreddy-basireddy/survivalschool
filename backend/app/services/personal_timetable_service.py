@@ -20,6 +20,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date as date_type
 from datetime import time as time_type
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,7 +75,7 @@ class ParsedPersonalRow:
 @dataclass
 class PersonalUploadResult:
     total_rows: int = 0
-    error_rows: list[dict] = field(default_factory=list)
+    error_rows: list[dict[str, Any]] = field(default_factory=list)
     imported: int = 0
 
 
@@ -263,6 +264,9 @@ async def replace_personal_timetable(db: AsyncSession, user_id: uuid.UUID, rows:
 
     await db.execute(delete(PersonalTimetableEntry).where(PersonalTimetableEntry.user_id == user_id))
     for row in valid_rows:
+        # valid_rows is error-free, so class_date is always set (see the
+        # parsing above, which sets row.error whenever it's missing).
+        assert row.class_date is not None
         db.add(PersonalTimetableEntry(
             user_id=user_id, course_name=row.course_name, course_code=row.course_code,
             class_date=row.class_date, day_of_week=row.class_date.weekday(),

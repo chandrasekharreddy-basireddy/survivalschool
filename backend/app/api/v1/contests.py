@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
@@ -96,13 +97,18 @@ async def list_contests(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[ContestOut]:
     # Bounded fetch + a page-aware cache key so a growing contest archive can't
     # turn this into an unbounded SELECT.
     cache_key = f"status={status_filter or ''}&limit={limit}&offset={offset}"
     cached = await cache_get_versioned("contests_list", cache_key)
     if cached is not None:
-        return cached
+        # The cache stores the previous response's own JSON dump (see
+        # cache_set_versioned below), so this is structurally already a
+        # list[ContestOut]-shaped list of dicts -- FastAPI's response_model
+        # re-validates it on the way out, same as every other cache-hit
+        # return in this file.
+        return cast("list[ContestOut]", cached)
     stmt = select(Contest).order_by(Contest.starts_at.desc()).limit(limit).offset(offset)
     if status_filter:
         stmt = stmt.where(Contest.status == status_filter)
@@ -113,10 +119,10 @@ async def list_contests(
 
 
 @router.get("/upcoming", response_model=list[ContestOut])
-async def upcoming_contests(db: AsyncSession = Depends(get_db)):
+async def upcoming_contests(db: AsyncSession = Depends(get_db)) -> list[ContestOut]:
     cached = await cache_get_versioned("contests_list", "upcoming")
     if cached is not None:
-        return cached
+        return cast("list[ContestOut]", cached)
     now = datetime.now(UTC)
     contests = (await db.execute(
         select(Contest).where(Contest.status.in_(["scheduled", "open"]), Contest.ends_at > now)
@@ -128,7 +134,7 @@ async def upcoming_contests(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/ai-weekly/leaderboard", response_model=list[AIWeeklyWinsLeaderboardEntryOut])
-async def ai_weekly_wins_leaderboard(limit: int = Query(20, le=100), db: AsyncSession = Depends(get_db)):
+async def ai_weekly_wins_leaderboard(limit: int = Query(20, le=100), db: AsyncSession = Depends(get_db)) -> list[AIWeeklyWinsLeaderboardEntryOut]:
     """Who has WON the most AI Weekly Exams — rank-1 finishes only (not
     every top-3 certificate), by public username. contest_type is read from
     the certificate's own snapshot (see ContestCertificate.contest_type),
@@ -142,7 +148,7 @@ async def ai_weekly_wins_leaderboard(limit: int = Query(20, le=100), db: AsyncSe
     cache_key = f"limit={limit}"
     cached = await cache_get_versioned("ai_weekly_wins_leaderboard", cache_key)
     if cached is not None:
-        return cached
+        return cast("list[AIWeeklyWinsLeaderboardEntryOut]", cached)
 
     result = await db.execute(
         select(ContestCertificate.student_id, User.full_name, Profile.public_handle, func.count().label("wins"))
@@ -163,7 +169,7 @@ async def ai_weekly_wins_leaderboard(limit: int = Query(20, le=100), db: AsyncSe
 
 
 @router.post("", response_model=ContestOut, status_code=201)
-async def create_contest(payload: ContestCreate, user: User = Depends(require_permission("contests.manage")), db: AsyncSession = Depends(get_db)):
+async def create_contest(payload: ContestCreate, user: User = Depends(require_permission("contests.manage")), db: AsyncSession = Depends(get_db)) -> ContestOut:
     contest = Contest(
         title=payload.title, description=payload.description, contest_type="custom",
         is_auto_generated=False, created_by=user.id, starts_at=payload.starts_at, ends_at=payload.ends_at,
@@ -179,7 +185,7 @@ async def create_contest(payload: ContestCreate, user: User = Depends(require_pe
 
 
 @router.get("/{contest_id}", response_model=ContestOut)
-async def get_contest(contest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_contest(contest_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> ContestOut:
     contest = await db.get(Contest, contest_id)
     if contest is None:
         raise NotFoundError("Contest not found.")
@@ -191,10 +197,10 @@ def _leaderboard_cache_key(contest_id: uuid.UUID) -> str:
 
 
 @router.get("/{contest_id}/leaderboard", response_model=list[LeaderboardEntryOut])
-async def contest_leaderboard(contest_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def contest_leaderboard(contest_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[LeaderboardEntryOut]:
     cached = await cache_get_json(_leaderboard_cache_key(contest_id))
     if cached is not None:
-        return cached
+        return cast("list[LeaderboardEntryOut]", cached)
     contest = await db.get(Contest, contest_id)
     if contest is None:
         raise NotFoundError("Contest not found.")
@@ -216,7 +222,7 @@ async def contest_leaderboard(contest_id: uuid.UUID, db: AsyncSession = Depends(
 
 
 @router.post("/ai-weekly/register", response_model=AIWeeklyRegisterOut, status_code=201)
-async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> AIWeeklyRegisterOut:
     """Step 1 of the AI Weekly Exam: register for a subject+topic during the
     Thursday-only registration window. Does not start the timed exam —
     that happens separately via POST /contests/{contest_id}/attempts once
@@ -231,6 +237,11 @@ async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, request: Request,
     await enforce_rate_limit(f"ai-weekly-register-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_AI_WEEKLY_REGISTER_PER_HOUR, window_seconds=3600)
     attempt = await register_for_ai_weekly_exam(db, user, payload.subject_name, payload.topic_name)
     contest = await db.get(Contest, attempt.contest_id)
+    if contest is None:
+        # register_for_ai_weekly_exam always creates/loads the attempt's own
+        # contest row in the same call -- this is unreachable in practice,
+        # but narrows the type for the response below.
+        raise NotFoundError("Contest not found.")
     await bump_cache_version("contests_list")
     return AIWeeklyRegisterOut(
         attempt_id=attempt.id, contest_id=contest.id, contest_title=contest.title,
@@ -239,7 +250,7 @@ async def register_ai_weekly_exam(payload: AIWeeklyRegisterIn, request: Request,
 
 
 @router.post("/{contest_id}/attempts", response_model=ContestAttemptStartOut, status_code=201)
-async def start_contest_attempt(contest_id: uuid.UUID, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def start_contest_attempt(contest_id: uuid.UUID, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> ContestAttemptStartOut:
     contest = await db.get(Contest, contest_id)
     if contest is None or contest.status != "open":
         raise NotFoundError("Contest not found or not currently open.")
@@ -341,7 +352,7 @@ async def _force_finalize_contest_attempt(db: AsyncSession, attempt: ContestAtte
 
 
 @router.put("/attempts/{attempt_id}/events", response_model=dict)
-async def contest_integrity_event(attempt_id: uuid.UUID, payload: IntegrityEventIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def contest_integrity_event(attempt_id: uuid.UUID, payload: IntegrityEventIn, request: Request, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     attempt = await db.get(ContestAttempt, attempt_id)
     if attempt is None or attempt.student_id != user.id:
         raise NotFoundError("Attempt not found.")
@@ -366,7 +377,7 @@ async def contest_integrity_event(attempt_id: uuid.UUID, payload: IntegrityEvent
 
 
 @router.get("/{contest_id}/flagged-attempts", response_model=list[FlaggedAttemptOut])
-async def list_flagged_contest_attempts(contest_id: uuid.UUID, admin: User = Depends(require_permission("contests.manage")), db: AsyncSession = Depends(get_db)):
+async def list_flagged_contest_attempts(contest_id: uuid.UUID, admin: User = Depends(require_permission("contests.manage")), db: AsyncSession = Depends(get_db)) -> list[FlaggedAttemptOut]:
     rows = (await db.execute(
         select(ContestAttempt, User.full_name)
         .join(User, User.id == ContestAttempt.student_id)
@@ -380,7 +391,7 @@ async def list_flagged_contest_attempts(contest_id: uuid.UUID, admin: User = Dep
 
 
 @router.get("/attempts/{attempt_id}/questions", response_model=list[QuestionPublicOut])
-async def get_contest_attempt_questions(attempt_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def get_contest_attempt_questions(attempt_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> list[QuestionPublicOut]:
     attempt = await db.get(ContestAttempt, attempt_id)
     if attempt is None or attempt.student_id != user.id:
         raise NotFoundError("Attempt not found.")
@@ -391,7 +402,7 @@ async def get_contest_attempt_questions(attempt_id: uuid.UUID, user: User = Depe
 
 
 @router.post("/attempts/{attempt_id}/submit", response_model=ContestResultOut)
-async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> ContestResultOut:
     attempt = await db.get(ContestAttempt, attempt_id, with_for_update=True)
     if attempt is None or attempt.student_id != user.id:
         raise NotFoundError("Attempt not found.")
@@ -445,13 +456,13 @@ async def submit_contest_attempt(attempt_id: uuid.UUID, payload: ContestSubmit, 
 
 
 @router.get("/me/certificates", response_model=list[ContestCertificateOut])
-async def my_contest_certificates(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def my_contest_certificates(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> list[ContestCertificateOut]:
     certs = (await db.execute(select(ContestCertificate).where(ContestCertificate.student_id == user.id).order_by(ContestCertificate.issued_at.desc()))).scalars().all()
     return [_contest_certificate_out(cert) for cert in certs]
 
 
 @router.get("/certificates/verify/{certificate_number}", response_model=ContestCertificatePublicOut)
-async def verify_contest_certificate(certificate_number: str, db: AsyncSession = Depends(get_db)):
+async def verify_contest_certificate(certificate_number: str, db: AsyncSession = Depends(get_db)) -> ContestCertificatePublicOut:
     cert = (await db.execute(select(ContestCertificate).where(ContestCertificate.certificate_number == certificate_number))).scalar_one_or_none()
     if cert is None:
         return ContestCertificatePublicOut(valid=False, certificate_number=None, contest_id=uuid.UUID(int=0), contest_title="", rank=0, score_percent=0, issued_at=datetime.now(UTC), invalid_reason="not_found")
@@ -473,7 +484,7 @@ async def verify_contest_certificate(certificate_number: str, db: AsyncSession =
 
 
 @router.get("/certificates/public-key", response_model=CertificateSigningKeyOut)
-async def contest_certificate_public_key():
+async def contest_certificate_public_key() -> CertificateSigningKeyOut:
     """The public half of the key certificates are signed with, so a third
     party can verify one's authenticity independently of our API/database.
     Static and unauthenticated -- safe to cache indefinitely on the client."""
@@ -489,7 +500,7 @@ async def contest_certificate_public_key():
 
 
 @router.get("/certificates/{certificate_number}/qr")
-async def contest_certificate_qr(certificate_number: str, db: AsyncSession = Depends(get_db)):
+async def contest_certificate_qr(certificate_number: str, db: AsyncSession = Depends(get_db)) -> Response:
     cert = (await db.execute(select(ContestCertificate).where(ContestCertificate.certificate_number == certificate_number))).scalar_one_or_none()
     if cert is None:
         raise NotFoundError("Contest certificate not found.")
@@ -497,11 +508,17 @@ async def contest_certificate_qr(certificate_number: str, db: AsyncSession = Dep
 
 
 @router.get("/certificates/{certificate_number}/pdf")
-async def contest_certificate_pdf(certificate_number: str, db: AsyncSession = Depends(get_db)):
+async def contest_certificate_pdf(certificate_number: str, db: AsyncSession = Depends(get_db)) -> Response:
     cert = (await db.execute(select(ContestCertificate).where(ContestCertificate.certificate_number == certificate_number))).scalar_one_or_none()
     if cert is None or cert.revoked_at is not None or _contest_certificate_is_expired(cert):
         raise NotFoundError("Contest certificate not found.")
     student = await db.get(User, cert.student_id)
+    if student is None:
+        # student_id is ON DELETE CASCADE (see ContestCertificate model) --
+        # the certificate row itself would be gone if the student were,
+        # so this is unreachable in practice. Narrows the type for
+        # generate_pdf_bytes below, which needs a real User to render.
+        raise NotFoundError("Contest certificate not found.")
     try:
         pdf_bytes = generate_pdf_bytes(cert, student)
     except (ImportError, OSError) as exc:
@@ -517,7 +534,7 @@ async def revoke_contest_certificate(
     certificate_number: str,
     admin: User = Depends(require_permission("certificates.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> ContestCertificateRevokeOut:
     cert = (await db.execute(select(ContestCertificate).where(ContestCertificate.certificate_number == certificate_number))).scalar_one_or_none()
     if cert is None:
         raise NotFoundError("Contest certificate not found.")
@@ -529,7 +546,7 @@ async def revoke_contest_certificate(
 
 
 @router.post("/{contest_id}/finalize", response_model=ContestOut)
-async def manual_finalize_contest(contest_id: uuid.UUID, user: User = Depends(require_permission("contests.manage")), db: AsyncSession = Depends(get_db)):
+async def manual_finalize_contest(contest_id: uuid.UUID, user: User = Depends(require_permission("contests.manage")), db: AsyncSession = Depends(get_db)) -> ContestOut:
     contest = await db.get(Contest, contest_id)
     if contest is None:
         raise NotFoundError("Contest not found.")

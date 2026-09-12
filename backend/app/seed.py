@@ -70,7 +70,7 @@ BADGES = [
 _SEED_RBAC_LOCK_KEY = 918273645
 
 
-async def seed_rbac():
+async def seed_rbac() -> None:
     async with AsyncSessionLocal() as db:
         # Serialize concurrent seeders. Without this, two workers can both
         # SELECT a permission row, both see it missing, and both INSERT --
@@ -104,15 +104,15 @@ async def seed_rbac():
                     role.permissions.append(perm)
 
         for code, name, desc, icon in BADGES:
-            existing = (await db.execute(select(Badge).where(Badge.code == code))).scalar_one_or_none()
-            if existing is None:
+            existing_badge = (await db.execute(select(Badge).where(Badge.code == code))).scalar_one_or_none()
+            if existing_badge is None:
                 db.add(Badge(code=code, name=name, description=desc, icon=icon, criteria_code=code))
 
         await db.commit()
     print("RBAC roles/permissions and gamification badges seeded.")
 
 
-async def seed_demo_data():
+async def seed_demo_data() -> None:
     if settings.APP_ENV == "production":
         print("Refusing to seed demo data in production.", file=sys.stderr)
         return
@@ -144,7 +144,7 @@ async def seed_demo_data():
     print(f"  password: {demo_password}  (development only — never reused for production)")
 
 
-async def main():
+async def main() -> None:
     await seed_rbac()
     if "--with-demo-data" in sys.argv:
         await seed_demo_data()

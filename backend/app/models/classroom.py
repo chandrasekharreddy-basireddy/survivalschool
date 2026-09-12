@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -123,7 +124,7 @@ class ClassroomExamAttempt(Base, UUIDPk, Timestamped):
     allowed_ip: Mapped[str | None] = mapped_column(String(64))
     violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     warning_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    flagged_events: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    flagged_events: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
 
 
 class ClassroomExamAnswer(Base, UUIDPk, Timestamped):

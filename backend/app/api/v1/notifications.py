@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -87,7 +88,7 @@ class VapidPublicKeyOut(BaseModel):
 
 @router.get("", response_model=list[NotificationOut])
 async def list_notifications(unread_only: bool = Query(False), limit: int = Query(30, le=100),
-                              user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+                              user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> Sequence[Notification]:
     stmt = select(Notification).where(Notification.user_id == user.id)
     if unread_only:
         stmt = stmt.where(Notification.read_at.is_(None))
@@ -96,7 +97,7 @@ async def list_notifications(unread_only: bool = Query(False), limit: int = Quer
 
 
 @router.post("/{notification_id}/read", response_model=NotificationOut)
-async def mark_read(notification_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def mark_read(notification_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> Notification:
     notif = await db.get(Notification, notification_id)
     if notif is None or notif.user_id != user.id:
         raise NotFoundError("Notification not found.")
@@ -107,7 +108,7 @@ async def mark_read(notification_id: uuid.UUID, user: User = Depends(get_current
 
 
 @router.get("/preferences", response_model=PreferencesOut)
-async def get_preferences(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def get_preferences(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> NotificationPreference:
     prefs = (await db.execute(select(NotificationPreference).where(NotificationPreference.user_id == user.id))).scalar_one_or_none()
     if prefs is None:
         prefs = NotificationPreference(user_id=user.id)
@@ -118,7 +119,7 @@ async def get_preferences(user: User = Depends(get_current_user), db: AsyncSessi
 
 
 @router.patch("/preferences", response_model=PreferencesOut)
-async def update_preferences(payload: PreferencesUpdate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def update_preferences(payload: PreferencesUpdate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> NotificationPreference:
     prefs = (await db.execute(select(NotificationPreference).where(NotificationPreference.user_id == user.id))).scalar_one_or_none()
     if prefs is None:
         prefs = NotificationPreference(user_id=user.id)
@@ -131,13 +132,13 @@ async def update_preferences(payload: PreferencesUpdate, user: User = Depends(ge
 
 
 @router.get("/push/vapid-public-key", response_model=VapidPublicKeyOut)
-async def get_vapid_public_key():
+async def get_vapid_public_key() -> VapidPublicKeyOut:
     """Expose only the public VAPID key; the private key stays server-side."""
     return VapidPublicKeyOut(configured=push_configured(), public_key=settings.VAPID_PUBLIC_KEY if push_configured() else None)
 
 
 @router.post("/push/subscribe", status_code=201, response_model=PushSubscribeOut)
-async def subscribe_push(payload: PushSubscribeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def subscribe_push(payload: PushSubscribeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> PushSubscribeOut:
     if not push_configured():
         raise AppError("Push notifications are not configured on this server.")
     await save_subscription(
@@ -149,14 +150,14 @@ async def subscribe_push(payload: PushSubscribeIn, user: User = Depends(get_curr
 
 
 @router.post("/push/unsubscribe")
-async def unsubscribe_push(payload: PushUnsubscribeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def unsubscribe_push(payload: PushUnsubscribeIn, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     removed = await remove_subscription(db, user_id=user.id, endpoint=payload.endpoint)
     await db.commit()
     return {"status": "unsubscribed" if removed else "not_found"}
 
 
 @router.post("/push/test")
-async def send_test_push(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def send_test_push(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict[str, int]:
     if not push_configured():
         raise AppError("Push notifications are not configured on this server.")
     sent = await send_to_user(db, user_id=user.id, title="Test notification", body="Push notifications are working.", url="/settings")

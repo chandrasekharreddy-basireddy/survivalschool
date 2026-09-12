@@ -6,6 +6,7 @@ instructor's course.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from pydantic import BaseModel
@@ -34,7 +35,7 @@ class MyQuestionStatsOut(BaseModel):
 async def my_question_stats(
     user: User = Depends(require_permission("quiz.create", "exam.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> MyQuestionStatsOut:
     """A lecturer's own contribution count to the shared question bank —
     there's no per-instructor ownership on Question itself (the bank is
     genuinely shared, not course-scoped, see this module's docstring), so
@@ -60,7 +61,7 @@ async def list_questions(
     limit: int = Query(default=50, ge=1, le=200),
     user: User = Depends(require_permission("quiz.create", "exam.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> Sequence[Question]:
     """Browse the shared bank to pick specific questions for something that
     isn't randomly assembled from it (e.g. a classroom exam) -- everything
     else (contests, elimination, ai_practice) draws a random subset by
@@ -81,7 +82,7 @@ async def create_question(
     payload: QuestionCreate,
     user: User = Depends(require_permission("quiz.create", "exam.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> Question:
     if payload.question_type in ("single", "true_false") and sum(1 for o in payload.options if o.is_correct) != 1:
         raise ValidationAppError("single/true_false questions must have exactly one correct option.")
     if payload.question_type == "multiple" and sum(1 for o in payload.options if o.is_correct) < 1:
@@ -109,7 +110,7 @@ async def bulk_import_questions(
     file: UploadFile = File(...),
     user: User = Depends(require_permission("quiz.create", "exam.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> ImportPreviewOut:
     """CSV or XLSX bulk question import — see app/services/question_import_service.py
     for the expected column format. All-or-nothing: a commit (dry_run=false)
     only writes anything if every row in the file is valid; otherwise nothing

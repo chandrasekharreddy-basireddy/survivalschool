@@ -50,7 +50,7 @@ async def _assert_member(db: AsyncSession, room_id: uuid.UUID, user_id: uuid.UUI
 
 
 @router.get("/rooms", response_model=list[RoomOut])
-async def my_rooms(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def my_rooms(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[RoomOut]:
     result = await db.execute(
         select(ChatRoom).join(ChatMember, ChatMember.room_id == ChatRoom.id).where(ChatMember.user_id == user.id)
     )
@@ -85,7 +85,7 @@ async def my_rooms(user: User = Depends(get_current_user), db: AsyncSession = De
 
 
 @router.post("/dm/{other_user_id}", response_model=RoomOut, status_code=201)
-async def start_direct_message(other_user_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def start_direct_message(other_user_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> RoomOut:
     """The only way a direct room gets created — gated on an accepted follow
     request existing between the two users (see social_graph_service.py).
     Idempotent: if a direct room between exactly these two already exists,
@@ -129,7 +129,7 @@ async def start_direct_message(other_user_id: uuid.UUID, user: User = Depends(ge
 
 @router.get("/rooms/{room_id}/messages", response_model=list[MessageOut])
 async def list_messages(room_id: uuid.UUID, before: datetime | None = Query(None), limit: int = Query(50, le=200),
-                         user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+                         user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[ChatMessage]:
     await _assert_member(db, room_id, user.id)
     stmt = select(ChatMessage).where(ChatMessage.room_id == room_id)
     if before:
@@ -139,7 +139,7 @@ async def list_messages(room_id: uuid.UUID, before: datetime | None = Query(None
 
 
 @router.post("/rooms/{room_id}/messages/{message_id}/read", status_code=204)
-async def mark_message_read(room_id: uuid.UUID, message_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def mark_message_read(room_id: uuid.UUID, message_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> None:
     await _assert_member(db, room_id, user.id)
     # IDOR guard: message_id and room_id are two independent path params
     # with nothing tying them together above — without this, a member of
@@ -159,7 +159,7 @@ async def mark_message_read(room_id: uuid.UUID, message_id: uuid.UUID, user: Use
 
 
 @router.post("/rooms/{room_id}/messages/{message_id}/moderate", status_code=204)
-async def moderate_message(room_id: uuid.UUID, message_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def moderate_message(room_id: uuid.UUID, message_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> None:
     if not (user.has_permission("chat.moderate") or user.has_role("SUPER_ADMIN")):
         raise AuthorizationError("Requires chat.moderate permission.")
     message = await db.get(ChatMessage, message_id)

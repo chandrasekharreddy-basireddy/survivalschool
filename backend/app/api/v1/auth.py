@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import jwt as pyjwt
@@ -151,7 +152,7 @@ async def _issue_tokens(db: AsyncSession, user: User, request: Request, device_l
 
 
 @router.post("/register", response_model=UserOut, status_code=201)
-async def register(payload: RegisterRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def register(payload: RegisterRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> UserOut:
     await enforce_rate_limit(f"register:{get_client_ip(request)}", limit=settings.RATE_LIMIT_REGISTER_PER_HOUR, window_seconds=3600)
 
     existing = await db.execute(select(User).where(User.email == payload.email.lower()))
@@ -232,7 +233,7 @@ async def apply_as_instructor(
     background_tasks: BackgroundTasks,
     user: User | None = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
-):
+) -> InstructorApplicationOut:
     """Apply to teach on the platform. Deliberately NOT gated by the Thursday
     student registration window — that window controls admission to the
     weekly exam cohort, which instructors aren't part of — and deliberately
@@ -321,7 +322,7 @@ async def apply_as_instructor(
 
 
 @router.post("/verify-email", response_model=MessageResponse)
-async def verify_email(payload: VerifyEmailRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def verify_email(payload: VerifyEmailRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> MessageResponse:
     await enforce_rate_limit(f"verify-email-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP, window_seconds=3600)
     token_hash = hash_token(payload.token)
     result = await db.execute(select(EmailVerification).where(EmailVerification.token_hash == token_hash))
@@ -352,7 +353,7 @@ async def verify_email(payload: VerifyEmailRequest, request: Request, background
 
 
 @router.post("/resend-verification", response_model=MessageResponse)
-async def resend_verification(payload: ResendVerificationRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def resend_verification(payload: ResendVerificationRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> MessageResponse:
     await enforce_rate_limit(f"resend-verify:{payload.email.lower()}", limit=settings.RATE_LIMIT_RESEND_VERIFY_PER_HOUR, window_seconds=3600)
     await enforce_rate_limit(f"resend-verify-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_RESEND_VERIFY_PER_HOUR_PER_IP, window_seconds=3600)
 
@@ -408,7 +409,7 @@ async def _notify_login_alert(user_id: uuid.UUID, device_label: str | None, ip_a
 
 
 @router.post("/login", response_model=TokenResponse | MFAChallengeOut)
-async def login(payload: LoginRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def login(payload: LoginRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> TokenResponse | MFAChallengeOut:
     await enforce_rate_limit(f"login:{get_client_ip(request)}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
     await enforce_rate_limit(f"login-email:{payload.email.lower()}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
 
@@ -488,7 +489,7 @@ async def login(payload: LoginRequest, request: Request, background_tasks: Backg
 
 
 @router.post("/2fa/verify-login", response_model=TokenResponse)
-async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     """Second step of login for accounts with TOTP enabled. Takes the
     mfa_token from the MFAChallengeOut response plus a 6-digit TOTP code
     (or an 8-character backup code) and, if valid, issues real tokens via
@@ -506,6 +507,12 @@ async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, back
         raise AuthenticationError("Your sign-in session expired — please log in again.", code="mfa_session_expired")
 
     await enforce_rate_limit(f"2fa-verify-user:{user.id}", limit=10, window_seconds=300)
+
+    if user.totp_secret is None:
+        # totp_enabled is only ever flipped on together with a stored secret
+        # (see confirm_2fa) -- this should be unreachable given the check
+        # above, but narrows the type for verify_code below.
+        raise AuthenticationError("Your sign-in session expired — please log in again.", code="mfa_session_expired")
 
     verified = verify_code(user.totp_secret, payload.code)
     if not verified:
@@ -544,7 +551,7 @@ async def verify_2fa_login(payload: TwoFactorLoginVerify, request: Request, back
 
 
 @router.post("/2fa/setup", response_model=TwoFactorSetupOut)
-async def setup_2fa(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def setup_2fa(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> TwoFactorSetupOut:
     """Step 1: generate a new secret and return a QR code to scan into an
     authenticator app. This does NOT enable 2FA yet — the secret is
     "pending" until POST /auth/2fa/confirm proves the app actually has it,
@@ -559,7 +566,7 @@ async def setup_2fa(user: User = Depends(get_current_verified_user), db: AsyncSe
 
 
 @router.post("/2fa/confirm", response_model=TwoFactorConfirmOut)
-async def confirm_2fa(payload: TwoFactorConfirmIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def confirm_2fa(payload: TwoFactorConfirmIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> TwoFactorConfirmOut:
     """Step 2: prove the authenticator app in step 1 actually works, then
     flip totp_enabled on and hand back one-time backup codes — shown to the
     user exactly once here, never recoverable afterward (only their SHA-256
@@ -581,7 +588,7 @@ async def confirm_2fa(payload: TwoFactorConfirmIn, user: User = Depends(get_curr
 
 
 @router.post("/2fa/disable", response_model=MessageResponse)
-async def disable_2fa(payload: TwoFactorDisableIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def disable_2fa(payload: TwoFactorDisableIn, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> MessageResponse:
     """Requires re-entering the account password (not just an active
     session) — disabling 2FA is a security-downgrading action, same bar as
     changing a password elsewhere in this app."""
@@ -597,7 +604,7 @@ async def disable_2fa(payload: TwoFactorDisableIn, user: User = Depends(get_curr
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(payload: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def refresh_token(payload: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     token_hash = hash_token(payload.refresh_token)
     result = await db.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
     record = result.scalar_one_or_none()
@@ -639,7 +646,7 @@ async def refresh_token(payload: RefreshRequest, request: Request, db: AsyncSess
 
 
 @router.post("/logout", response_model=MessageResponse)
-async def logout(payload: RefreshRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def logout(payload: RefreshRequest, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> MessageResponse:
     token_hash = hash_token(payload.refresh_token)
     result = await db.execute(select(RefreshToken).where(RefreshToken.token_hash == token_hash, RefreshToken.user_id == user.id))
     record = result.scalar_one_or_none()
@@ -654,7 +661,7 @@ async def logout(payload: RefreshRequest, user: User = Depends(get_current_user)
 
 
 @router.post("/logout-all", response_model=MessageResponse)
-async def logout_all(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def logout_all(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> MessageResponse:
     now = datetime.now(UTC)
     sessions = (await db.execute(select(SessionModel).where(SessionModel.user_id == user.id, SessionModel.revoked_at.is_(None)))).scalars().all()
     for s in sessions:
@@ -710,7 +717,7 @@ async def list_my_sessions(
     user: User = Depends(get_current_user),
     current_session_id: uuid.UUID = Depends(get_current_session_id),
     db: AsyncSession = Depends(get_db),
-):
+) -> list[SessionOut]:
     """Every device/browser currently signed in to this account — the
     self-service view of what /auth/logout-all nukes indiscriminately, so a
     user can spot and revoke just the one they don't recognize."""
@@ -737,7 +744,7 @@ async def revoke_my_session(
     session_id: uuid.UUID,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     """Sign out one specific device — the targeted counterpart to
     /auth/logout-all. Scoped to the caller's own sessions only: the path
     parameter is a bare id with no ownership check built in by FastAPI, so
@@ -764,7 +771,7 @@ async def revoke_my_session(
 
 
 @router.post("/forgot-password", response_model=MessageResponse)
-async def forgot_password(payload: ForgotPasswordRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def forgot_password(payload: ForgotPasswordRequest, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> MessageResponse:
     await enforce_rate_limit(f"forgot-pw:{payload.email.lower()}", limit=settings.RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR, window_seconds=3600)
     await enforce_rate_limit(f"forgot-pw-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_FORGOT_PASSWORD_PER_HOUR_PER_IP, window_seconds=3600)
     generic = MessageResponse(message="If that account exists, a password reset email has been sent.")
@@ -793,7 +800,7 @@ async def forgot_password(payload: ForgotPasswordRequest, request: Request, back
 
 
 @router.post("/reset-password", response_model=MessageResponse)
-async def reset_password(payload: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
+async def reset_password(payload: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)) -> MessageResponse:
     await enforce_rate_limit(f"reset-pw-ip:{get_client_ip(request)}", limit=settings.RATE_LIMIT_TOKEN_ENDPOINT_PER_HOUR_PER_IP, window_seconds=3600)
     token_hash = hash_token(payload.token)
     result = await db.execute(select(PasswordReset).where(PasswordReset.token_hash == token_hash))
@@ -841,14 +848,14 @@ async def reset_password(payload: ResetPasswordRequest, request: Request, db: As
 
 
 @router.get("/me", response_model=UserOut)
-async def get_me(user: User = Depends(get_current_user)):
+async def get_me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut(id=user.id, email=user.email, full_name=user.full_name,
                     is_email_verified=user.is_email_verified, totp_enabled=user.totp_enabled,
                     roles=[r.name for r in user.roles])
 
 
 @router.post("/passkeys/register/options")
-async def passkey_register_options(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def passkey_register_options(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> Response:
     """Step 1 of adding a passkey to an already-logged-in account (Settings
     -> Add a passkey). Not a signup flow -- passkeys are an additional
     factor an existing account opts into, same relationship 2FA has to the
@@ -891,7 +898,7 @@ async def passkey_register_options(user: User = Depends(get_current_user), db: A
 async def passkey_register_verify(
     payload: PasskeyRegisterVerifyIn, request: Request,
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
-):
+) -> WebAuthnCredential:
     await enforce_rate_limit(f"passkey-register-verify:{user.id}", limit=10, window_seconds=300)
 
     challenge_key = f"webauthn:register_challenge:{user.id}"
@@ -900,6 +907,13 @@ async def passkey_register_verify(
         raise ValidationAppError(
             "Your passkey setup session expired. Please try again.", code="passkey_challenge_expired"
         )
+    if isinstance(challenge_b64, bytes):
+        # The redis client is created with decode_responses=True (see
+        # app.redis_client), so this always comes back as str at runtime --
+        # the client's type stubs just declare a broader bytes | str return.
+        # Narrowing here (rather than a type: ignore) is what actually
+        # satisfies base64url_to_bytes's str-only signature below.
+        challenge_b64 = challenge_b64.decode()
     await get_redis().delete(challenge_key)  # single-use, regardless of outcome below
 
     try:
@@ -939,7 +953,7 @@ async def passkey_register_verify(
 
 
 @router.get("/passkeys", response_model=list[PasskeyOut])
-async def list_passkeys(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_passkeys(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> Sequence[WebAuthnCredential]:
     result = await db.execute(
         select(WebAuthnCredential).where(WebAuthnCredential.user_id == user.id).order_by(WebAuthnCredential.created_at)
     )
@@ -950,7 +964,7 @@ async def list_passkeys(user: User = Depends(get_current_user), db: AsyncSession
 async def delete_passkey(
     passkey_id: uuid.UUID, request: Request,
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
-):
+) -> MessageResponse:
     result = await db.execute(
         select(WebAuthnCredential).where(WebAuthnCredential.id == passkey_id, WebAuthnCredential.user_id == user.id)
     )
@@ -972,7 +986,7 @@ async def delete_passkey(
 
 
 @router.post("/passkeys/login/options")
-async def passkey_login_options(payload: PasskeyLoginOptionsIn, request: Request, db: AsyncSession = Depends(get_db)):
+async def passkey_login_options(payload: PasskeyLoginOptionsIn, request: Request, db: AsyncSession = Depends(get_db)) -> Response:
     """Step 1 of signing in with a passkey instead of a password -- no
     existing session, this is an alternative to POST /auth/login. Rate
     limited the same way login() is, by IP and by email."""
@@ -1005,7 +1019,7 @@ async def passkey_login_options(payload: PasskeyLoginOptionsIn, request: Request
 
 
 @router.post("/passkeys/login/verify", response_model=TokenResponse)
-async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     await enforce_rate_limit(f"passkey-login:{get_client_ip(request)}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
     email = payload.email.lower()
     await enforce_rate_limit(f"passkey-login-email:{email}", limit=settings.RATE_LIMIT_LOGIN_PER_5MIN, window_seconds=300)
@@ -1016,6 +1030,10 @@ async def passkey_login_verify(payload: PasskeyLoginVerifyIn, request: Request, 
     challenge_b64 = await get_redis().get(challenge_key)
     if not challenge_b64:
         raise generic_error
+    if isinstance(challenge_b64, bytes):
+        # See the matching comment in passkey_register_verify above -- the
+        # redis client always decodes to str at runtime.
+        challenge_b64 = challenge_b64.decode()
     await get_redis().delete(challenge_key)  # single-use, regardless of outcome below
 
     result = await db.execute(

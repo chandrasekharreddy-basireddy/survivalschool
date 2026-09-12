@@ -8,15 +8,19 @@ Question/QuestionOption rows.
 """
 from __future__ import annotations
 
+from typing import Any
 
-def grade_single_or_multiple(question_options: list, selected_option_ids: list[str]) -> tuple[bool, int]:
+from app.models.assessment import Question
+
+
+def grade_single_or_multiple(question_options: list[Any], selected_option_ids: list[str]) -> tuple[bool, int]:
     correct_ids = {str(o.id) for o in question_options if o.is_correct}
     selected_ids = set(selected_option_ids)
     is_correct = correct_ids == selected_ids and len(correct_ids) > 0
     return is_correct, 1 if is_correct else 0
 
 
-def grade_true_false(question_options: list, selected_option_ids: list[str]) -> tuple[bool, int]:
+def grade_true_false(question_options: list[Any], selected_option_ids: list[str]) -> tuple[bool, int]:
     return grade_single_or_multiple(question_options, selected_option_ids)
 
 
@@ -31,7 +35,7 @@ def grade_short_answer(expected: str | None, given: str | None) -> tuple[bool, i
     return is_correct, 1 if is_correct else 0
 
 
-def grade_answer(question, selected_option_ids: list[str], text_answer: str | None) -> tuple[bool, int]:
+def grade_answer(question: Question, selected_option_ids: list[str], text_answer: str | None) -> tuple[bool, int]:
     """Returns (is_correct, points_awarded) for one question, fully server-side."""
     if question.question_type in ("single", "multiple", "true_false"):
         is_correct, _ = grade_single_or_multiple(question.options, selected_option_ids)

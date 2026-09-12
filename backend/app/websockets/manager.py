@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import uuid
 from collections import defaultdict
+from typing import Any
 
 import structlog
 from fastapi import WebSocket
+from redis.asyncio.client import PubSub
 
 from app.redis_client import get_redis
 
@@ -36,8 +39,8 @@ class ConnectionManager:
     def __init__(self) -> None:
         self.rooms: dict[uuid.UUID, set[WebSocket]] = defaultdict(set)
         self.socket_user: dict[WebSocket, uuid.UUID] = {}
-        self._pubsub = None
-        self._listener_task = None
+        self._pubsub: PubSub | None = None
+        self._listener_task: asyncio.Task[None] | None = None
 
     async def connect(self, room_id: uuid.UUID, user_id: uuid.UUID, websocket: WebSocket) -> None:
         await websocket.accept()
@@ -53,7 +56,7 @@ class ConnectionManager:
         if not self.rooms[room_id]:
             del self.rooms[room_id]
 
-    async def broadcast(self, room_id: uuid.UUID, message: dict, *, exclude: WebSocket | None = None) -> None:
+    async def broadcast(self, room_id: uuid.UUID, message: dict[str, Any], *, exclude: WebSocket | None = None) -> None:
         # `exclude` only matters for same-process delivery (e.g. "don't echo
         # a typing event back to its sender") — encode which socket to skip
         # so every worker's listener can honor it identically, not just
@@ -69,7 +72,7 @@ class ConnectionManager:
             # fully silent.
             await self._deliver_local(room_id, message, exclude)
 
-    async def _deliver_local(self, room_id: uuid.UUID, message: dict, exclude: WebSocket | None) -> None:
+    async def _deliver_local(self, room_id: uuid.UUID, message: dict[str, Any], exclude: WebSocket | None) -> None:
         dead = []
         for ws in self.rooms.get(room_id, set()):
             if ws is exclude:
@@ -94,8 +97,6 @@ class ConnectionManager:
         # call at any point in the lifecycle.
         for room_id in list(self.rooms.keys()):
             await self._pubsub.subscribe(f"{_CHANNEL_PREFIX}{room_id}")
-        self._listener_task = None
-        import asyncio
         self._listener_task = asyncio.create_task(self._listen())
 
     async def _listen(self) -> None:

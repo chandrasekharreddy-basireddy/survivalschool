@@ -12,7 +12,7 @@ import secrets
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Fixed, non-secret placeholder used only when APP_ENV is development/test.
@@ -245,7 +245,7 @@ class Settings(BaseSettings):
 
     @field_validator("APP_ENV")
     @classmethod
-    def _validate_production_requirements(cls, v: str, info) -> str:
+    def _validate_production_requirements(cls, v: str, info: ValidationInfo) -> str:
         return v
 
     @model_validator(mode="after")

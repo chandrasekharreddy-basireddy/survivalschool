@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     JSON,
@@ -119,7 +120,7 @@ class ContestAttempt(Base, UUIDPk, Timestamped):
     # Same integrity-monitoring fields the old ExamAttempt carried — see
     # exam_security.py, now enforced against contest_attempts.
     submission_client_token: Mapped[str | None] = mapped_column(String(128), unique=True, index=True)
-    flagged_events: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
+    flagged_events: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
     allowed_ip: Mapped[str | None] = mapped_column(String(64))
     violation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

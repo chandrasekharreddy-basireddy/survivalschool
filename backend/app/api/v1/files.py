@@ -82,7 +82,7 @@ async def upload_file(
     visibility: str = Query("private", pattern=r"^(private|public)$"),
     user: User = Depends(require_permission("files.upload")),
     db: AsyncSession = Depends(get_db),
-):
+) -> FileOut:
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
     chunks: list[bytes] = []
     total = 0
@@ -138,7 +138,7 @@ async def upload_file(
 
 
 @router.get("/{file_id}")
-async def download_file(file_id: uuid.UUID, user: User | None = Depends(get_current_user_optional), db: AsyncSession = Depends(get_db)):
+async def download_file(file_id: uuid.UUID, user: User | None = Depends(get_current_user_optional), db: AsyncSession = Depends(get_db)) -> Response:
     record = (await db.execute(select(FileObject).where(FileObject.id == file_id))).scalar_one_or_none()
     if record is None:
         raise NotFoundError("File not found.")
@@ -165,10 +165,10 @@ async def download_file(file_id: uuid.UUID, user: User | None = Depends(get_curr
         if os.path.isfile(path):
             return FileResponse(path, media_type=record.mime_type, filename=_safe_disposition_filename(record.original_filename))
         if settings.APP_ENV == "test":
-            content = _TEST_LOCAL_CONTENT.get(record.storage_key)
-            if content is not None:
+            test_content = _TEST_LOCAL_CONTENT.get(record.storage_key)
+            if test_content is not None:
                 return Response(
-                    content=content,
+                    content=test_content,
                     media_type=record.mime_type,
                     headers={"Content-Disposition": f'inline; filename="{_safe_disposition_filename(record.original_filename)}"'},
                 )

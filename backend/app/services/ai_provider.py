@@ -6,7 +6,9 @@ import json
 import re
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from typing import Any
 
 import httpx
 import structlog
@@ -86,7 +88,7 @@ class AIProvider(ABC):
 
     @abstractmethod
     async def chat(
-        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None,
+        self, messages: list[dict[str, Any]], *, system_prompt: str | None = None, image_data_url: str | None = None,
         max_tokens: int = 2048,
     ) -> AIResponse:
         ...
@@ -132,7 +134,7 @@ class MockAIProvider(AIProvider):
     name = "mock"
 
     async def chat(
-        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None,
+        self, messages: list[dict[str, Any]], *, system_prompt: str | None = None, image_data_url: str | None = None,
         max_tokens: int = 2048,
     ) -> AIResponse:
         start = time.perf_counter()
@@ -366,7 +368,7 @@ class SarvamAIProvider(AIProvider):
         self.timeout = settings.AI_REQUEST_TIMEOUT_SECONDS
 
     async def chat(
-        self, messages: list[dict], *, system_prompt: str | None = None, image_data_url: str | None = None,
+        self, messages: list[dict[str, Any]], *, system_prompt: str | None = None, image_data_url: str | None = None,
         max_tokens: int = 2048,
     ) -> AIResponse:
         if not self.api_key:
@@ -458,7 +460,8 @@ class SarvamAIProvider(AIProvider):
                            latency_ms=int((time.perf_counter() - start) * 1000), error=last_error)
 
     async def _generate_batch_with_retry(
-        self, *, user_content: str, system_prompt: str, max_tokens: int, parse_fn,
+        self, *, user_content: str, system_prompt: str, max_tokens: int,
+        parse_fn: Callable[[str], list[GeneratedMCQ]],
     ) -> list[GeneratedMCQ]:
         """One batch's worth of the outer retry loop generate_questions and
         generate_mixed_questions used to run inline for their single big
@@ -483,7 +486,7 @@ class SarvamAIProvider(AIProvider):
         raise last_error
 
     @staticmethod
-    async def _run_batches(coros: list) -> list[GeneratedMCQ]:
+    async def _run_batches(coros: list[Coroutine[Any, Any, list[GeneratedMCQ]]]) -> list[GeneratedMCQ]:
         """Runs every batch coroutine concurrently, bounded to
         _MAX_CONCURRENT_BATCHES at a time so a large question count (the AI
         Weekly Exam's 50) doesn't fire a burst of simultaneous requests at
@@ -493,7 +496,7 @@ class SarvamAIProvider(AIProvider):
         question pool is not a usable one."""
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_BATCHES)
 
-        async def _bounded(coro):
+        async def _bounded(coro: Coroutine[Any, Any, list[GeneratedMCQ]]) -> list[GeneratedMCQ]:
             async with semaphore:
                 return await coro
 
@@ -692,7 +695,12 @@ class SarvamAIProvider(AIProvider):
             # what's still missing.
             top_up_results = await asyncio.gather(*top_up_coros, return_exceptions=True)
             for result in top_up_results:
-                if isinstance(result, Exception):
+                # BaseException, not just Exception: asyncio.gather(...,
+                # return_exceptions=True) can hand back any raised
+                # BaseException (e.g. a CancelledError), and the list
+                # concatenation below would previously crash with a
+                # TypeError if one ever slipped through the narrower check.
+                if isinstance(result, BaseException):
                     logger.warning("sarvam_top_up_batch_failed", error=str(result))
                     continue
                 questions = questions + result

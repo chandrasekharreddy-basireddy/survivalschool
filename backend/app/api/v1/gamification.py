@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -26,7 +27,7 @@ class MyStatsOut(BaseModel):
     total_points: int
     current_streak_days: int
     longest_streak_days: int
-    badges: list[dict]
+    badges: list[dict[str, Any]]
 
 
 class LeaderboardEntry(BaseModel):
@@ -37,7 +38,7 @@ class LeaderboardEntry(BaseModel):
 
 
 @router.get("/me", response_model=MyStatsOut)
-async def my_gamification_stats(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def my_gamification_stats(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> MyStatsOut:
     total = (await db.execute(
         select(func.coalesce(func.sum(PointsLedger.amount), 0)).where(PointsLedger.student_id == user.id)
     )).scalar_one()
@@ -54,11 +55,11 @@ async def my_gamification_stats(user: User = Depends(get_current_user), db: Asyn
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntry])
-async def leaderboard(limit: int = Query(20, le=100), offset: int = Query(0, ge=0), db: AsyncSession = Depends(get_db)):
+async def leaderboard(limit: int = Query(20, le=100), offset: int = Query(0, ge=0), db: AsyncSession = Depends(get_db)) -> list[LeaderboardEntry]:
     cache_key = f"limit={limit}:offset={offset}"
     cached = await cache_get_versioned("gamification_leaderboard", cache_key)
     if cached is not None:
-        return cached
+        return cast("list[LeaderboardEntry]", cached)
 
     # Single query joining User in — avoids the N+1 (one db.get(User, ...) per
     # row) the production audit flagged here.

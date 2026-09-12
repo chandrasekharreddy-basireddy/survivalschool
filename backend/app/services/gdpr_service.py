@@ -28,10 +28,11 @@ do the rest.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai import AIConversation, AIMessage
@@ -52,7 +53,7 @@ def _iso(value: datetime | None) -> str | None:
 async def export_user_data(db: AsyncSession, user: User) -> dict[str, Any]:
     uid = user.id
 
-    async def rows(stmt):
+    async def rows(stmt: Select[Any]) -> Sequence[Any]:
         return (await db.execute(stmt)).scalars().all()
 
     profile = (await db.execute(select(Profile).where(Profile.user_id == uid))).scalar_one_or_none()
@@ -73,7 +74,7 @@ async def export_user_data(db: AsyncSession, user: User) -> dict[str, Any]:
         select(AuditLog).where(AuditLog.actor_id == uid).order_by(AuditLog.created_at.desc()).limit(500)
     )
 
-    ai_messages: list[AIMessage] = []
+    ai_messages: Sequence[AIMessage] = []
     if ai_conversations:
         conv_ids = [c.id for c in ai_conversations]
         ai_messages = await rows(select(AIMessage).where(AIMessage.conversation_id.in_(conv_ids)))

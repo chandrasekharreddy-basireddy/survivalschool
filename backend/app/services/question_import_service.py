@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import csv
 import io
+import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 import openpyxl
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +55,7 @@ def _truthy(value: str | None) -> bool:
     return str(value).strip().lower() in ("1", "true", "yes", "y", "correct")
 
 
-def _rows_from_dicts(raw_rows: list[dict]) -> list[ParsedRow]:
+def _rows_from_dicts(raw_rows: list[dict[str, Any]]) -> list[ParsedRow]:
     parsed: list[ParsedRow] = []
     for i, raw in enumerate(raw_rows, start=2):  # row 1 is the header
         row = ParsedRow(row_number=i)
@@ -122,7 +124,7 @@ def parse_xlsx(file_bytes: bytes) -> list[ParsedRow]:
     return _rows_from_dicts(raw_rows[:MAX_ROWS_PER_IMPORT])
 
 
-async def commit_rows(db: AsyncSession, subject_id, topic_id, rows: list[ParsedRow]) -> int:
+async def commit_rows(db: AsyncSession, subject_id: uuid.UUID | None, topic_id: uuid.UUID | None, rows: list[ParsedRow]) -> int:
     """Only called once the caller has confirmed every row is error-free."""
     inserted = 0
     for row in rows:

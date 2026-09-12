@@ -4,6 +4,7 @@ import base64
 import html
 import io
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import qrcode
 
@@ -79,4 +80,4 @@ h1 {{ font-size:40px; margin:10px 0 0; color:#fff; }}
 
 def generate_pdf_bytes(cert: ContestCertificate, student: User) -> bytes:
     from weasyprint import HTML
-    return HTML(string=_render_html(cert, student)).write_pdf()
+    return cast(bytes, HTML(string=_render_html(cert, student)).write_pdf())

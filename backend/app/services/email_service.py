@@ -28,6 +28,7 @@ import ssl
 from email.message import EmailMessage
 from email.utils import parseaddr
 from pathlib import Path
+from typing import Any
 
 import httpx
 import structlog
@@ -45,7 +46,7 @@ _env = Environment(
 )
 
 
-def render_template(name: str, **context) -> tuple[str, str]:
+def render_template(name: str, **context: Any) -> tuple[str, str]:
     html = _env.get_template(f"{name}.html").render(**context)
     text_template = f"{name}.txt"
     if (_TEMPLATE_DIR / text_template).exists():
@@ -55,7 +56,7 @@ def render_template(name: str, **context) -> tuple[str, str]:
     return html, text
 
 
-async def send_email(to: str, subject: str, template: str, **context) -> bool:
+async def send_email(to: str, subject: str, template: str, **context: Any) -> bool:
     html, text = render_template(template, **context, app_name=settings.APP_NAME)
 
     if settings.EMAIL_BACKEND == "console":
@@ -172,6 +173,13 @@ async def _send_resend(*, to: str, subject: str, html: str, text: str) -> None:
 
 
 def _send_sync(msg: EmailMessage) -> None:
+    if not settings.SMTP_HOST:
+        # Mirrors validate_for_production()'s own SMTP_HOST requirement for
+        # EMAIL_BACKEND=smtp -- that check only runs at startup, so a
+        # misconfigured dev/test environment could otherwise reach here with
+        # SMTP_HOST unset and fail with a confusing error deep inside
+        # smtplib instead of this clear one.
+        raise RuntimeError("SMTP_HOST is not configured but EMAIL_BACKEND=smtp.")
     context_ssl = ssl.create_default_context()
     # An explicit timeout matters as much as the thread offload: without one,
     # smtplib's default has no bound, so a stalled TCP handshake can hang a

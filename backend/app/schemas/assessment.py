@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -69,7 +70,7 @@ class FlaggedAttemptOut(BaseModel):
     student_name: str
     status: str
     score_percent: int | None
-    flagged_events: list[dict]
+    flagged_events: list[dict[str, Any]]
 
     model_config = {"from_attributes": True}
 

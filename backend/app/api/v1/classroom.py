@@ -4,6 +4,7 @@ import random
 import string
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
@@ -435,6 +436,12 @@ def _attempt_start_out(attempt: ClassroomExamAttempt, exam: ClassroomExam, now: 
     reported as whichever of waiting/in_progress is actually true for `now`, rather
     than trusting the DB row's status column, which only flips from waiting to
     in_progress lazily (the first time the student's client asks for questions)."""
+    # exam.ends_at is guaranteed set here: an attempt only ever exists for an
+    # exam that has already been published (start_attempt refuses to create
+    # one for a "draft" exam), and publishing itself requires both
+    # starts_at/ends_at to be set (see the publish check further up this
+    # file). Narrows the type for the arithmetic below.
+    assert exam.ends_at is not None
     if attempt.status in ("submitted", "terminated"):
         effective_status = attempt.status
     else:
@@ -712,7 +719,7 @@ async def report_integrity_event(
 async def classroom_admin_stats(
     user: User = Depends(require_role("ADMIN", "SUPER_ADMIN")),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     total = (await db.execute(select(func.count()).select_from(Classroom))).scalar() or 0
     active = (await db.execute(
         select(func.count()).select_from(Classroom).where(Classroom.is_active.is_(True))

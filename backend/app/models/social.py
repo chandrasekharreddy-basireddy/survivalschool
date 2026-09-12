@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -83,7 +84,7 @@ class Notification(Base, UUIDPk, Timestamped):
     body: Mapped[str] = mapped_column(Text, default="", nullable=False)
     link_url: Mapped[str | None] = mapped_column(String(500))
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
 
 
 class NotificationPreference(Base, UUIDPk, Timestamped):

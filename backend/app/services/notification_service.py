@@ -7,6 +7,8 @@ disabled if they are required for account security."
 from __future__ import annotations
 
 import contextlib
+import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +31,7 @@ _PREFERENCE_FIELD_BY_CATEGORY = {
 }
 
 
-async def _get_or_create_prefs(db: AsyncSession, user_id) -> NotificationPreference:
+async def _get_or_create_prefs(db: AsyncSession, user_id: uuid.UUID) -> NotificationPreference:
     result = await db.execute(select(NotificationPreference).where(NotificationPreference.user_id == user_id))
     prefs = result.scalar_one_or_none()
     if prefs is None:
@@ -47,9 +49,9 @@ async def create_notification(
     title: str,
     body: str = "",
     link_url: str | None = None,
-    metadata: dict | None = None,
+    metadata: dict[str, Any] | None = None,
     email_template: str | None = None,
-    email_context: dict | None = None,
+    email_context: dict[str, Any] | None = None,
 ) -> Notification:
     prefs = await _get_or_create_prefs(db, user.id)
     pref_field = _PREFERENCE_FIELD_BY_CATEGORY.get(category)
@@ -80,7 +82,7 @@ async def create_notification(
     return notification
 
 
-async def notify_security_event(db: AsyncSession, user: User, template: str, title: str, **context) -> None:
+async def notify_security_event(db: AsyncSession, user: User, template: str, title: str, **context: Any) -> None:
     await create_notification(
         db, user=user, category="security", title=title,
         body="Security event on your account.", email_template=template, email_context=context,

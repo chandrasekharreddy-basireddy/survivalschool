@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
@@ -35,6 +36,7 @@ from app.schemas.campus_timetable import (
 from app.services.ai_provider import get_ai_provider
 from app.services.audit_service import record_audit_event
 from app.services.campus_timetable_service import (
+    SyncResult,
     UnsafeUrlError,
     apply_campus_rows,
     fetch_and_apply_live_sync,
@@ -64,7 +66,7 @@ async def _get_or_create_source(db: AsyncSession) -> CampusTimetableSource:
     return source
 
 
-def _to_sync_result_out(result, error: str | None = None) -> CampusSyncResultOut:
+def _to_sync_result_out(result: SyncResult, error: str | None = None) -> CampusSyncResultOut:
     return CampusSyncResultOut(
         total_rows=result.total_rows,
         error_rows=[CampusImportErrorRow(**r) for r in result.error_rows],
@@ -83,7 +85,7 @@ async def list_campus_entries(
     include_cancelled: bool = Query(False),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Sequence[CampusTimetableEntry]:
     stmt = select(CampusTimetableEntry)
     if section:
         stmt = stmt.where(CampusTimetableEntry.section.ilike(escape_like(section)))
@@ -111,7 +113,7 @@ async def my_campus_entries(
     date_to: date | None = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Sequence[CampusTimetableEntry]:
     profile = (await db.execute(select(Profile).where(Profile.user_id == user.id))).scalar_one_or_none()
     if profile is None or not profile.section:
         raise ValidationAppError("Set your section in your profile first (PATCH /users/me/profile) to see your personal schedule.")
@@ -135,7 +137,7 @@ async def my_campus_entries(
 
 
 @router.get("/sections", response_model=list[CampusSectionOut])
-async def list_campus_sections(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_campus_sections(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[CampusSectionOut]:
     """Every real (school, year, section) combination currently in the
     timetable, so the frontend can offer a dropdown instead of a student
     typing a section name blind. Any signed-in user can read this — it's
@@ -170,7 +172,7 @@ _WEEK_WINDOW_DAYS = 7
 
 
 @router.get("/teachers", response_model=list[CampusTeacherOut])
-async def list_campus_teachers(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_campus_teachers(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[CampusTeacherOut]:
     """Every teacher with at least one class in the next 7 days, with a
     weekly class/day count (see CampusTeacherOut) — the search list behind
     the Teacher Timetable view. A specific teacher's own schedule reuses
@@ -191,7 +193,7 @@ async def list_campus_teachers(user: User = Depends(get_current_user), db: Async
 
 
 @router.get("/electives", response_model=list[CampusElectiveOut])
-async def list_campus_electives(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_campus_electives(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[CampusElectiveOut]:
     """Every elective course currently in the timetable with its distinct
     sections (each carrying whichever teacher is on record for it) — lets
     the frontend offer a per-elective section picker once a student
@@ -219,7 +221,7 @@ async def list_campus_electives(user: User = Depends(get_current_user), db: Asyn
 
 
 @router.get("/free-rooms", response_model=list[str])
-async def list_free_rooms(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def list_free_rooms(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> list[str]:
     """Rooms with no class covering this exact instant right now — the
     whole timetable's room set minus whichever of them show up occupied
     today. A room that has simply never been used anywhere in the
@@ -241,14 +243,18 @@ async def list_free_rooms(user: User = Depends(get_current_user), db: AsyncSessi
             CampusTimetableEntry.start_time <= now.time(), CampusTimetableEntry.end_time > now.time(),
         ).distinct()
     )).scalars().all()
-    return sorted(set(all_rooms) - set(occupied_rooms))
+    # Both queries already filter room.is_not(None) at the DB level, so this
+    # is just narrowing the column's nullable `str | None` type for sorted()
+    # below -- no row here can actually have a None room.
+    free_rooms = {room for room in set(all_rooms) - set(occupied_rooms) if room is not None}
+    return sorted(free_rooms)
 
 
 @router.get("/source", response_model=CampusTimetableSourceOut)
 async def get_source(
     user: User = Depends(require_permission("system.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> CampusTimetableSource:
     return await _get_or_create_source(db)
 
 
@@ -257,7 +263,7 @@ async def upload_campus_timetable(
     file: UploadFile = File(...),
     user: User = Depends(require_permission("system.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> CampusSyncResultOut:
     """Direct file upload path. Sets the source to 'upload' mode — if a live
     sync URL was previously configured, uploading a file doesn't disable it;
     the next scheduled poll still runs and will reconcile against whatever
@@ -302,7 +308,7 @@ async def configure_live_sync(
     payload: LiveSyncConfigureIn,
     user: User = Depends(require_permission("system.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> CampusTimetableSource:
     """Validates and stores the published-CSV URL, runs an immediate first
     sync so the admin gets feedback right away, then enables periodic
     polling (see scheduler_runtime.py's housekeeping tick)."""
@@ -336,7 +342,7 @@ async def configure_live_sync(
 async def disable_live_sync(
     user: User = Depends(require_permission("system.manage")),
     db: AsyncSession = Depends(get_db),
-):
+) -> CampusTimetableSource:
     source = await _get_or_create_source(db)
     source.mode = "upload"
     source.sheet_csv_url = None
@@ -352,7 +358,7 @@ async def upload_my_timetable(
     file: UploadFile = File(...),
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> PersonalUploadResultOut:
     """Any student can upload their own CSV/XLSX here — unlike
     /timetable/campus/upload, which is system.manage-gated because it
     writes into the one shared institution-wide feed, this only ever
@@ -386,7 +392,7 @@ async def my_personal_timetable(
     date_to: date | None = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> Sequence[PersonalTimetableEntry]:
     stmt = select(PersonalTimetableEntry).where(PersonalTimetableEntry.user_id == user.id)
     if date_from:
         stmt = stmt.where(PersonalTimetableEntry.class_date >= date_from)
@@ -399,7 +405,7 @@ async def my_personal_timetable(
 
 
 @personal_router.delete("/personal", response_model=MessageResponse)
-async def clear_my_personal_timetable(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def clear_my_personal_timetable(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> MessageResponse:
     """Reverts to the section-filtered campus view (GET /timetable/campus/me)
     — lets a student undo an upload without waiting for a fresh one to
     overwrite it."""
@@ -488,7 +494,7 @@ async def timetable_chat(
     payload: TimetableChatRequest,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> TimetableChatResponse:
     """Answers freeform questions about the student's own live schedule
     (their personal upload if they have one, same precedence the
     /timetable page itself uses, otherwise their section's campus feed),
@@ -518,8 +524,9 @@ async def timetable_chat(
         .order_by(PersonalTimetableEntry.class_date, PersonalTimetableEntry.start_time)
     )).scalars().all()
 
+    entries: Sequence[PersonalTimetableEntry | CampusTimetableEntry]
     if personal:
-        entries: list = personal
+        entries = personal
         source_label = "the student's own uploaded personal schedule"
     else:
         profile = (await db.execute(select(Profile).where(Profile.user_id == user.id))).scalar_one_or_none()

@@ -17,6 +17,7 @@ import jwt
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import AsyncSessionLocal
 from app.models.social import ChatMember, ChatMessage, MessageRead
@@ -28,7 +29,7 @@ router = APIRouter()
 logger = structlog.get_logger("survivalschool.ws")
 
 
-async def _still_allowed(db, session_id: uuid.UUID, room_id: uuid.UUID, user_id: uuid.UUID) -> ChatMember | None:
+async def _still_allowed(db: AsyncSession, session_id: uuid.UUID, room_id: uuid.UUID, user_id: uuid.UUID) -> ChatMember | None:
     """Connect-time auth (session not revoked, room membership) was never
     re-checked for the lifetime of the socket — an admin force-logout,
     ban, or membership removal issued mid-connection had no effect until
@@ -46,7 +47,7 @@ async def _still_allowed(db, session_id: uuid.UUID, room_id: uuid.UUID, user_id:
 
 
 @router.websocket("/ws/chat/{room_id}")
-async def chat_socket(websocket: WebSocket, room_id: uuid.UUID):
+async def chat_socket(websocket: WebSocket, room_id: uuid.UUID) -> None:
     token = websocket.query_params.get("token")
     if not token:
         await websocket.close(code=4401, reason="Missing auth token")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import os
 import uuid
+from collections.abc import Sequence
 
 import magic
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -81,7 +82,7 @@ def _to_message_out(message: AIMessage) -> MessageOut:
 
 
 @router.get("/conversations", response_model=list[ConversationOut])
-async def list_conversations(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def list_conversations(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> Sequence[AIConversation]:
     result = await db.execute(
         select(AIConversation).where(AIConversation.user_id == user.id, AIConversation.archived_at.is_(None))
         .order_by(AIConversation.updated_at.desc())
@@ -90,7 +91,7 @@ async def list_conversations(user: User = Depends(get_current_verified_user), db
 
 
 @router.post("/conversations", response_model=ConversationOut, status_code=201)
-async def create_conversation(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def create_conversation(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> AIConversation:
     convo = AIConversation(user_id=user.id)
     db.add(convo)
     await db.commit()
@@ -99,7 +100,7 @@ async def create_conversation(user: User = Depends(get_current_verified_user), d
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageOut])
-async def get_messages(conversation_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def get_messages(conversation_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> list[MessageOut]:
     convo = await db.get(AIConversation, conversation_id)
     if convo is None or convo.user_id != user.id:
         raise NotFoundError("Conversation not found.")
@@ -169,7 +170,7 @@ async def send_message(
     payload: SendMessageRequest,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> SendMessageResponse:
     await _get_owned_conversation(db, conversation_id, user)
 
     content = payload.content.strip()
@@ -200,7 +201,7 @@ async def send_message_with_image(
     file: UploadFile = File(...),
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> SendMessageResponse:
     """Same conversation turn as POST .../messages, but with an image
     attached — routed to Sarvam's vision-capable model (see
     ai_provider.py::SarvamAIProvider.chat). The image is stored the same way

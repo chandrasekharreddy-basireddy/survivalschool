@@ -11,6 +11,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import jwt
 
@@ -41,7 +42,7 @@ def create_access_token(user_id: uuid.UUID, roles: list[str], session_id: uuid.U
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict:
+def decode_access_token(token: str) -> dict[str, Any]:
     return jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
 
 
@@ -64,7 +65,7 @@ def create_mfa_pending_token(user_id: uuid.UUID) -> str:
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_mfa_pending_token(token: str) -> dict:
+def decode_mfa_pending_token(token: str) -> dict[str, Any]:
     payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
     if payload.get("type") != "mfa_pending":
         raise jwt.InvalidTokenError("Not an MFA-pending token.")

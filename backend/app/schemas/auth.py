@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -181,7 +182,7 @@ class PasskeyRegisterVerifyIn(BaseModel):
     # dict directly (see registration/verify_registration_response.py in the
     # webauthn package), so no server-side parsing of the attestation is
     # needed here.
-    credential: dict
+    credential: dict[str, Any]
     device_label: str | None = Field(default=None, max_length=255)
 
 
@@ -202,5 +203,5 @@ class PasskeyLoginOptionsIn(BaseModel):
 
 class PasskeyLoginVerifyIn(BaseModel):
     email: EmailStr
-    credential: dict
+    credential: dict[str, Any]
     device_label: str | None = None

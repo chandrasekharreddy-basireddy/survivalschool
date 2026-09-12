@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
@@ -40,7 +41,7 @@ class AIExplanationOut(BaseModel):
 
 
 @router.post("/sessions", response_model=AIMockSessionOut, status_code=201)
-async def create_ai_mock_session(payload: AIMockSessionCreate, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def create_ai_mock_session(payload: AIMockSessionCreate, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> AIMockSession:
     """Generates a fresh set of AI-authored MCQs for the given subject.
     These are stored in ai_generated_questions — a table structurally
     separate from the real `questions` bank — and are never eligible for a
@@ -77,7 +78,7 @@ async def create_ai_mock_session(payload: AIMockSessionCreate, user: User = Depe
 
 
 @router.get("/sessions/{session_id}/questions", response_model=AIMockSessionOut)
-async def get_ai_mock_session_questions(session_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def get_ai_mock_session_questions(session_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> AIMockSession:
     result = await db.execute(
         select(AIMockSession).where(AIMockSession.id == session_id)
         .options(selectinload(AIMockSession.questions).selectinload(AIGeneratedQuestion.options))
@@ -91,7 +92,7 @@ async def get_ai_mock_session_questions(session_id: uuid.UUID, user: User = Depe
 
 
 @router.post("/sessions/{session_id}/submit", response_model=AIMockResultOut)
-async def submit_ai_mock_session(session_id: uuid.UUID, payload: AIMockSubmit, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def submit_ai_mock_session(session_id: uuid.UUID, payload: AIMockSubmit, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> AIMockResultOut:
     """Graded server-side against the stored is_correct flags — same
     never-trust-the-client principle as every other assessment path, even
     though the answer key here came from an AI generation rather than an
@@ -142,7 +143,7 @@ async def explain_ai_mock_question(
     question_id: uuid.UUID,
     user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
-):
+) -> AIExplanationOut:
     """Generates an AI explanation only after submission, using the server's
     stored question, selected answer, and correct answer. The client cannot
     provide or alter the answer key."""
@@ -198,7 +199,7 @@ async def explain_ai_mock_question(
 
 
 @router.get("/sessions/{session_id}", response_model=AIMockResultOut)
-async def get_ai_mock_session_result(session_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def get_ai_mock_session_result(session_id: uuid.UUID, user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> AIMockResultOut:
     result = await db.execute(
         select(AIMockSession).where(AIMockSession.id == session_id)
         .options(selectinload(AIMockSession.questions).selectinload(AIGeneratedQuestion.options))
@@ -223,7 +224,7 @@ async def get_ai_mock_session_result(session_id: uuid.UUID, user: User = Depends
 
 
 @router.get("/me/sessions", response_model=list[AIMockSessionHistoryOut])
-async def my_ai_mock_sessions(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)):
+async def my_ai_mock_sessions(user: User = Depends(get_current_verified_user), db: AsyncSession = Depends(get_db)) -> Sequence[AIMockSession]:
     result = await db.execute(
         select(AIMockSession).where(AIMockSession.student_id == user.id).order_by(AIMockSession.created_at.desc())
     )

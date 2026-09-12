@@ -23,6 +23,8 @@ enrollment, grading, certificates) is entirely unaffected (spec section 48).
 """
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 import structlog
 
@@ -32,7 +34,7 @@ logger = structlog.get_logger("survivalschool.n8n")
 settings = get_settings()
 
 
-async def emit_event(event_type: str, payload: dict) -> None:
+async def emit_event(event_type: str, payload: dict[str, Any]) -> None:
     if not settings.N8N_WEBHOOK_BASE_URL:
         logger.debug("n8n_not_configured", event_type=event_type)
         return

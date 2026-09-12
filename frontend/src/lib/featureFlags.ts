@@ -1,8 +1,14 @@
 /**
- * Camera-based face proctoring is unreliable across browsers/devices
- * (site permission vs. OS-level camera privacy settings, camera-in-use
- * conflicts) and isn't worth the risk of blocking a live exam right
- * before a presentation. Flip this back to true once it's been hardened
- * and tested across the devices students actually use.
+ * Camera-based face proctoring was disabled for one specific presentation
+ * night after live camera-permission failures (browser site permission vs.
+ * OS-level privacy settings, camera-in-use conflicts). The underlying check
+ * (ExamSecurityShell) was hardened the same night: it now always re-verifies
+ * via a real getUserMedia() call instead of a cached permission read, and
+ * gives a precise reason (blocked / in-use / no camera) instead of one
+ * generic error. Re-enabled now that the deliberate presentation-day
+ * disable is no longer needed -- the residual risk (a student's own browser
+ * or OS blocking camera access) is a real, unavoidable limitation, not a
+ * bug in this code, and is already surfaced with clear recovery
+ * instructions when it happens.
  */
-export const FACE_PROCTORING_ENABLED = false;
+export const FACE_PROCTORING_ENABLED = true;

@@ -43,7 +43,7 @@ async def live() -> dict[str, str]:
     return {"status": "alive"}
 
 
-@router.get("/ready")
+@router.get("/ready", response_model=None)
 async def ready() -> JSONResponse | dict[str, Any]:
     """Kubernetes readiness probe — can this instance serve traffic right now."""
     db_ok = await check_db_health()

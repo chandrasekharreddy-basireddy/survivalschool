@@ -124,7 +124,7 @@ export function Sidebar() {
       {/* Mobile top bar — the sidebar itself is an off-canvas drawer below
           lg, so this is the only persistent chrome on small screens: logo,
           theme, and the trigger that opens the drawer. */}
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-2 border-b border-ink-700/80 bg-ink-950 px-3 sm:px-5 lg:hidden">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-2 border-b border-ink-700/80 bg-ink-950/80 px-3 backdrop-blur-xl sm:px-5 lg:hidden">
         <Link href="/" className="flex shrink-0 items-center gap-2.5 text-sm font-bold tracking-tight text-fg">
           <LogoMark />
           <span className="text-[0.9rem] tracking-tight">
@@ -150,7 +150,7 @@ export function Sidebar() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-72 shrink-0 flex-col border-r border-ink-700/80 bg-ink-950 transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-72 shrink-0 flex-col border-r border-ink-700/80 bg-ink-950/80 backdrop-blur-xl transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         } ${!hydrated ? "lg:w-64" : collapsed ? "lg:w-[4.5rem]" : "lg:w-64"}`}
       >
@@ -217,6 +217,11 @@ export function Sidebar() {
             </div>
           ) : (
             <div className={`space-y-1.5 ${collapsed && hydrated ? "lg:hidden" : ""}`}>
+              {/* The old top NavBar showed this regardless of auth state —
+                  it only ended up inside the logged-in branch above when
+                  the nav was rebuilt as a sidebar, silently leaving signed-
+                  out desktop visitors with no way to switch themes at all. */}
+              <div className="flex justify-center pb-1"><ThemeToggle /></div>
               <Link href="/login" onClick={closeMobile} className="btn-secondary !min-h-8 w-full !px-2.5 !py-1.5 text-xs">Sign in</Link>
               <Link href="/register" onClick={closeMobile} className="btn-primary !min-h-8 w-full !px-2.5 !py-1.5 text-xs">Join</Link>
             </div>

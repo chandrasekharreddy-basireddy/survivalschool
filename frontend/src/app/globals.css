@@ -109,6 +109,7 @@
     -webkit-tap-highlight-color: transparent;
   }
   body {
+    position: relative;
     margin: 0;
     min-width: 320px;
     min-height: 100dvh;
@@ -121,6 +122,23 @@
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+  /* Two soft, fixed color fields behind everything — what the glass
+     surfaces below actually have something to blur. Kept deliberately
+     faint (6-8% opacity) and fixed (not absolute) so they read as ambient
+     depth rather than decoration competing with content, and never move
+     or add scroll height as the page scrolls. Pointer-events off + behind
+     everything else via z-index. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(38rem 26rem at 12% -8%, rgb(var(--brand) / 0.10), transparent 60%),
+      radial-gradient(34rem 24rem at 100% 18%, rgb(var(--accent-2) / 0.08), transparent 60%),
+      radial-gradient(30rem 22rem at 20% 100%, rgb(var(--accent-2) / 0.05), transparent 65%);
   }
 
   ::selection {
@@ -262,29 +280,53 @@
   }
 }
 @layer components {
-  /* Card — the workhorse surface. Flat: a hairline border does the work, not a
-     drop shadow. A whisper of shadow only on hover for lift where it helps. */
+  /* Card — the workhorse surface. Frosted glass: a translucent fill over
+     the ambient background (body::before) with a blur, so content behind
+     a card (page scroll, the sidebar's edge) reads as soft depth rather
+     than a flat cutout. Kept moderate on purpose — high enough opacity
+     (78%) that text on the card stays fully legible over anything behind
+     it, and a blur radius (14px) chosen for a visible frost without
+     paying for a heavy one on pages with many cards at once. A whisper of
+     shadow only on hover for lift where it helps. */
   .card {
-    border: 1px solid rgb(var(--line));
+    border: 1px solid rgb(var(--line) / 0.7);
     border-radius: var(--radius);
-    background: rgb(var(--bg-1));
+    background: rgb(var(--bg-1) / 0.78);
+    /* !important is load-bearing here, not habit: Tailwind v4 ships a
+       universal utility-layer reset for this exact property (so
+       backdrop-blur-* utilities elsewhere compose correctly), and a later
+       CSS layer always wins regardless of selector specificity OR custom
+       property inheritance — both a plain declaration and a
+       --tw-backdrop-blur custom-property approach were silently dropped by
+       that reset before this. Confirmed via getComputedStyle in the
+       browser, not assumed.
+       Do NOT also add an explicit -webkit-backdrop-filter line here —
+       Lightning CSS (Tailwind v4's build pipeline) silently drops the
+       standard property and keeps only the prefixed one when both are
+       written by hand in the same rule. Leaving only the standard
+       property lets it generate the -webkit- prefix itself correctly. */
+    backdrop-filter: blur(14px) saturate(140%) !important;
     /* Most usages across the app never added their own padding utility, so
        this border sat flush against the content with nothing in between.
        A Tailwind padding class on the same element (e.g. p-4) still wins —
        utilities load after components in this Tailwind v4 setup — so this
        is purely a sane default, not a forced value. */
     padding: 1.25rem;
-    transition: border-color 160ms ease, box-shadow 160ms ease;
+    transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
   }
   .card-hover:hover {
-    border-color: rgb(var(--line-strong));
-    box-shadow: 0 6px 20px -14px rgb(2 6 23 / 0.4);
+    border-color: rgb(var(--line-strong) / 0.85);
+    box-shadow: 0 6px 24px -14px rgb(2 6 23 / 0.45);
   }
-  /* Legacy alias: any remaining .card-glass renders as a plain solid card. */
+  /* Once a legacy alias for a plain solid card — now genuinely glass, one
+     step more translucent than .card, for the surfaces meant to sit
+     visibly on top of something (a sticky summary bar, a floating panel). */
   .card-glass {
-    border: 1px solid rgb(var(--line));
+    border: 1px solid rgb(var(--line) / 0.6);
     border-radius: var(--radius);
-    background: rgb(var(--bg-1));
+    background: rgb(var(--bg-1) / 0.62);
+    /* See .card's comment above — !important is load-bearing, not habit. */
+    backdrop-filter: blur(20px) saturate(160%) !important;
     padding: 1.25rem;
   }
 
@@ -381,9 +423,11 @@
     border-radius: 2px;
   }
   .section-card {
-    border: 1px solid rgb(var(--line));
+    border: 1px solid rgb(var(--line) / 0.7);
     border-radius: var(--radius);
-    background: rgb(var(--bg-1));
+    background: rgb(var(--bg-1) / 0.78);
+    /* See .card's comment above — !important is load-bearing, not habit. */
+    backdrop-filter: blur(14px) saturate(140%) !important;
     padding: 1.5rem;
   }
 

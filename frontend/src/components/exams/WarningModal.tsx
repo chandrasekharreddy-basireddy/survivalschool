@@ -11,7 +11,10 @@ export function WarningModal({ warningNumber, maxWarnings, reason, onAcknowledge
   const remaining = maxWarnings - warningNumber;
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="mx-4 max-w-md rounded-xl border border-red-500/40 bg-ink-950 p-8 text-center shadow-2xl">
+      {/* Deliberately kept close to fully opaque (95%), unlike the lighter
+          glass elsewhere — this is a critical security alert, not ambient
+          chrome, and needs to read instantly rather than blend in. */}
+      <div className="mx-4 max-w-md rounded-xl border border-red-500/40 bg-ink-950/95 p-8 text-center shadow-2xl backdrop-blur-xl">
         <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-500/10 text-3xl text-red-400">
           {remaining > 0 ? "⚠" : "✕"}
         </div>

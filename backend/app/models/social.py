@@ -42,8 +42,14 @@ class ChatMember(Base, UUIDPk, Timestamped):
 
 class ChatMessage(Base, UUIDPk, Timestamped):
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        # Real since migration c4a91f7d0e2b (a room's messages are always
+        # fetched ordered by time) but never mirrored here -- the model's
+        # plain index=True below only covered room_id alone.
+        Index("ix_chat_messages_room_created", "room_id", "created_at"),
+    )
 
-    room_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_rooms.id", ondelete="CASCADE"), nullable=False, index=True)
+    room_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("chat_rooms.id", ondelete="CASCADE"), nullable=False)
     sender_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
     attachment_file_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id"))

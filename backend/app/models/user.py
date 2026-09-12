@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -258,6 +259,12 @@ class InstructorApplication(Base, UUIDPk, Timestamped):
     instructors, who don't sit in that cohort.
     """
     __tablename__ = "instructor_applications"
+    __table_args__ = (
+        # Both real since migration d4f1a8c3e6b9, never mirrored here --
+        # alembic's own drift check was flagging them as removable.
+        CheckConstraint("status IN ('pending', 'approved', 'rejected')", name="status_valid"),
+        Index("ix_instructor_applications_status", "status"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True

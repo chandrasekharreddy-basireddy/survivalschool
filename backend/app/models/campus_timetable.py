@@ -5,6 +5,7 @@ from datetime import date, datetime, time
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -38,7 +39,14 @@ class CampusTimetableSource(Base, UUIDPk, Timestamped):
     since there is exactly one campus timetable feed per deployment."""
 
     __tablename__ = "campus_timetable_sources"
-    __table_args__ = (UniqueConstraint("singleton", name="uq_campus_timetable_source_singleton"),)
+    __table_args__ = (
+        UniqueConstraint("singleton", name="uq_campus_timetable_source_singleton"),
+        # Present in the DB since the migration that created this table
+        # (e8b3f1a9c4d7) but never mirrored here -- alembic's own drift
+        # check was flagging this table's real constraint as something to
+        # drop. Declaring it is the fix; the constraint itself never changed.
+        CheckConstraint("mode IN ('upload', 'live_sync')", name="ck_campus_timetable_sources_mode_valid"),
+    )
 
     singleton: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     mode: Mapped[str] = mapped_column(String(20), default="upload", nullable=False)  # upload|live_sync
@@ -64,6 +72,10 @@ class CampusTimetableEntry(Base, UUIDPk, Timestamped):
     __table_args__ = (
         UniqueConstraint("row_key", name="uq_campus_timetable_entry_row_key"),
         Index("ix_campus_timetable_section_date", "section", "class_date"),
+        # Same as CampusTimetableSource above -- real constraints from
+        # migration e8b3f1a9c4d7, never mirrored in this model.
+        CheckConstraint("day_of_week >= 0 AND day_of_week <= 6", name="ck_campus_timetable_entries_day_of_week_valid"),
+        CheckConstraint("source IN ('upload', 'live_sync')", name="ck_campus_timetable_entries_source_valid"),
     )
 
     row_key: Mapped[str] = mapped_column(String(64), nullable=False)  # stable identity hash — see service

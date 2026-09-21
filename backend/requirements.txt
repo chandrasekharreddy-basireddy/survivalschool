@@ -1,13 +1,13 @@
 fastapi==0.141.1
-uvicorn[standard]==0.52.4
-sqlalchemy==2.0.52
-alembic==1.19.2
+uvicorn[standard]==0.53.0
+sqlalchemy==2.0.54
+alembic==1.20.0
 asyncpg==0.31.0
 psycopg2-binary==2.9.13
 pydantic==2.13.5
 pydantic-settings==2.15.0
 argon2-cffi==25.1.0
-pyjwt==2.13.0
+pyjwt==2.14.0
 redis==8.1.0
 httpx==0.28.1
 python-multipart==0.0.32
@@ -22,7 +22,7 @@ prometheus-fastapi-instrumentator==8.1.0
 python-magic==0.4.27
 openpyxl==3.1.5
 pyotp==2.10.0
-sentry-sdk[fastapi]==2.69.1
+sentry-sdk[fastapi]==2.69.2
 pywebpush==2.5.0
 py-vapid==1.9.4
 webauthn==3.0.0
@@ -34,4 +34,4 @@ starlette==1.6.0
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-faker==40.38.0
+faker==40.39.0

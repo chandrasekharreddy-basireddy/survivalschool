@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, ApiError } from "@/lib/api";
 import { PageLoader } from "@/components/PageLoader";
 
 interface Contest { id: string; title: string; starts_at: string; ends_at: string; status: string; question_count: number }
@@ -22,13 +22,29 @@ const QUOTES = [
   "Consistency beats intensity when intensity can't be sustained.",
 ];
 
+type WidgetErrorState = "network" | "unverified" | null;
+
 // Small inline "this failed, not just empty" row, shared by every widget
 // below. A failed fetch used to be indistinguishable from a genuinely empty
 // list/stat — same dashed box, same reassuring copy — which is actively
 // misleading on a page whose whole job is to show a student their own
 // progress: "0 points" and "we couldn't load your points" are not the same
 // message.
-function WidgetError({ onRetry }: { onRetry: () => void }) {
+//
+// "unverified" is its own case, not folded into the generic network-error
+// message: the backend correctly 403s these specific widgets for an
+// unverified account (email_not_verified), so every one of them was showing
+// "usually just a slow-to-wake server" with a Retry button that could never
+// succeed — the real, permanent cause (go verify your email) was completely
+// hidden, and Retry just re-ran the same doomed request.
+function WidgetError({ state, onRetry }: { state: Exclude<WidgetErrorState, null>; onRetry: () => void }) {
+  if (state === "unverified") {
+    return (
+      <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+        Verify your email to see this.
+      </div>
+    );
+  }
   return (
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-700 px-4 py-3 text-sm text-fg-muted">
       <span>Couldn&apos;t load this — usually just a slow-to-wake server.</span>
@@ -37,39 +53,43 @@ function WidgetError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+function errorState(err: unknown): WidgetErrorState {
+  return err instanceof ApiError && err.code === "email_not_verified" ? "unverified" : "network";
+}
+
 export default function DashboardPage() {
   const { user, loading } = useAuth();
   const [upcomingContests, setUpcomingContests] = useState<Contest[] | null>(null);
-  const [contestsFailed, setContestsFailed] = useState(false);
+  const [contestsFailed, setContestsFailed] = useState<WidgetErrorState>(null);
   const [battles, setBattles] = useState<Battle[] | null>(null);
-  const [battlesFailed, setBattlesFailed] = useState(false);
+  const [battlesFailed, setBattlesFailed] = useState<WidgetErrorState>(null);
   const [certificates, setCertificates] = useState<Certificate[] | null>(null);
-  const [certificatesFailed, setCertificatesFailed] = useState(false);
+  const [certificatesFailed, setCertificatesFailed] = useState<WidgetErrorState>(null);
   const [stats, setStats] = useState<GamificationStats | null>(null);
-  const [statsFailed, setStatsFailed] = useState(false);
+  const [statsFailed, setStatsFailed] = useState<WidgetErrorState>(null);
   const [notifications, setNotifications] = useState<Notification[] | null>(null);
-  const [notificationsFailed, setNotificationsFailed] = useState(false);
+  const [notificationsFailed, setNotificationsFailed] = useState<WidgetErrorState>(null);
   const [quote] = useState(() => QUOTES[Math.floor(Math.random() * QUOTES.length)]);
 
   const loadContests = () => {
-    setContestsFailed(false);
-    apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcomingContests).catch(() => setContestsFailed(true));
+    setContestsFailed(null);
+    apiFetch<Contest[]>("/contests/upcoming", { auth: false }).then(setUpcomingContests).catch((err) => setContestsFailed(errorState(err)));
   };
   const loadBattles = () => {
-    setBattlesFailed(false);
-    apiFetch<Battle[]>("/elimination/battles/me").then(setBattles).catch(() => setBattlesFailed(true));
+    setBattlesFailed(null);
+    apiFetch<Battle[]>("/elimination/battles/me").then(setBattles).catch((err) => setBattlesFailed(errorState(err)));
   };
   const loadCertificates = () => {
-    setCertificatesFailed(false);
-    apiFetch<Certificate[]>("/contests/me/certificates").then(setCertificates).catch(() => setCertificatesFailed(true));
+    setCertificatesFailed(null);
+    apiFetch<Certificate[]>("/contests/me/certificates").then(setCertificates).catch((err) => setCertificatesFailed(errorState(err)));
   };
   const loadStats = () => {
-    setStatsFailed(false);
-    apiFetch<GamificationStats>("/gamification/me").then(setStats).catch(() => setStatsFailed(true));
+    setStatsFailed(null);
+    apiFetch<GamificationStats>("/gamification/me").then(setStats).catch((err) => setStatsFailed(errorState(err)));
   };
   const loadNotifications = () => {
-    setNotificationsFailed(false);
-    apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch(() => setNotificationsFailed(true));
+    setNotificationsFailed(null);
+    apiFetch<Notification[]>("/notifications?limit=5").then(setNotifications).catch((err) => setNotificationsFailed(errorState(err)));
   };
 
   useEffect(() => {
@@ -109,7 +129,7 @@ export default function DashboardPage() {
               <Link href="/contests" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All contests</Link>
             </div>
             {contestsFailed ? (
-              <WidgetError onRetry={loadContests} />
+              <WidgetError state={contestsFailed} onRetry={loadContests} />
             ) : upcomingContests === null ? (
               <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : upcomingContests.length === 0 ? (
@@ -136,7 +156,7 @@ export default function DashboardPage() {
               <Link href="/elimination" className="text-sm text-brand-600 dark:text-brand-400 hover:underline">All battles</Link>
             </div>
             {battlesFailed ? (
-              <WidgetError onRetry={loadBattles} />
+              <WidgetError state={battlesFailed} onRetry={loadBattles} />
             ) : battles === null ? (
               <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : battles.length === 0 ? (
@@ -160,7 +180,7 @@ export default function DashboardPage() {
           <div className="card">
             <h2 className="font-semibold text-fg">Recent notifications</h2>
             {notificationsFailed ? (
-              <WidgetError onRetry={loadNotifications} />
+              <WidgetError state={notificationsFailed} onRetry={loadNotifications} />
             ) : notifications === null ? (
               <p className="mt-4 text-sm text-fg-subtle"><PageLoader size="sm" /></p>
             ) : notifications.length === 0 ? (

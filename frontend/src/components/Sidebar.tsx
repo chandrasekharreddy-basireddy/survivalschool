@@ -134,6 +134,7 @@ export function Sidebar() {
         <div className="ml-auto flex items-center gap-1.5">
           <ThemeToggle />
           <button
+            type="button"
             onClick={() => setMobileOpen(true)}
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-ink-700 bg-ink-900 text-fg-muted hover:text-fg"
             aria-label="Open menu"
@@ -161,7 +162,7 @@ export function Sidebar() {
               Survival<span className="text-brand-600 dark:text-brand-400"> School</span>
             </span>
           </Link>
-          <button onClick={closeMobile} className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted hover:bg-ink-800 hover:text-fg lg:hidden" aria-label="Close menu">
+          <button type="button" onClick={closeMobile} className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-lg text-fg-muted hover:bg-ink-800 hover:text-fg lg:hidden" aria-label="Close menu">
             <MenuIcon open className="h-5 w-5" />
           </button>
         </div>
@@ -210,7 +211,7 @@ export function Sidebar() {
               </Link>
               <div className={`flex items-center gap-2 px-3 pt-1 ${collapsed && hydrated ? "lg:flex-col lg:px-0" : ""}`}>
                 <div className={collapsed && hydrated ? "lg:hidden" : ""}><ThemeToggle /></div>
-                <button onClick={() => { logout(); closeMobile(); }} className={`btn-secondary !min-h-8 flex-1 !px-2.5 !py-1.5 text-xs ${collapsed && hydrated ? "lg:hidden" : ""}`}>
+                <button type="button" onClick={() => { logout(); closeMobile(); }} className={`btn-secondary !min-h-8 flex-1 !px-2.5 !py-1.5 text-xs ${collapsed && hydrated ? "lg:hidden" : ""}`}>
                   Sign out
                 </button>
               </div>
@@ -227,6 +228,7 @@ export function Sidebar() {
             </div>
           )}
           <button
+            type="button"
             onClick={toggleCollapsed}
             className="mt-1.5 hidden w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-fg-muted hover:bg-ink-800/70 hover:text-fg lg:flex"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
